@@ -1,0 +1,45 @@
+{
+  "name": "家庭健康助手开发环境",
+  "dockerComposeFile": "docker-compose.yml",
+  "service": "app",
+  "workspaceFolder": "/workspace",
+  "forwardPorts": [3000, 8080, 3306, 9000, 9001],
+  "portsAttributes": {
+    "3000": {
+      "label": "后端服务",
+      "onAutoForward": "openPreview"
+    },
+    "8080": {
+      "label": "前端页面",
+      "onAutoForward": "openPreview"
+    },
+    "3306": {
+      "label": "MySQL数据库"
+    },
+    "9000": {
+      "label": "MinIO API"
+    },
+    "9001": {
+      "label": "MinIO控制台"
+    }
+  },
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "18"
+    }
+  },
+  "postCreateCommand": "bash .devcontainer/setup.sh",
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "bash"
+      },
+      "extensions": [
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "formulahendry.auto-rename-tag",
+        "ritwickdey.LiveServer"
+      ]
+    }
+  }
+}
