@@ -276,7 +276,7 @@
       const data = loadData();
       data.elders = eldersData.elders || [];
       data.records = recordsData.records || [];
-      data.medications = medsData.mications || [];
+      data.medications = medsData.medications || [];
       saveData(data);
       return data;
     } catch (err) {
@@ -505,7 +505,11 @@
 
       // 本地搜索
       const localResult = {
-        elders: data.elders.filter(e => (e.name || '').includes(keyword)),
+        elders: data.elders.filter(e =>
+          (e.name || '').toLowerCase().includes(kw) ||
+          (e.conditions || '').toLowerCase().includes(kw) ||
+          (e.allergies || '').toLowerCase().includes(kw)
+        ),
         records: data.records.filter(r =>
           (r.diagnosis || '').toLowerCase().includes(kw) ||
           (r.hospital || '').toLowerCase().includes(kw) ||

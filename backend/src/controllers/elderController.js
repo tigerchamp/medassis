@@ -132,6 +132,15 @@ async function deleteElder(req, res) {
 
     // 删除相关的病历、用药、服药记录
     await getPool().query('DELETE FROM records WHERE elder_id = ? AND family_id = ?', [id, familyId]);
+
+    // 先找到该老人的所有用药ID，再删除对应的服药日志
+    const [meds] = await getPool().query('SELECT id FROM medications WHERE elder_id = ? AND family_id = ?', [id, familyId]);
+    if (meds.length > 0) {
+      const medIds = meds.map(m => m.id);
+      const placeholders = medIds.map(() => '?').join(',');
+      await getPool().query(`DELETE FROM med_logs WHERE med_id IN (${placeholders})`, medIds);
+    }
+
     await getPool().query('DELETE FROM medications WHERE elder_id = ? AND family_id = ?', [id, familyId]);
     await getPool().query('DELETE FROM elders WHERE id = ? AND family_id = ?', [id, familyId]);
 

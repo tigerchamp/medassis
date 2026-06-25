@@ -109,6 +109,7 @@
   // ============ 页面路由 ============
   function renderPage() {
     updateTopbar();
+    $fabQuick.style.display = 'none';
     const subPages = ['elder-detail', 'records', 'record-detail', 'search', 'settings', 'family'];
     window._isSubPage = subPages.includes(currentPage);
     window._subPageTitle = $title.textContent;
@@ -777,7 +778,7 @@
       });
     });
     todayReminders.sort((a, b) => a.time.localeCompare(b.time));
-    const loggedKeys = (sessionStorage.getItem('loggedMeds') || '').split('|').filter(Boolean);
+    const allLogs = DB.getAll().medLogs;
 
     $main.innerHTML = `
       <div class="card" style="background:linear-gradient(135deg,#4CAF50,#66BB6A);color:#fff;">
@@ -786,15 +787,17 @@
         <p style="margin:6px 0 0;font-size:11px;opacity:0.85;">提示：开启通知可在服药时间推送提醒</p>
       </div>
       ${todayReminders.length === 0 ? `<div class="empty-state"><h3>暂无提醒</h3><p>请先添加用药计划</p></div>` : todayReminders.map(r => {
-        const logged = loggedKeys.includes(r.key + '_' + today);
+        const taken = allLogs.some(l => l.medId === r.med.id && l.scheduledTime === r.time && l.actualTime && l.actualTime.slice(0, 10) === today && !l.missed);
+        const missed = allLogs.some(l => l.medId === r.med.id && l.scheduledTime === r.time && l.missed && l.actualTime === null);
+        const status = taken ? 'taken' : (missed ? 'missed' : 'pending');
         return `
-          <div class="reminder-item" style="${logged ? 'opacity:0.6;' : ''}">
-            <div class="reminder-icon">${logged ? '✅' : '⏰'}</div>
+          <div class="reminder-item" style="${taken ? 'opacity:0.6;' : ''}">
+            <div class="reminder-icon">${taken ? '✅' : (missed ? '⚠️' : '⏰')}</div>
             <div class="reminder-content">
               <h4 class="reminder-title">${escapeHtml(r.med.name)} <small style="font-size:12px;color:#999;font-weight:normal;">(${escapeHtml(r.elder ? r.elder.name : '')})</small></h4>
-              <p class="reminder-time">时间: ${escapeHtml(r.time)} · 剂量: ${escapeHtml(r.med.dose || '-')}</p>
+              <p class="reminder-time" style="color:${missed ? 'var(--danger)' : ''};">时间: ${escapeHtml(r.time)} · 剂量: ${escapeHtml(r.med.dose || '-')}${missed ? ' · <strong style="color:var(--danger);">漏服</strong>' : ''}</p>
             </div>
-            <button class="btn ${logged ? 'btn-secondary' : ''}" style="padding:6px 12px;font-size:12px;" onclick="App.markMedTaken('${r.key}', '${r.time}', ${logged})">${logged ? '已服用' : '标记已服'}</button>
+            <button class="btn ${taken ? 'btn-secondary' : (missed ? 'btn-danger' : '')}" style="padding:6px 12px;font-size:12px;" onclick="App.markMedTaken('${r.med.id}', '${r.time}', ${taken})">${taken ? '已服用' : (missed ? '补服' : '标记已服')}</button>
           </div>`;
       }).join('')}
       <div class="card">
@@ -809,17 +812,24 @@
     `;
   }
 
-  function markMedTaken(key, time, wasLogged) {
+  function markMedTaken(medId, time, wasLogged) {
     const today = DB.today();
-    let keys = (sessionStorage.getItem('loggedMeds') || '').split('|').filter(Boolean);
+    const data = DB.getAll();
+
     if (wasLogged) {
-      keys = keys.filter(k => k !== key + '_' + today);
+      data.medLogs = data.medLogs.filter(l =>
+        !(l.medId === medId && l.scheduledTime === time && l.actualTime && l.actualTime.slice(0, 10) === today && !l.missed)
+      );
+      DB.save(data);
       toast('已取消标记');
     } else {
-      keys.push(key + '_' + today);
+      data.medLogs = data.medLogs.filter(l =>
+        !(l.medId === medId && l.scheduledTime === time && l.missed && l.actualTime === null)
+      );
+      DB.save(data);
+      DB.logMedication(medId, time, false);
       toast('已标记为已服用 ✓');
     }
-    sessionStorage.setItem('loggedMeds', keys.join('|'));
     renderPage();
   }
 
@@ -1092,8 +1102,13 @@
   function saveElder(id) {
     const name = document.getElementById('e_name').value.trim();
     if (!name) { toast('请填写姓名'); return; }
+    const ageStr = document.getElementById('e_age').value.trim();
+    const ageNum = parseInt(ageStr);
+    if (!ageStr || isNaN(ageNum) || ageNum <= 0 || ageNum > 120) {
+      toast('请填写有效的年龄（1-120岁）'); return;
+    }
     const payload = {
-      name, age: parseInt(document.getElementById('e_age').value) || 0,
+      name, age: ageNum,
       gender: document.getElementById('e_gender').value,
       bloodType: document.getElementById('e_blood').value.trim(),
       allergies: document.getElementById('e_allergy').value.trim(),
@@ -1214,14 +1229,19 @@
   function saveMedication(id) {
     const name = document.getElementById('med_name').value.trim();
     if (!name) { toast('请填写药品名称'); return; }
+    const startDate = document.getElementById('med_start').value;
+    const endDate = document.getElementById('med_end').value;
+    if (startDate && endDate && endDate < startDate) {
+      toast('结束日期不能早于开始日期'); return;
+    }
     const timesStr = document.getElementById('med_times').value.trim();
     const payload = {
       elderId: document.getElementById('med_elder').value,
       name, dose: document.getElementById('med_dose').value,
       frequency: document.getElementById('med_freq').value,
       times: timesStr ? timesStr.split(/[,,、]/).map(s => s.trim()).filter(Boolean) : ['08:00'],
-      startDate: document.getElementById('med_start').value,
-      endDate: document.getElementById('med_end').value,
+      startDate,
+      endDate,
       note: document.getElementById('med_note').value,
       reminder: true, status: 'active'
     };
@@ -1327,10 +1347,38 @@
     setInterval(() => {
       const data = DB.getAll();
       if (!data.settings.reminderEnabled) return;
-      if (!('Notification' in window) || Notification.permission !== 'granted') return;
+
       const now = new Date();
       const hm = ('0' + now.getHours()).slice(-2) + ':' + ('0' + now.getMinutes()).slice(-2);
       const today = DB.today();
+      const allLogs = data.medLogs || [];
+
+      // 漏服检测：超过计划时间1小时未服药，且未标记为漏服
+      data.medications.forEach(m => {
+        if (m.status !== 'active' && m.endDate && m.endDate < today) return;
+        (m.times || []).forEach(t => {
+          const [h, mnt] = t.split(':').map(Number);
+          const scheduledMinutes = h * 60 + mnt;
+          const nowMinutes = now.getHours() * 60 + now.getMinutes();
+          const diffMinutes = nowMinutes - scheduledMinutes;
+
+          if (diffMinutes >= 60 && diffMinutes < 24 * 60) {
+            const todayLogs = allLogs.filter(l =>
+              l.medId === m.id && l.scheduledTime === t && l.actualTime && l.actualTime.slice(0, 10) === today
+            );
+            const alreadyTaken = todayLogs.some(l => !l.missed);
+            const alreadyMissed = allLogs.some(l =>
+              l.medId === m.id && l.scheduledTime === t && l.missed && l.actualTime === null
+            );
+            if (!alreadyTaken && !alreadyMissed) {
+              DB.logMedication(m.id, t, true);
+            }
+          }
+        });
+      });
+
+      // 通知提醒
+      if (!('Notification' in window) || Notification.permission !== 'granted') return;
       const lastNotified = JSON.parse(sessionStorage.getItem('notified') || '[]');
       data.medications.forEach(m => {
         if (m.status !== 'active' && m.endDate && m.endDate < today) return;
@@ -1366,8 +1414,137 @@
     closeModal
   };
 
+  // ============ 登录/注册 ============
+  function showLoginTab(tab) {
+    const isLogin = tab === 'login';
+    document.getElementById('loginForm').style.display = isLogin ? 'block' : 'none';
+    document.getElementById('registerForm').style.display = isLogin ? 'none' : 'block';
+    document.getElementById('tabLogin').style.background = isLogin ? '#4CAF50' : '#E8F5E9';
+    document.getElementById('tabLogin').style.color = isLogin ? '#fff' : '#666';
+    document.getElementById('tabRegister').style.background = isLogin ? '#E8F5E9' : '#4CAF50';
+    document.getElementById('tabRegister').style.color = isLogin ? '#666' : '#fff';
+    document.getElementById('loginError').style.display = 'none';
+    document.getElementById('registerError').style.display = 'none';
+  }
+
+  function showLoginPage() {
+    const loginPage = document.getElementById('loginPage');
+    if (loginPage) loginPage.style.display = 'flex';
+  }
+
+  function hideLoginPage() {
+    const loginPage = document.getElementById('loginPage');
+    if (loginPage) loginPage.style.display = 'none';
+  }
+
+  async function doLogin() {
+    const phone = document.getElementById('loginPhone').value.trim();
+    const password = document.getElementById('loginPassword').value;
+    const errorEl = document.getElementById('loginError');
+
+    if (!phone || !password) {
+      errorEl.textContent = '请填写手机号和密码';
+      errorEl.style.display = 'block';
+      return;
+    }
+
+    try {
+      const data = await API.Auth.login(phone, password);
+      hideLoginPage();
+      if (DB.sync) await DB.sync();
+      renderPage();
+    } catch (err) {
+      errorEl.textContent = err.message || '登录失败';
+      errorEl.style.display = 'block';
+    }
+  }
+
+  async function doRegister() {
+    const name = document.getElementById('regName').value.trim();
+    const phone = document.getElementById('regPhone').value.trim();
+    const password = document.getElementById('regPassword').value;
+    const errorEl = document.getElementById('registerError');
+
+    if (!name || !phone || !password) {
+      errorEl.textContent = '请填写所有字段';
+      errorEl.style.display = 'block';
+      return;
+    }
+
+    if (password.length < 6) {
+      errorEl.textContent = '密码至少6位';
+      errorEl.style.display = 'block';
+      return;
+    }
+
+    try {
+      const data = await API.Auth.register(name, phone, password);
+      hideLoginPage();
+      DB.reset();
+      renderPage();
+    } catch (err) {
+      errorEl.textContent = err.message || '注册失败';
+      errorEl.style.display = 'block';
+    }
+  }
+
+  function skipLogin() {
+    hideLoginPage();
+    if (typeof DB !== 'undefined' && DB.reset) {
+      DB.reset();
+    }
+    renderPage();
+  }
+
+  function showJoinFamily() {
+    document.getElementById('joinFamilyModal').style.display = 'flex';
+  }
+
+  function hideJoinFamily() {
+    document.getElementById('joinFamilyModal').style.display = 'none';
+    document.getElementById('joinError').style.display = 'none';
+  }
+
+  async function doJoinFamily() {
+    const inviteCode = document.getElementById('inviteCode').value.trim().toUpperCase();
+    const name = document.getElementById('joinName').value.trim();
+    const errorEl = document.getElementById('joinError');
+
+    if (!inviteCode || !name) {
+      errorEl.textContent = '请填写邀请码和姓名';
+      errorEl.style.display = 'block';
+      return;
+    }
+
+    try {
+      await API.Auth.joinFamily(inviteCode, name);
+      hideJoinFamily();
+      hideLoginPage();
+      if (DB.sync) await DB.sync();
+      renderPage();
+    } catch (err) {
+      errorEl.textContent = err.message || '加入失败';
+      errorEl.style.display = 'block';
+    }
+  }
+
+  function doLogout() {
+    if (confirm('确定要退出登录吗？')) {
+      API.Auth.logout();
+      DB.clear();
+      location.reload();
+    }
+  }
+
+  window.addEventListener('auth_required', () => {
+    showLoginPage();
+  });
+
   // ============ 启动 ============
   function safeInit() {
+    if (window.API_BASE && typeof API !== 'undefined' && !API.isLoggedIn()) {
+      showLoginPage();
+    }
     try { initTabs(); } catch(e) { console.error('initTabs错误:', e); }
     try { renderPage(); } catch(e) { console.error('renderPage错误:', e); }
     try { scheduleReminderCheck(); } catch(e) { console.error('提醒检查错误:', e); }

@@ -1,6 +1,8 @@
 const Minio = require('minio');
 const { v4: uuidv4 } = require('uuid');
 
+let isAvailable = false;
+
 const minioClient = new Minio.Client({
   endPoint: process.env.MINIO_ENDPOINT || 'localhost',
   port: parseInt(process.env.MINIO_PORT) || 9000,
@@ -18,18 +20,29 @@ async function ensureBucket() {
       await minioClient.makeBucket(BUCKET_NAME);
       console.log(`MinIO bucket '${BUCKET_NAME}' created`);
     }
+    isAvailable = true;
+    return true;
   } catch (err) {
-    console.error('MinIO bucket check error:', err.message);
+    console.error('MinIO 初始化失败:', err.message);
+    console.error('文件上传功能将不可用，请检查 MinIO 配置');
+    isAvailable = false;
+    return false;
+  }
+}
+
+function checkAvailable() {
+  if (!isAvailable) {
+    throw new Error('MinIO 服务不可用，文件上传功能暂不可用');
   }
 }
 
 async function uploadFile(file, familyId) {
+  checkAvailable();
   const ext = file.originalname.split('.').pop();
   const key = `families/${familyId}/${uuidv4()}.${ext}`;
 
   await minioClient.putObject(BUCKET_NAME, key, file.buffer, file.size, file.mimetype);
 
-  // 生成访问URL
   const protocol = process.env.MINIO_USE_SSL === 'true' ? 'https' : 'http';
   const port = process.env.MINIO_PORT || 9000;
   const endpoint = process.env.MINIO_ENDPOINT || 'localhost';
@@ -45,6 +58,7 @@ async function uploadFile(file, familyId) {
 }
 
 async function deleteFile(key) {
+  if (!isAvailable) return false;
   try {
     await minioClient.removeObject(BUCKET_NAME, key);
     return true;
@@ -55,6 +69,7 @@ async function deleteFile(key) {
 }
 
 async function getFileUrl(key) {
+  if (!isAvailable) return null;
   try {
     const protocol = process.env.MINIO_USE_SSL === 'true' ? 'https' : 'http';
     const port = process.env.MINIO_PORT || 9000;
@@ -66,4 +81,4 @@ async function getFileUrl(key) {
   }
 }
 
-module.exports = { minioClient, ensureBucket, uploadFile, deleteFile, getFileUrl, BUCKET_NAME };
+module.exports = { minioClient, ensureBucket, uploadFile, deleteFile, getFileUrl, BUCKET_NAME, isAvailable: () => isAvailable };

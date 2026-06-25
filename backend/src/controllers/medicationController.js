@@ -224,9 +224,18 @@ async function logMedication(req, res) {
   try {
     const { medId, scheduledTime, missed } = req.body;
     const userId = req.user.id;
+    const familyId = req.familyId;
 
     if (!medId || !scheduledTime) {
       return res.status(400).json({ error: '用药ID和计划时间不能为空' });
+    }
+
+    const [meds] = await getPool().query(
+      'SELECT id FROM medications WHERE id = ? AND family_id = ?',
+      [medId, familyId]
+    );
+    if (meds.length === 0) {
+      return res.status(404).json({ error: '用药记录不存在' });
     }
 
     const id = uuidv4();
@@ -258,16 +267,21 @@ async function logMedication(req, res) {
 async function getMedLogs(req, res) {
   try {
     const { medId } = req.query;
+    const familyId = req.familyId;
 
-    let query = 'SELECT * FROM med_logs WHERE 1=1';
-    const params = [];
+    let query = `
+      SELECT ml.* FROM med_logs ml
+      JOIN medications m ON ml.med_id = m.id
+      WHERE m.family_id = ?
+    `;
+    const params = [familyId];
 
     if (medId) {
-      query += ' AND med_id = ?';
+      query += ' AND ml.med_id = ?';
       params.push(medId);
     }
 
-    query += ' ORDER BY scheduled_time DESC';
+    query += ' ORDER BY ml.scheduled_time DESC';
 
     const [logs] = await getPool().query(query, params);
 
