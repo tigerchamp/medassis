@@ -1536,6 +1536,15 @@
     }
   }
 
+  // 将登录相关函数暴露到全局作用域，供 HTML onclick 调用
+  window.showLoginTab = showLoginTab;
+  window.doLogin = doLogin;
+  window.doRegister = doRegister;
+  window.skipLogin = skipLogin;
+  window.showJoinFamily = showJoinFamily;
+  window.hideJoinFamily = hideJoinFamily;
+  window.doJoinFamily = doJoinFamily;
+
   window.addEventListener('auth_required', () => {
     showLoginPage();
   });
