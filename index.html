@@ -1,811 +1,1539 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<meta name="theme-color" content="#4CAF50">
-<title>家庭健康助手</title>
-<style>
-/* ============ 基础变量 ============ */
-:root {
-  --primary: #4CAF50;
-  --primary-dark: #388E3C;
-  --primary-light: #E8F5E9;
-  --accent: #FF9800;
-  --danger: #F44336;
-  --warning: #FFC107;
-  --success: #4CAF50;
-  --info: #2196F3;
-  --text: #212121;
-  --text-sec: #757575;
-  --bg: #F5F7FA;
-  --card: #FFFFFF;
-  --border: #E0E0E0;
-  --shadow: 0 2px 8px rgba(0,0,0,0.08);
-  --radius: 12px;
-  --font-size-base: 16px;
-}
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.5, user-scalable=yes">
+    <title>家庭健康中心</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            background: #f4f7fc;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 16px;
+        }
+        .phone-frame {
+            max-width: 420px;
+            width: 100%;
+            background: #ffffff;
+            border-radius: 40px;
+            box-shadow: 0 25px 60px rgba(0,20,40,0.12), 0 8px 20px rgba(0,0,0,0.05);
+            overflow: hidden;
+            position: relative;
+            height: 780px;
+            display: flex;
+            flex-direction: column;
+        }
+        /* 状态栏 */
+        .status-bar {
+            padding: 18px 24px 8px 24px;
+            display: flex;
+            justify-content: space-between;
+            font-size: 14px;
+            font-weight: 600;
+            color: #1a2639;
+            background: white;
+            flex-shrink: 0;
+        }
+        /* 头部 */
+        .app-header {
+            padding: 8px 24px 12px 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: white;
+            border-bottom: 1px solid rgba(0,0,0,0.03);
+            flex-shrink: 0;
+            position: relative;
+        }
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .family-selector {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            background: #e8f3f2;
+            padding: 6px 14px 6px 12px;
+            border-radius: 40px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 16px;
+            color: #1a2639;
+            transition: background 0.2s;
+            border: none;
+            font-family: inherit;
+        }
+        .family-selector:hover { background: #d0e6e4; }
+        .family-selector i { font-size: 18px; color: #2b7a78; }
+        .family-selector .arrow { font-size: 12px; margin-left: 4px; color: #64748b; }
 
-/* ============ 重置 ============ */
-* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-html, body { margin: 0; padding: 0; height: 100%; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", "Microsoft YaHei", sans-serif; font-size: var(--font-size-base); color: var(--text); background: var(--bg); }
-body { overflow: hidden; }
-button { font-family: inherit; cursor: pointer; border: none; background: none; color: inherit; padding: 0; }
-input, textarea, select { font-family: inherit; font-size: inherit; color: inherit; }
-ul, ol { margin: 0; padding: 0; list-style: none; }
-a { color: var(--primary); text-decoration: none; }
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .msg-icon {
+            font-size: 22px;
+            color: #2b7a78;
+            cursor: pointer;
+            background: #e8f3f2;
+            padding: 8px;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+        .msg-icon:hover { background: #d0e6e4; }
+        .msg-icon .badge-dot {
+            position: absolute;
+            top: 4px;
+            right: 4px;
+            width: 10px;
+            height: 10px;
+            background: #b91c1c;
+            border-radius: 50%;
+            border: 2px solid white;
+        }
+        .username {
+            font-weight: 600;
+            font-size: 16px;
+            color: #1a2639;
+            cursor: default;
+        }
+        .avatar-icon {
+            font-size: 28px;
+            color: #2b7a78;
+            background: #e8f3f2;
+            padding: 6px;
+            border-radius: 50%;
+            width: 44px;
+            height: 44px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+        }
+        .avatar-icon:hover { background: #d0e6e4; }
 
-/* ============ 布局 ============ */
-#app {
-  position: relative;
-  width: 100%;
-  max-width: 480px;
-  margin: 0 auto;
-  height: 100vh;
-  display: flex;
-  flex-direction: column;
-  background: var(--bg);
-  overflow: hidden;
-  box-shadow: 0 0 20px rgba(0,0,0,0.05);
-}
+        /* 下拉菜单 */
+        .dropdown-menu {
+            position: absolute;
+            top: 60px;
+            left: 20px;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+            width: 200px;
+            padding: 8px 0;
+            z-index: 100;
+            display: none;
+            border: 1px solid #e2e8f0;
+        }
+        .dropdown-menu.show { display: block; }
+        .dropdown-item {
+            padding: 12px 20px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            cursor: pointer;
+            transition: background 0.1s;
+            font-size: 15px;
+            color: #1e293b;
+            border: none;
+            background: none;
+            width: 100%;
+            text-align: left;
+            font-family: inherit;
+        }
+        .dropdown-item:hover { background: #f1f5f9; }
+        .dropdown-item .avatar-small {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: #d1e0e8;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            font-weight: 700;
+            color: #1e3a5f;
+        }
+        .dropdown-item .check { margin-left: auto; color: #2b7a78; }
+        .dropdown-divider {
+            height: 1px;
+            background: #e2e8f0;
+            margin: 8px 12px;
+        }
 
-.topbar {
-  position: relative;
-  flex-shrink: 0;
-  height: 52px;
-  background: var(--primary);
-  color: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 8px;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-  z-index: 10;
-}
-.topbar .title {
-  font-size: 18px;
-  font-weight: 600;
-  margin: 0;
-  flex: 1;
-  text-align: center;
-}
-.icon-btn {
-  width: 40px;
-  height: 40px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-  color: #fff;
-  transition: background 0.2s;
-}
-.icon-btn:active { background: rgba(255,255,255,0.2); }
+        /* 主内容 */
+        .main-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px 20px 20px 20px;
+            background: #f8fafd;
+            scroll-behavior: smooth;
+        }
+        .page {
+            display: none;
+            animation: fadeUp 0.25s ease;
+            padding-bottom: 80px;
+        }
+        .page.active { display: block; }
+        @keyframes fadeUp {
+            0% { opacity: 0.6; transform: translateY(8px); }
+            100% { opacity: 1; transform: translateY(0); }
+        }
 
-.content {
-  flex: 1;
-  overflow-y: auto;
-  overflow-x: hidden;
-  -webkit-overflow-scrolling: touch;
-  padding-bottom: 80px;
-}
-.content::-webkit-scrollbar { width: 4px; }
-.content::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.15); border-radius: 2px; }
+        /* 卡片等通用 */
+        .card {
+            background: white;
+            border-radius: 24px;
+            padding: 18px 20px;
+            margin-bottom: 18px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.03), 0 1px 2px rgba(0,0,0,0.05);
+            border: 1px solid rgba(0,0,0,0.02);
+        }
+        .card-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: #1e293b;
+            margin-bottom: 14px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .card-title i { color: #2b7a78; font-size: 18px; width: 24px; }
+        .badge {
+            background: #e2e8f0;
+            padding: 4px 12px;
+            border-radius: 50px;
+            font-size: 12px;
+            font-weight: 600;
+            color: #334155;
+        }
+        .btn-primary {
+            background: #1e4b6b;
+            color: white;
+            border: none;
+            padding: 14px 22px;
+            border-radius: 60px;
+            font-weight: 600;
+            font-size: 16px;
+            width: 100%;
+            box-shadow: 0 6px 14px rgba(27,67,90,0.15);
+            cursor: pointer;
+            transition: 0.15s;
+        }
+        .btn-primary i { margin-right: 8px; }
+        .btn-primary:active { transform: scale(0.97); background: #12344d; }
+        .btn-outline {
+            background: transparent;
+            border: 2px solid #1e4b6b;
+            color: #1e4b6b;
+            padding: 12px 20px;
+            border-radius: 60px;
+            font-weight: 600;
+            font-size: 16px;
+            width: 100%;
+            cursor: pointer;
+            transition: 0.15s;
+        }
+        .btn-outline:active { background: #eef3f7; }
+        .flex { display: flex; gap: 10px; align-items: center; }
+        .text-muted { color: #64748b; font-size: 14px; }
+        .mt-2 { margin-top: 10px; }
+        .mb-2 { margin-bottom: 10px; }
 
-/* ============ 底部 Tab ============ */
-.tabbar {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  height: 64px;
-  background: #fff;
-  display: flex;
-  justify-content: space-around;
-  align-items: center;
-  border-top: 1px solid var(--border);
-  z-index: 10;
-  padding-bottom: env(safe-area-inset-bottom);
-}
-.tab {
-  flex: 1;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-sec);
-  font-size: 11px;
-  gap: 2px;
-  transition: color 0.2s;
-}
-.tab svg { color: inherit; }
-.tab.active { color: var(--primary); }
-.fab-tab { position: relative; }
-.fab-tab .fab {
-  position: absolute;
-  top: -20px;
-  width: 56px;
-  height: 56px;
-  border-radius: 50%;
-  background: var(--primary);
-  color: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 4px 12px rgba(76,175,80,0.4);
-}
-.fab-tab span { margin-top: 38px; }
+        /* 用药列表 */
+        .med-schedule-item {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            padding: 12px 0;
+            border-bottom: 1px solid #f1f5f9;
+        }
+        .med-schedule-item:last-child { border-bottom: none; }
+        .time-tag {
+            min-width: 48px;
+            font-weight: 700;
+            background: #f1f5f9;
+            padding: 4px 12px;
+            border-radius: 30px;
+            text-align: center;
+            font-size: 13px;
+        }
+        .time-tag.morning { background: #dbeafe; color: #1e4b7a; }
+        .time-tag.noon { background: #dcfce7; color: #166534; }
+        .time-tag.night { background: #fce7f3; color: #9d174d; }
+        .med-info { flex: 1; }
+        .med-info .name {
+            font-weight: 600;
+            font-size: 16px;
+            color: #0f172a;
+            cursor: pointer;
+            text-decoration: underline;
+            text-underline-offset: 3px;
+            text-decoration-color: #b9cdda;
+        }
+        .med-info .name:hover { color: #2b7a78; }
+        .med-info .dosage { font-size: 14px; color: #64748b; }
+        .med-status {
+            font-size: 13px;
+            padding: 6px 14px;
+            border-radius: 40px;
+            font-weight: 600;
+            border: none;
+            background: #f1f5f9;
+            color: #334155;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .med-status.taken { background: #2b7a78; color: white; }
+        .med-status.taken i { margin-right: 4px; }
 
-/* ============ 卡片 ============ */
-.card {
-  background: var(--card);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
-  margin: 12px;
-  padding: 16px;
-}
-.card-title {
-  font-size: 16px;
-  font-weight: 600;
-  margin: 0 0 12px 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-.card-title small { font-size: 12px; font-weight: normal; color: var(--text-sec); }
+        /* 续药进度 */
+        .refill-progress .bar-bg {
+            height: 8px;
+            background: #e9edf2;
+            border-radius: 20px;
+            overflow: hidden;
+            margin: 8px 0 10px 0;
+        }
+        .refill-progress .bar-fill {
+            height: 100%;
+            width: 38%;
+            background: linear-gradient(90deg, #2b7a78, #3aa39f);
+            border-radius: 20px;
+        }
+        .refill-date {
+            display: flex;
+            justify-content: space-between;
+            font-size: 14px;
+            color: #1e293b;
+            font-weight: 500;
+        }
+        .refill-date span:last-child { color: #0b3b5c; font-weight: 700; }
 
-/* ============ 按钮 ============ */
-.btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 10px 18px;
-  border-radius: 8px;
-  font-size: 14px;
-  font-weight: 500;
-  background: var(--primary);
-  color: #fff;
-  transition: all 0.2s;
-}
-.btn:active { opacity: 0.8; transform: scale(0.98); }
-.btn.btn-outline { background: transparent; color: var(--primary); border: 1px solid var(--primary); }
-.btn.btn-danger { background: var(--danger); }
-.btn.btn-danger.outline { background: transparent; color: var(--danger); border: 1px solid var(--danger); }
-.btn.btn-secondary { background: #EEEEEE; color: var(--text); }
-.btn.btn-block { width: 100%; padding: 14px; font-size: 16px; }
-.btn-sm { padding: 6px 12px; font-size: 12px; }
+        /* 病历页面 */
+        .record-item {
+            padding: 12px 0;
+            border-bottom: 1px solid #f1f5f9;
+        }
+        .record-item:last-child { border-bottom: none; }
+        .record-item .title { font-weight: 600; }
+        .record-item .sub { font-size: 14px; color: #64748b; }
+        .record-item .date { font-size: 12px; color: #94a3b8; float: right; }
 
-/* ============ 首页 ============ */
-.home-hero {
-  background: linear-gradient(135deg, var(--primary) 0%, #66BB6A 100%);
-  color: #fff;
-  padding: 20px 16px 30px;
-  margin: 0;
-  border-radius: 0;
-  box-shadow: none;
-}
-.home-hero h2 { margin: 0 0 8px; font-size: 22px; }
-.home-hero p { margin: 0; opacity: 0.9; font-size: 14px; }
-.home-stats {
-  display: flex;
-  gap: 8px;
-  margin: -20px 12px 12px;
-  background: #fff;
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
-  padding: 12px;
-  position: relative;
-  z-index: 2;
-}
-.stat-item {
-  flex: 1;
-  text-align: center;
-  padding: 8px;
-  border-right: 1px solid var(--border);
-}
-.stat-item:last-child { border-right: none; }
-.stat-num { font-size: 22px; font-weight: 700; color: var(--primary); display: block; }
-.stat-label { font-size: 12px; color: var(--text-sec); }
+        .report-item {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            padding: 10px 0;
+            border-bottom: 1px solid #f1f5f9;
+        }
+        .report-item:last-child { border-bottom: none; }
+        .report-item .icon { font-size: 28px; color: #2b7a78; width: 40px; text-align: center; }
+        .report-item .info { flex: 1; }
+        .report-item .info .name { font-weight: 600; }
+        .report-item .info .desc { font-size: 13px; color: #64748b; }
 
-.quick-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 8px;
-  padding: 0 16px;
-}
-.quick-item {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  padding: 12px 4px;
-  background: #fff;
-  border-radius: 12px;
-  font-size: 12px;
-  color: var(--text);
-}
-.quick-item .quick-icon {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  background: var(--primary-light);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--primary);
-}
+        .trend-placeholder {
+            background: #f1f5f9;
+            border-radius: 16px;
+            padding: 30px 20px;
+            text-align: center;
+            color: #64748b;
+        }
+        .trend-placeholder i { font-size: 36px; color: #2b7a78; margin-bottom: 8px; }
 
-/* ============ 老人档案 ============ */
-.elder-card {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 14px;
-  background: #fff;
-  border-radius: var(--radius);
-  margin: 10px 12px;
-  box-shadow: var(--shadow);
-  cursor: pointer;
-}
-.elder-avatar {
-  width: 56px;
-  height: 56px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #81C784, #4CAF50);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #fff;
-  font-size: 22px;
-  font-weight: 600;
-  flex-shrink: 0;
-}
-.elder-info { flex: 1; min-width: 0; }
-.elder-name { font-size: 16px; font-weight: 600; margin: 0 0 4px; }
-.elder-meta { font-size: 12px; color: var(--text-sec); }
-.elder-meta span { margin-right: 8px; }
+        /* 药箱 */
+        .drug-item {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            padding: 12px 0;
+            border-bottom: 1px solid #f1f5f9;
+        }
+        .drug-item:last-child { border-bottom: none; }
+        .drug-icon { font-size: 24px; color: #2b7a78; width: 40px; text-align: center; }
+        .drug-info { flex: 1; }
+        .drug-info .dname { font-weight: 600; }
+        .drug-info .dexp { font-size: 13px; color: #64748b; }
+        .drug-info .dexp .danger { color: #b91c1c; font-weight: 700; }
+        .drug-info .qty {
+            font-size: 13px;
+            color: #1e293b;
+            background: #f1f5f9;
+            padding: 2px 10px;
+            border-radius: 30px;
+            display: inline-block;
+            margin-top: 4px;
+        }
 
-/* ============ 时间轴 / 病历 ============ */
-.timeline {
-  padding: 12px 16px;
-  position: relative;
-}
-.timeline-item {
-  position: relative;
-  padding: 0 0 20px 30px;
-}
-.timeline-item::before {
-  content: '';
-  position: absolute;
-  left: 8px;
-  top: 6px;
-  bottom: -6px;
-  width: 2px;
-  background: var(--border);
-}
-.timeline-item:last-child::before { display: none; }
-.timeline-dot {
-  position: absolute;
-  left: 0;
-  top: 0;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: var(--primary);
-  border: 3px solid var(--primary-light);
-}
-.timeline-date { font-size: 13px; color: var(--text-sec); margin-bottom: 6px; }
-.timeline-card {
-  background: #fff;
-  border-radius: var(--radius);
-  padding: 12px;
-  box-shadow: var(--shadow);
-}
-.timeline-card h4 { margin: 0 0 6px; font-size: 15px; }
-.timeline-card p { margin: 4px 0; font-size: 13px; color: var(--text); line-height: 1.5; }
-.tag {
-  display: inline-block;
-  padding: 2px 8px;
-  border-radius: 10px;
-  font-size: 11px;
-  background: var(--primary-light);
-  color: var(--primary-dark);
-  margin: 2px 4px 2px 0;
-}
-.tag.danger { background: #FFEBEE; color: var(--danger); }
-.tag.warning { background: #FFF8E1; color: #F57C00; }
-.tag.info { background: #E3F2FD; color: var(--info); }
+        /* 扫描区（仅用于药箱） */
+        .scan-area {
+            background: #eef2f6;
+            border-radius: 28px;
+            padding: 30px 20px;
+            text-align: center;
+            border: 2px dashed #b9cdda;
+            margin: 10px 0;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .scan-area:hover { background: #e4eaf0; }
+        .scan-area i { font-size: 48px; color: #3d7e7a; }
+        .scan-area p { margin-top: 12px; font-weight: 500; color: #1e293b; }
 
-/* ============ 上传页面 ============ */
-.upload-section { padding: 16px; }
-.upload-drop {
-  border: 2px dashed var(--primary);
-  border-radius: var(--radius);
-  padding: 40px 16px;
-  text-align: center;
-  background: #fff;
-  margin-bottom: 12px;
-}
-.upload-drop h3 { margin: 0 0 8px; color: var(--primary); }
-.upload-drop p { margin: 4px 0; color: var(--text-sec); font-size: 13px; }
-.upload-actions { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
-.upload-preview {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
-  margin: 12px 0;
-}
-.upload-preview img {
-  width: 100%;
-  aspect-ratio: 1;
-  object-fit: cover;
-  border-radius: 8px;
-  background: #f5f5f5;
-}
+        .recognition-result {
+            background: white;
+            border-radius: 18px;
+            padding: 14px 16px;
+            margin-top: 12px;
+            border: 1px solid #e2e8f0;
+        }
+        .recognition-result .label { font-weight: 600; color: #0f172a; }
+        .recognition-result .value { color: #334155; }
 
-/* ============ 表单 ============ */
-.form-group { margin-bottom: 14px; }
-.form-label { display: block; font-size: 13px; color: var(--text-sec); margin-bottom: 6px; font-weight: 500; }
-.form-input, .form-textarea, .form-select {
-  width: 100%;
-  padding: 12px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  font-size: 15px;
-  background: #fff;
-  outline: none;
-  transition: border-color 0.2s;
-}
-.form-input:focus, .form-textarea:focus, .form-select:focus { border-color: var(--primary); }
-.form-textarea { min-height: 80px; resize: vertical; }
-.form-row { display: flex; gap: 10px; }
-.form-row .form-group { flex: 1; }
+        /* 底部导航 */
+        .bottom-nav {
+            position: sticky;
+            bottom: 0;
+            background: rgba(255,255,255,0.85);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border-top: 1px solid rgba(0,0,0,0.04);
+            display: flex;
+            justify-content: space-around;
+            padding: 8px 8px 16px 8px;
+            border-radius: 0 0 40px 40px;
+            flex-shrink: 0;
+            z-index: 50;
+        }
+        .nav-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 2px;
+            font-size: 11px;
+            color: #94a3b8;
+            cursor: pointer;
+            padding: 4px 10px;
+            border-radius: 30px;
+            background: transparent;
+            border: none;
+            font-family: 'Inter', sans-serif;
+            transition: 0.2s;
+        }
+        .nav-item i { font-size: 22px; }
+        .nav-item.active { color: #0b3b5c; font-weight: 600; background: #eaf3f2; }
+        .nav-item.active i { color: #1e6b68; }
+        .nav-item.camera-btn {
+            background: #2b7a78;
+            color: white;
+            border-radius: 50%;
+            width: 60px;
+            height: 60px;
+            padding: 0;
+            margin-top: -16px;
+            box-shadow: 0 4px 12px rgba(43,122,120,0.3);
+            justify-content: center;
+        }
+        .nav-item.camera-btn i { font-size: 28px; color: white; }
+        .nav-item.camera-btn:active { transform: scale(0.92); }
+        .nav-item.camera-btn span { display: none; }
 
-/* ============ 用药 ============ */
-.med-card {
-  background: #fff;
-  border-radius: var(--radius);
-  padding: 14px;
-  margin: 10px 12px;
-  box-shadow: var(--shadow);
-  position: relative;
-}
-.med-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: 8px;
-}
-.med-name { font-size: 16px; font-weight: 600; margin: 0; }
-.med-status { font-size: 11px; padding: 3px 8px; border-radius: 10px; }
-.med-status.active { background: var(--primary-light); color: var(--primary-dark); }
-.med-status.ended { background: #EEEEEE; color: var(--text-sec); }
-.med-detail { font-size: 13px; color: var(--text-sec); margin: 3px 0; }
-.med-times {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px dashed var(--border);
-}
-.med-time {
-  background: #F5F5F5;
-  padding: 4px 10px;
-  border-radius: 6px;
-  font-size: 12px;
-  color: var(--text);
-}
+        /* 返回按钮 */
+        .back-btn {
+            background: none;
+            border: none;
+            font-size: 20px;
+            color: #1a2639;
+            cursor: pointer;
+            padding: 8px;
+        }
 
-/* ============ 提醒 ============ */
-.reminder-item {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 14px;
-  background: #fff;
-  border-radius: var(--radius);
-  margin: 10px 12px;
-  box-shadow: var(--shadow);
-}
-.reminder-icon {
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  background: var(--primary-light);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--primary);
-  flex-shrink: 0;
-}
-.reminder-content { flex: 1; min-width: 0; }
-.reminder-title { font-size: 15px; font-weight: 600; margin: 0 0 4px; }
-.reminder-time { font-size: 12px; color: var(--text-sec); }
+        /* 权限选择 */
+        .permission-option {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 0;
+            border-bottom: 1px solid #f1f5f9;
+        }
+        .permission-option:last-child { border-bottom: none; }
+        .permission-option input[type="radio"] {
+            width: 20px;
+            height: 20px;
+            accent-color: #2b7a78;
+        }
+        .permission-option label { flex: 1; font-weight: 500; color: #1e293b; }
 
-/* ============ 浮动按钮 ============ */
-.fab-btn {
-  position: absolute;
-  right: 16px;
-  bottom: 80px;
-  width: 52px;
-  height: 52px;
-  border-radius: 50%;
-  background: var(--accent);
-  color: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 4px 12px rgba(255,152,0,0.4);
-  z-index: 5;
-}
+        /* ---------- 扫描选择器 (Action Sheet) ---------- */
+        .scan-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.4);
+            z-index: 200;
+            display: none;
+            justify-content: flex-end;
+            align-items: flex-end;
+            border-radius: 40px;
+            overflow: hidden;
+        }
+        .scan-overlay.show { display: flex; }
+        .scan-sheet {
+            background: white;
+            width: 100%;
+            border-radius: 30px 30px 0 0;
+            padding: 20px 24px 30px 24px;
+            transform: translateY(100%);
+            transition: transform 0.3s ease;
+            box-shadow: 0 -10px 30px rgba(0,0,0,0.1);
+        }
+        .scan-overlay.show .scan-sheet {
+            transform: translateY(0);
+        }
+        .scan-sheet .handle {
+            width: 40px;
+            height: 4px;
+            background: #d1d5db;
+            border-radius: 4px;
+            margin: 0 auto 16px auto;
+        }
+        .scan-sheet .title {
+            font-size: 18px;
+            font-weight: 700;
+            text-align: center;
+            margin-bottom: 16px;
+            color: #1a2639;
+        }
+        .scan-option {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            padding: 14px 16px;
+            border-radius: 16px;
+            background: #f8fafd;
+            margin-bottom: 10px;
+            cursor: pointer;
+            transition: background 0.15s;
+            border: none;
+            width: 100%;
+            text-align: left;
+            font-family: inherit;
+            font-size: 16px;
+            color: #1e293b;
+        }
+        .scan-option:hover { background: #eef2f6; }
+        .scan-option:active { background: #e2e8f0; }
+        .scan-option i { font-size: 24px; color: #2b7a78; width: 36px; text-align: center; }
+        .scan-option .desc { font-size: 13px; color: #64748b; margin-top: 2px; }
+        .scan-cancel {
+            margin-top: 12px;
+            background: #f1f5f9;
+            color: #64748b;
+            border: none;
+            padding: 14px;
+            border-radius: 60px;
+            font-weight: 600;
+            font-size: 16px;
+            width: 100%;
+            cursor: pointer;
+            transition: background 0.15s;
+            font-family: inherit;
+        }
+        .scan-cancel:hover { background: #e2e8f0; }
 
-/* ============ 模态框 ============ */
-.modal-mask {
-  position: fixed;
-  inset: 0;
-  background: rgba(0,0,0,0.5);
-  z-index: 100;
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-}
-.modal {
-  background: #fff;
-  border-radius: 16px 16px 0 0;
-  width: 100%;
-  max-width: 480px;
-  max-height: 85vh;
-  overflow-y: auto;
-  padding: 20px 16px;
-  animation: slideUp 0.25s ease-out;
-}
-@keyframes slideUp {
-  from { transform: translateY(100%); }
-  to { transform: translateY(0); }
-}
-.modal-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 16px;
-}
-.modal-head h3 { margin: 0; font-size: 18px; }
-.modal-close {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  color: var(--text-sec);
-  font-size: 24px;
-  line-height: 32px;
-  text-align: center;
-}
-
-/* ============ Toast ============ */
-.toast {
-  position: fixed;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  background: rgba(0,0,0,0.8);
-  color: #fff;
-  padding: 12px 24px;
-  border-radius: 8px;
-  font-size: 14px;
-  z-index: 200;
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity 0.3s;
-  max-width: 80%;
-  text-align: center;
-}
-.toast.show { opacity: 1; }
-
-/* ============ 空状态 ============ */
-.empty-state {
-  text-align: center;
-  padding: 60px 20px;
-  color: var(--text-sec);
-}
-.empty-state svg { color: #ccc; margin-bottom: 12px; }
-.empty-state h3 { margin: 0 0 8px; color: var(--text); font-size: 16px; }
-.empty-state p { margin: 0 0 16px; font-size: 13px; }
-
-/* ============ 搜索框 ============ */
-.search-bar {
-  padding: 12px 16px;
-  background: #fff;
-  position: sticky;
-  top: 0;
-  z-index: 2;
-}
-.search-input {
-  width: 100%;
-  padding: 10px 14px 10px 40px;
-  border: none;
-  background: #F5F5F5;
-  border-radius: 20px;
-  font-size: 14px;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='%23757575' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cpath d='m21 21-4.35-4.35'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: 12px center;
-  outline: none;
-}
-
-/* ============ 徽章 / 开关 ============ */
-.badge {
-  display: inline-block;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 6px;
-  border-radius: 9px;
-  background: var(--danger);
-  color: #fff;
-  font-size: 11px;
-  line-height: 18px;
-  text-align: center;
-}
-.switch {
-  position: relative;
-  display: inline-block;
-  width: 44px;
-  height: 24px;
-}
-.switch input { display: none; }
-.slider {
-  position: absolute;
-  inset: 0;
-  background: #ccc;
-  border-radius: 24px;
-  transition: 0.3s;
-}
-.slider::before {
-  content: '';
-  position: absolute;
-  width: 20px;
-  height: 20px;
-  left: 2px;
-  top: 2px;
-  background: #fff;
-  border-radius: 50%;
-  transition: 0.3s;
-}
-.switch input:checked + .slider { background: var(--primary); }
-.switch input:checked + .slider::before { transform: translateX(20px); }
-
-/* ============ 图表 ============ */
-.chart-box {
-  width: 100%;
-  height: 180px;
-  background: #fff;
-  border-radius: var(--radius);
-  padding: 12px;
-  margin: 12px;
-  box-shadow: var(--shadow);
-}
-.chart-box canvas { width: 100%; height: 100%; display: block; }
-
-/* ============ 进度条 / 步骤 ============ */
-.ocr-progress {
-  background: #fff;
-  border-radius: var(--radius);
-  padding: 20px;
-  margin: 12px;
-  box-shadow: var(--shadow);
-  text-align: center;
-}
-.ocr-progress .spinner {
-  width: 48px;
-  height: 48px;
-  border: 4px solid var(--primary-light);
-  border-top-color: var(--primary);
-  border-radius: 50%;
-  margin: 0 auto 16px;
-  animation: spin 1s linear infinite;
-}
-@keyframes spin { to { transform: rotate(360deg); } }
-.progress-bar {
-  height: 6px;
-  background: #EEEEEE;
-  border-radius: 3px;
-  overflow: hidden;
-  margin: 12px 0;
-}
-.progress-bar > div {
-  height: 100%;
-  background: var(--primary);
-  transition: width 0.3s;
-}
-
-/* ============ 备注 / 评论 ============ */
-.note-item {
-  padding: 10px 12px;
-  background: #FAFAFA;
-  border-left: 3px solid var(--primary);
-  margin: 8px 0;
-  border-radius: 4px;
-  font-size: 13px;
-}
-.note-item strong { color: var(--primary-dark); font-size: 12px; display: block; margin-bottom: 2px; }
-
-/* ============ 表格指标 ============ */
-.metric-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-  margin-top: 8px;
-}
-.metric-table th, .metric-table td {
-  padding: 8px 6px;
-  text-align: left;
-  border-bottom: 1px solid var(--border);
-}
-.metric-table th { color: var(--text-sec); font-weight: 500; font-size: 12px; }
-.metric-table td.abnormal { color: var(--danger); font-weight: 600; }
-
-/* ============ 小屏优化 ============ */
-@media (max-width: 360px) {
-  :root { --font-size-base: 15px; }
-  .quick-grid { grid-template-columns: repeat(4, 1fr); }
-  .med-time { font-size: 11px; }
-}
-
-/* ============ 工具类 ============ */
-.row { display: flex; align-items: center; gap: 8px; }
-.row-between { display: flex; justify-content: space-between; align-items: center; }
-.text-center { text-align: center; }
-.text-danger { color: var(--danger); }
-.text-muted { color: var(--text-sec); }
-.mt-8 { margin-top: 8px; }
-.mt-12 { margin-top: 12px; }
-.mt-16 { margin-top: 16px; }
-.mb-12 { margin-bottom: 12px; }
-.p-16 { padding: 16px; }
-.flex-1 { flex: 1; }
-.danger-text { color: var(--danger); }
-
-</style>
-<!-- API配置 - 如果需要连接后端服务，取消下面的注释并修改地址 -->
-<script>window.API_BASE = 'http://localhost:3000/api';</script>
-<script src="js/api.js"></script>
+        @media (max-width: 440px) {
+            .phone-frame { height: 100vh; border-radius: 0; padding: 0; }
+            body { padding: 0; }
+            .scan-overlay { border-radius: 0; }
+        }
+    </style>
 </head>
 <body>
-<!-- 登录页面 -->
-<div id="loginPage" style="display:none;position:fixed;inset:0;background:linear-gradient(135deg,#4CAF50 0%,#66BB6A 100%);z-index:1000;display:flex;align-items:center;justify-content:center;">
-  <div style="width:100%;max-width:360px;padding:20px;">
-    <div style="text-align:center;color:#fff;margin-bottom:40px;">
-      <div style="font-size:48px;margin-bottom:16px;">🏥</div>
-      <h1 style="margin:0 0 8px;font-size:24px;">家庭健康助手</h1>
-      <p style="margin:0;opacity:0.9;font-size:14px;">守护家人健康，从记录开始</p>
+
+<div class="phone-frame" id="app">
+
+    <!-- 状态栏 -->
+    <div class="status-bar">
+        <span>9:41</span>
+        <span><i class="fas fa-signal"></i> <i class="fas fa-wifi"></i> <i class="fas fa-battery-full"></i></span>
     </div>
-    <div style="background:#fff;border-radius:16px;padding:24px;box-shadow:0 8px 32px rgba(0,0,0,0.1);">
-      <div id="loginTabs" style="display:flex;gap:8px;margin-bottom:20px;">
-        <button onclick="showLoginTab('login')" id="tabLogin" style="flex:1;padding:10px;border:none;border-radius:8px;background:#4CAF50;color:#fff;font-size:14px;font-weight:500;">登录</button>
-        <button onclick="showLoginTab('register')" id="tabRegister" style="flex:1;padding:10px;border:none;border-radius:8px;background:#E8F5E9;color:#666;font-size:14px;font-weight:500;">注册</button>
-      </div>
-      <!-- 登录表单 -->
-      <div id="loginForm">
-        <div style="margin-bottom:16px;">
-          <label style="display:block;font-size:13px;color:#666;margin-bottom:6px;">手机号</label>
-          <input type="tel" id="loginPhone" placeholder="请输入手机号" style="width:100%;padding:12px;border:1px solid #E0E0E0;border-radius:8px;font-size:15px;outline:none;box-sizing:border-box;">
+
+    <!-- 头部 -->
+    <div class="app-header">
+        <div class="header-left">
+            <button class="family-selector" id="familySelectorBtn" onclick="toggleDropdown()">
+                <i class="fas fa-users"></i>
+                <span id="currentFamilyName">张伟</span>
+                <i class="fas fa-chevron-down arrow"></i>
+            </button>
+            <div class="dropdown-menu" id="familyDropdown"></div>
         </div>
-        <div style="margin-bottom:20px;">
-          <label style="display:block;font-size:13px;color:#666;margin-bottom:6px;">密码</label>
-          <input type="password" id="loginPassword" placeholder="请输入密码" style="width:100%;padding:12px;border:1px solid #E0E0E0;border-radius:8px;font-size:15px;outline:none;box-sizing:border-box;">
+        <div class="header-right">
+            <div class="msg-icon" onclick="openMessages()">
+                <i class="fas fa-bell"></i>
+                <span class="badge-dot"></span>
+            </div>
+            <span class="username" id="headerUsername">张伟</span>
+            <div class="avatar-icon" onclick="alert('👤 个人中心')">
+                <i class="fas fa-user-circle"></i>
+            </div>
         </div>
-        <button onclick="doLogin()" style="width:100%;padding:14px;background:#4CAF50;color:#fff;border:none;border-radius:8px;font-size:16px;font-weight:500;cursor:pointer;">登录</button>
-        <div id="loginError" style="color:#F44336;font-size:13px;margin-top:12px;text-align:center;display:none;"></div>
-      </div>
-      <!-- 注册表单 -->
-      <div id="registerForm" style="display:none;">
-        <div style="margin-bottom:16px;">
-          <label style="display:block;font-size:13px;color:#666;margin-bottom:6px;">姓名</label>
-          <input type="text" id="regName" placeholder="请输入您的姓名" style="width:100%;padding:12px;border:1px solid #E0E0E0;border-radius:8px;font-size:15px;outline:none;box-sizing:border-box;">
-        </div>
-        <div style="margin-bottom:16px;">
-          <label style="display:block;font-size:13px;color:#666;margin-bottom:6px;">手机号</label>
-          <input type="tel" id="regPhone" placeholder="请输入手机号" style="width:100%;padding:12px;border:1px solid #E0E0E0;border-radius:8px;font-size:15px;outline:none;box-sizing:border-box;">
-        </div>
-        <div style="margin-bottom:20px;">
-          <label style="display:block;font-size:13px;color:#666;margin-bottom:6px;">密码</label>
-          <input type="password" id="regPassword" placeholder="请设置密码（至少6位）" style="width:100%;padding:12px;border:1px solid #E0E0E0;border-radius:8px;font-size:15px;outline:none;box-sizing:border-box;">
-        </div>
-        <button onclick="doRegister()" style="width:100%;padding:14px;background:#4CAF50;color:#fff;border:none;border-radius:8px;font-size:16px;font-weight:500;cursor:pointer;">注册</button>
-        <div id="registerError" style="color:#F44336;font-size:13px;margin-top:12px;text-align:center;display:none;"></div>
-      </div>
     </div>
-    <div style="text-align:center;margin-top:24px;">
-      <button onclick="skipLogin()" style="background:none;border:none;color:rgba(255,255,255,0.8);font-size:13px;cursor:pointer;">暂不登录（仅本地模式）</button>
+
+    <!-- 主内容 -->
+    <div class="main-content" id="mainContent">
+
+        <!-- ========== 首页 ========== -->
+        <div id="page-home" class="page active">
+            <div id="homeContent"></div>
+        </div>
+
+        <!-- ========== 病历页面 ========== -->
+        <div id="page-records" class="page">
+            <div class="card">
+                <div class="card-title"><i class="fas fa-notes-medical"></i> 病历记录</div>
+                <div id="recordsList">
+                    <div class="record-item">
+                        <span class="date">2026-06-20</span>
+                        <div class="title">高血压复诊</div>
+                        <div class="sub">市第一人民医院 · 血压 145/90</div>
+                    </div>
+                    <div class="record-item">
+                        <span class="date">2026-06-10</span>
+                        <div class="title">血脂检查</div>
+                        <div class="sub">总胆固醇 6.2 mmol/L</div>
+                    </div>
+                    <div class="record-item">
+                        <span class="date">2026-05-28</span>
+                        <div class="title">心电图检查</div>
+                        <div class="sub">窦性心律，ST段改变</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-title"><i class="fas fa-file-pdf"></i> 电子报告</div>
+                <div id="reportsList">
+                    <div class="report-item">
+                        <div class="icon"><i class="fas fa-file-alt"></i></div>
+                        <div class="info">
+                            <div class="name">血常规报告</div>
+                            <div class="desc">2026-06-18 · 市第一人民医院</div>
+                        </div>
+                        <i class="fas fa-chevron-right" style="color:#94a3b8;"></i>
+                    </div>
+                    <div class="report-item">
+                        <div class="icon"><i class="fas fa-file-alt"></i></div>
+                        <div class="info">
+                            <div class="name">肝肾功能检查</div>
+                            <div class="desc">2026-06-12 · 体检中心</div>
+                        </div>
+                        <i class="fas fa-chevron-right" style="color:#94a3b8;"></i>
+                    </div>
+                    <div class="report-item">
+                        <div class="icon"><i class="fas fa-file-alt"></i></div>
+                        <div class="info">
+                            <div class="name">胸部CT报告</div>
+                            <div class="desc">2026-05-30 · 市第一人民医院</div>
+                        </div>
+                        <i class="fas fa-chevron-right" style="color:#94a3b8;"></i>
+                    </div>
+                </div>
+                <button class="btn-outline" style="margin-top:12px;" onclick="alert('📤 上传新报告')"><i class="fas fa-upload"></i> 上传报告</button>
+            </div>
+
+            <div class="card">
+                <div class="card-title"><i class="fas fa-chart-line"></i> 指标趋势</div>
+                <div class="trend-placeholder">
+                    <i class="fas fa-chart-bar"></i>
+                    <p>最近30天血压趋势（模拟）</p>
+                    <div style="display:flex; justify-content:space-around; margin-top:16px; font-size:12px;">
+                        <span>收缩压</span>
+                        <span>舒张压</span>
+                    </div>
+                    <div style="display:flex; gap:8px; margin-top:4px;">
+                        <span style="background:#2b7a78; height:6px; flex:1; border-radius:4px;"></span>
+                        <span style="background:#3aa39f; height:6px; flex:1; border-radius:4px;"></span>
+                        <span style="background:#2b7a78; height:8px; flex:1; border-radius:4px;"></span>
+                        <span style="background:#3aa39f; height:4px; flex:1; border-radius:4px;"></span>
+                        <span style="background:#2b7a78; height:10px; flex:1; border-radius:4px;"></span>
+                    </div>
+                    <div style="display:flex; gap:8px; margin-top:4px;">
+                        <span style="background:#3aa39f; height:5px; flex:1; border-radius:4px;"></span>
+                        <span style="background:#2b7a78; height:7px; flex:1; border-radius:4px;"></span>
+                        <span style="background:#3aa39f; height:6px; flex:1; border-radius:4px;"></span>
+                        <span style="background:#2b7a78; height:9px; flex:1; border-radius:4px;"></span>
+                        <span style="background:#3aa39f; height:4px; flex:1; border-radius:4px;"></span>
+                    </div>
+                    <p style="margin-top:12px; font-size:13px; color:#64748b;">* 示意图形，实际数据可连接设备</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- ========== 药箱 ========== -->
+        <div id="page-pharmacy" class="page">
+            <div class="card">
+                <div class="card-title"><i class="fas fa-kit-medical"></i> 家庭药箱 <span class="badge" id="drugCount">5 种</span></div>
+                <div id="drugList">
+                    <div class="drug-item">
+                        <div class="drug-icon"><i class="fas fa-capsules"></i></div>
+                        <div class="drug-info">
+                            <div class="dname">阿莫西林胶囊</div>
+                            <div class="dexp">📅 过期: 2027-11-09 <span style="color:#16a34a; margin-left:6px;">✔ 有效</span></div>
+                            <div class="qty">2盒 · 20粒/盒</div>
+                        </div>
+                    </div>
+                    <div class="drug-item">
+                        <div class="drug-icon"><i class="fas fa-tablets"></i></div>
+                        <div class="drug-info">
+                            <div class="dname">盐酸二甲双胍片</div>
+                            <div class="dexp">📅 过期: 2028-02-15 <span style="color:#16a34a;">✔ 有效</span></div>
+                            <div class="qty">1盒 · 30片/盒</div>
+                        </div>
+                    </div>
+                    <div class="drug-item">
+                        <div class="drug-icon"><i class="fas fa-pills"></i></div>
+                        <div class="drug-info">
+                            <div class="dname">阿托伐他汀钙片</div>
+                            <div class="dexp">📅 过期: 2026-08-01 <span style="color:#b91c1c; font-weight:700;">⚠️ 即将过期</span></div>
+                            <div class="qty">3盒 · 7片/盒</div>
+                        </div>
+                    </div>
+                    <div class="drug-item">
+                        <div class="drug-icon"><i class="fas fa-syringe"></i></div>
+                        <div class="drug-info">
+                            <div class="dname">胰岛素注射液</div>
+                            <div class="dexp">📅 过期: 2026-06-20 <span style="color:#b91c1c; font-weight:700;">⛔ 已过期!</span></div>
+                            <div class="qty">1支 · 10ml/支</div>
+                        </div>
+                    </div>
+                </div>
+                <div style="margin-top:6px; background:#fee2e2; padding:10px 16px; border-radius:18px; color:#991b1b; font-size:14px;">
+                    <i class="fas fa-exclamation-triangle"></i> 提醒: 1种药品已过期，1种即将过期，请及时处理。
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-title"><i class="fas fa-camera-retro"></i> 拍照录入药品</div>
+                <div class="scan-area" onclick="simulateDrugScan()" style="padding:30px 20px;">
+                    <i class="fas fa-barcode"></i>
+                    <p>扫描药盒 / 拍照识别</p>
+                </div>
+                <div id="drugScanResult" style="display:none;" class="recognition-result">
+                    <div><span class="label">💊 药品名</span> <span class="value">阿莫西林克拉维酸钾</span></div>
+                    <div><span class="label">📅 生产批号</span> <span class="value">20260315</span></div>
+                    <div><span class="label">⏳ 有效期至</span> <span class="value" style="color:#b91c1c;">2028-03-14</span></div>
+                    <div><i class="fas fa-check-circle" style="color:#2b7a78;"></i> 已自动录入药箱</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ========== 我的 ========== -->
+        <div id="page-profile" class="page">
+            <div class="card">
+                <div class="flex" style="gap:16px; margin-bottom:12px;">
+                    <div style="font-size:48px; color:#2b7a78;">👤</div>
+                    <div>
+                        <div style="font-weight:700; font-size:20px;">张伟</div>
+                        <div style="color:#64748b; font-size:14px;">管理员 · 已绑定手机</div>
+                    </div>
+                </div>
+                <button class="btn-outline" style="margin-bottom:10px;" onclick="alert('📷 更换头像')"><i class="fas fa-camera"></i> 更换头像</button>
+            </div>
+            <div class="card">
+                <div class="card-title"><i class="fas fa-cog"></i> 设置</div>
+                <div class="family-member" style="cursor:pointer; display:flex; align-items:center; gap:14px; padding:10px 0; border-bottom:1px solid #f1f5f9;" onclick="alert('🔔 通知设置')">
+                    <i class="fas fa-bell" style="width:24px; color:#2b7a78;"></i>
+                    <div style="flex:1;"><div style="font-weight:600;">通知提醒</div><div style="font-size:13px; color:#64748b;">用药、过期、消息推送</div></div>
+                    <span style="color:#64748b;"><i class="fas fa-chevron-right"></i></span>
+                </div>
+                <div class="family-member" style="cursor:pointer; display:flex; align-items:center; gap:14px; padding:10px 0; border-bottom:1px solid #f1f5f9;" onclick="alert('🔐 隐私与安全')">
+                    <i class="fas fa-lock" style="width:24px; color:#2b7a78;"></i>
+                    <div style="flex:1;"><div style="font-weight:600;">隐私与安全</div><div style="font-size:13px; color:#64748b;">数据授权、密码管理</div></div>
+                    <span style="color:#64748b;"><i class="fas fa-chevron-right"></i></span>
+                </div>
+                <div class="family-member" style="cursor:pointer; display:flex; align-items:center; gap:14px; padding:10px 0;" onclick="openFamilyManagement()">
+                    <i class="fas fa-users" style="width:24px; color:#2b7a78;"></i>
+                    <div style="flex:1;"><div style="font-weight:600;">家庭管理</div><div style="font-size:13px; color:#64748b;">邀请家人、授权管理</div></div>
+                    <span style="color:#64748b;"><i class="fas fa-chevron-right"></i></span>
+                </div>
+            </div>
+            <button class="btn-primary" style="background:#b91c1c; box-shadow:none;" onclick="alert('确认退出登录？')">
+                <i class="fas fa-sign-out-alt"></i> 退出登录
+            </button>
+        </div>
+
+        <!-- ========== 消息中心 ========== -->
+        <div id="page-messages" class="page">
+            <div style="display:flex; align-items:center; gap:12px; margin-bottom:16px;">
+                <button class="back-btn" onclick="closeMessages()"><i class="fas fa-arrow-left"></i></button>
+                <span style="font-size:20px; font-weight:700;">消息中心</span>
+                <span class="badge">3 条未读</span>
+            </div>
+            <div class="card">
+                <div class="msg-item" style="display:flex; gap:14px; padding:14px 0; border-bottom:1px solid #f1f5f9; align-items:flex-start;">
+                    <div style="font-size:22px; color:#2b7a78; width:36px; text-align:center;"><i class="fas fa-pills"></i></div>
+                    <div style="flex:1;">
+                        <div style="font-weight:600;">用药提醒 · 阿托伐他汀钙</div>
+                        <div style="font-size:14px; color:#64748b;">今晚 21:00 记得服用，剩余 5 片</div>
+                        <div style="font-size:12px; color:#94a3b8;">今天 16:20</div>
+                    </div>
+                </div>
+                <div class="msg-item" style="display:flex; gap:14px; padding:14px 0; border-bottom:1px solid #f1f5f9; align-items:flex-start;">
+                    <div style="font-size:22px; color:#b91c1c; width:36px; text-align:center;"><i class="fas fa-exclamation-triangle"></i></div>
+                    <div style="flex:1;">
+                        <div style="font-weight:600;">药品过期预警</div>
+                        <div style="font-size:14px; color:#64748b;">胰岛素注射液已过期，请尽快处理</div>
+                        <div style="font-size:12px; color:#94a3b8;">昨天 10:15</div>
+                    </div>
+                </div>
+                <div class="msg-item" style="display:flex; gap:14px; padding:14px 0; border-bottom:1px solid #f1f5f9; align-items:flex-start;">
+                    <div style="font-size:22px; color:#2b7a78; width:36px; text-align:center;"><i class="fas fa-user-plus"></i></div>
+                    <div style="flex:1;">
+                        <div style="font-weight:600;">家庭邀请</div>
+                        <div style="font-size:14px; color:#64748b;">王芳 申请加入您的家庭组</div>
+                        <div style="font-size:12px; color:#94a3b8;">昨天 08:30</div>
+                    </div>
+                </div>
+                <div class="msg-item" style="display:flex; gap:14px; padding:14px 0; align-items:flex-start;">
+                    <div style="font-size:22px; color:#2b7a78; width:36px; text-align:center;"><i class="fas fa-file-medical"></i></div>
+                    <div style="flex:1;">
+                        <div style="font-weight:600;">母亲 · 新检查报告上传</div>
+                        <div style="font-size:14px; color:#64748b;">血压检测报告 (2026-06-29) 已共享</div>
+                        <div style="font-size:12px; color:#94a3b8;">2026-06-29</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ========== 家庭管理 ========== -->
+        <div id="page-family-manage" class="page">
+            <div style="display:flex; align-items:center; gap:12px; margin-bottom:16px;">
+                <button class="back-btn" onclick="closeFamilyManagement()"><i class="fas fa-arrow-left"></i></button>
+                <span style="font-size:20px; font-weight:700;">家庭管理</span>
+            </div>
+            <div class="card">
+                <div class="card-title"><i class="fas fa-users"></i> 家庭成员</div>
+                <div class="family-member" style="display:flex; align-items:center; gap:14px; padding:10px 0; border-bottom:1px solid #f1f5f9;">
+                    <div class="avatar" style="width:48px;height:48px;border-radius:50%;background:#d1e0e8;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:20px;color:#1e3a5f;">👤</div>
+                    <div style="flex:1;"><div style="font-weight:600;">我 (张伟)</div><div style="font-size:13px;color:#64748b;">管理员</div></div>
+                    <span style="font-size:13px;color:#2b7a78;">✓ 已授权</span>
+                </div>
+                <div class="family-member" style="display:flex; align-items:center; gap:14px; padding:10px 0; border-bottom:1px solid #f1f5f9;">
+                    <div class="avatar" style="width:48px;height:48px;border-radius:50%;background:#fde68a;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:20px;color:#1e3a5f;">👵</div>
+                    <div style="flex:1;"><div style="font-weight:600;">李秀兰 (母亲)</div><div style="font-size:13px;color:#64748b;">需协助管理</div></div>
+                    <div class="toggle-switch active" style="width:48px;height:28px;background:#2b7a78;border-radius:40px;position:relative;cursor:pointer;flex-shrink:0;" onclick="toggleSwitch(this)"><div style="width:22px;height:22px;background:white;border-radius:50%;position:absolute;top:3px;left:3px;transition:transform 0.2s;box-shadow:0 2px 4px rgba(0,0,0,0.2);transform:translateX(20px);"></div></div>
+                </div>
+                <div class="family-member" style="display:flex; align-items:center; gap:14px; padding:10px 0;">
+                    <div class="avatar" style="width:48px;height:48px;border-radius:50%;background:#bfdbfe;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:20px;color:#1e3a5f;">👴</div>
+                    <div style="flex:1;"><div style="font-weight:600;">张建国 (父亲)</div><div style="font-size:13px;color:#64748b;">需协助管理</div></div>
+                    <div class="toggle-switch active" style="width:48px;height:28px;background:#2b7a78;border-radius:40px;position:relative;cursor:pointer;flex-shrink:0;" onclick="toggleSwitch(this)"><div style="width:22px;height:22px;background:white;border-radius:50%;position:absolute;top:3px;left:3px;transition:transform 0.2s;box-shadow:0 2px 4px rgba(0,0,0,0.2);transform:translateX(20px);"></div></div>
+                </div>
+                <button class="btn-primary" style="margin-top:14px;" onclick="openInvitePage()"><i class="fas fa-user-plus"></i> 邀请家人加入</button>
+            </div>
+            <div class="card">
+                <div class="card-title"><i class="fas fa-shield-alt"></i> 授权与共享</div>
+                <div style="background:#f0f6fa; border-radius:18px; padding:14px;">
+                    <div class="flex"><i class="fas fa-check-circle" style="color:#2b7a78;"></i> <span><strong>母亲</strong> 已获管理权限</span></div>
+                    <div class="flex"><i class="fas fa-check-circle" style="color:#2b7a78;"></i> <span><strong>父亲</strong> 已获管理权限</span></div>
+                    <div style="margin-top:10px; font-size:14px; background:white; padding:10px; border-radius:14px;">
+                        <i class="fas fa-sync-alt"></i> 家庭数据实时同步 · 可查看彼此检查报告
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ========== 邀请页面 ========== -->
+        <div id="page-invite" class="page">
+            <div style="display:flex; align-items:center; gap:12px; margin-bottom:16px;">
+                <button class="back-btn" onclick="closeInvitePage()"><i class="fas fa-arrow-left"></i></button>
+                <span style="font-size:20px; font-weight:700;">邀请家人</span>
+            </div>
+            <div class="invite-card" style="background:white;border-radius:28px;padding:24px;text-align:center;border:1px solid #e2e8f0;">
+                <i class="fas fa-qrcode" style="font-size:60px; color:#2b7a78;"></i>
+                <div style="width:140px;height:140px;background:#e9edf2;margin:16px auto;display:flex;align-items:center;justify-content:center;font-size:40px;color:#2b7a78;border-radius:20px;">
+                    <i class="fas fa-qrcode" style="font-size:80px; color:#2b7a78;"></i>
+                </div>
+                <p style="font-weight:600; font-size:18px;">扫描二维码加入家庭</p>
+                <div style="font-size:14px; color:#64748b; margin:12px 0;">
+                    <i class="fas fa-clock"></i> 邀请有效期: <strong>2026-07-07 23:59</strong> (剩余 7天)
+                </div>
+                <div style="background:#eef2f6; border-radius:40px; padding:12px; margin:12px 0;">
+                    <span style="font-family:monospace; font-size:14px; letter-spacing:2px;">INV-2026-07-01-A8F3</span>
+                    <button class="btn-outline" style="width:auto; padding:6px 20px; margin-top:8px;" onclick="alert('📋 邀请码已复制')">复制邀请码</button>
+                </div>
+                <button class="btn-primary" onclick="alert('📤 通过微信/短信分享')"><i class="fas fa-share-alt"></i> 分享邀请</button>
+            </div>
+        </div>
+
+        <!-- ========== 接收邀请（模拟） ========== -->
+        <div id="page-invite-accept" class="page">
+            <div style="display:flex; align-items:center; gap:12px; margin-bottom:16px;">
+                <button class="back-btn" onclick="closeInviteAccept()"><i class="fas fa-arrow-left"></i></button>
+                <span style="font-size:20px; font-weight:700;">加入家庭组</span>
+            </div>
+            <div class="card">
+                <div class="flex" style="gap:16px;">
+                    <div style="font-size:48px;">🏠</div>
+                    <div>
+                        <div style="font-weight:700; font-size:18px;">张伟的家庭组</div>
+                        <div style="color:#64748b;">邀请人: 张伟</div>
+                    </div>
+                </div>
+                <div style="margin-top:14px; background:#f1f5f9; border-radius:16px; padding:14px;">
+                    <p style="font-weight:600;">您将获得以下权限：</p>
+                    <ul style="margin-top:8px; list-style:none; color:#1e293b;">
+                        <li>✓ 查看家庭成员的健康档案</li>
+                        <li>✓ 接收用药提醒和过期通知</li>
+                        <li>✓ 共享病历和检查报告</li>
+                    </ul>
+                </div>
+                <div style="margin-top:16px;">
+                    <p style="font-weight:600; margin-bottom:8px;">允许邀请人编辑您的健康信息？</p>
+                    <div class="permission-option">
+                        <input type="radio" name="editPerm" id="editYes" checked>
+                        <label for="editYes">允许编辑（适合老人/不擅长操作）</label>
+                    </div>
+                    <div class="permission-option">
+                        <input type="radio" name="editPerm" id="editNo">
+                        <label for="editNo">仅查看，不允许编辑</label>
+                    </div>
+                </div>
+                <button class="btn-primary" style="margin-top:20px;" onclick="acceptInvite()">
+                    <i class="fas fa-check-circle"></i> 确认加入
+                </button>
+            </div>
+        </div>
+
+        <!-- ========== 药品说明书（二级页面） ========== -->
+        <div id="page-drug-info" class="page">
+            <div style="display:flex; align-items:center; gap:12px; margin-bottom:16px;">
+                <button class="back-btn" onclick="closeDrugInfo()"><i class="fas fa-arrow-left"></i></button>
+                <span style="font-size:20px; font-weight:700;" id="drugInfoTitle">药品说明书</span>
+            </div>
+            <div class="card" id="drugInfoContent"></div>
+        </div>
+
+    </div><!-- end main-content -->
+
+    <!-- 底部导航 -->
+    <div class="bottom-nav">
+        <button class="nav-item active" data-page="page-home"><i class="fas fa-home"></i><span>首页</span></button>
+        <button class="nav-item" data-page="page-records"><i class="fas fa-notes-medical"></i><span>病历</span></button>
+        <button class="nav-item camera-btn" onclick="openScanSelector()"><i class="fas fa-camera"></i></button>
+        <button class="nav-item" data-page="page-pharmacy"><i class="fas fa-box"></i><span>药箱</span></button>
+        <button class="nav-item" data-page="page-profile"><i class="fas fa-user"></i><span>我的</span></button>
     </div>
-    <!-- 家庭邀请加入 -->
-    <div style="text-align:center;margin-top:16px;">
-      <button onclick="showJoinFamily()" style="background:none;border:none;color:rgba(255,255,255,0.8);font-size:13px;cursor:pointer;">已有邀请码？加入家庭</button>
+
+    <!-- ========== 扫描选择器 (Action Sheet) ========== -->
+    <div class="scan-overlay" id="scanOverlay" onclick="closeScanSelector(event)">
+        <div class="scan-sheet" onclick="event.stopPropagation();">
+            <div class="handle"></div>
+            <div class="title">📸 选择扫描类型</div>
+            <button class="scan-option" onclick="startScan('病历')">
+                <i class="fas fa-notes-medical"></i>
+                <div><div>病历</div><div class="desc">扫描纸质病历或电子档</div></div>
+            </button>
+            <button class="scan-option" onclick="startScan('处方')">
+                <i class="fas fa-prescription"></i>
+                <div><div>处方</div><div class="desc">识别处方药品信息</div></div>
+            </button>
+            <button class="scan-option" onclick="startScan('报告')">
+                <i class="fas fa-file-alt"></i>
+                <div><div>报告</div><div class="desc">检查报告、化验单</div></div>
+            </button>
+            <button class="scan-option" onclick="startScan('药品')">
+                <i class="fas fa-capsules"></i>
+                <div><div>药品</div><div class="desc">扫描药盒，自动录入药箱</div></div>
+            </button>
+            <button class="scan-cancel" onclick="closeScanSelector()">取消</button>
+        </div>
     </div>
-  </div>
 </div>
 
-<!-- 加入家庭弹窗 -->
-<div id="joinFamilyModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1001;align-items:center;justify-content:center;">
-  <div style="background:#fff;border-radius:16px;padding:24px;width:90%;max-width:320px;">
-    <h3 style="margin:0 0 16px;font-size:18px;text-align:center;">加入家庭</h3>
-    <div style="margin-bottom:16px;">
-      <label style="display:block;font-size:13px;color:#666;margin-bottom:6px;">邀请码</label>
-      <input type="text" id="inviteCode" placeholder="请输入6位邀请码" maxlength="6" style="width:100%;padding:12px;border:1px solid #E0E0E0;border-radius:8px;font-size:15px;outline:none;box-sizing:border-box;text-transform:uppercase;">
-    </div>
-    <div style="margin-bottom:16px;">
-      <label style="display:block;font-size:13px;color:#666;margin-bottom:6px;">您的姓名</label>
-      <input type="text" id="joinName" placeholder="请输入您的姓名" style="width:100%;padding:12px;border:1px solid #E0E0E0;border-radius:8px;font-size:15px;outline:none;box-sizing:border-box;">
-    </div>
-    <div style="display:flex;gap:8px;">
-      <button onclick="hideJoinFamily()" style="flex:1;padding:12px;background:#E8F5E9;color:#666;border:none;border-radius:8px;font-size:14px;cursor:pointer;">取消</button>
-      <button onclick="doJoinFamily()" style="flex:1;padding:12px;background:#4CAF50;color:#fff;border:none;border-radius:8px;font-size:14px;cursor:pointer;">加入</button>
-    </div>
-    <div id="joinError" style="color:#F44336;font-size:13px;margin-top:12px;text-align:center;display:none;"></div>
-  </div>
-</div>
+<script>
+    // ---------- 数据 ----------
+    const familyMembers = [
+        { id: 'me', name: '张伟', role: '我', avatar: '👤', color: '#d1e0e8' },
+        { id: 'mother', name: '李秀兰', role: '母亲', avatar: '👵', color: '#fde68a' },
+        { id: 'father', name: '张建国', role: '父亲', avatar: '👴', color: '#bfdbfe' }
+    ];
 
-<div id="appStatus" style="display:none;"></div>
-<div id="app">
-  <!-- 顶部导航栏 -->
-  <header class="topbar">
-    <button class="icon-btn" id="btnBack" style="display:none" aria-label="返回">
-      <svg viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M15.41 16.59L10.83 12l4.58-4.59L14 6l-6 6 6 6 1.41-1.41z"/></svg>
-    </button>
-    <h1 class="title" id="pageTitle">家庭健康助手</h1>
-    <button class="icon-btn" id="btnSettings" aria-label="设置">
-      <svg viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 00.12-.61l-1.92-3.32a.488.488 0 00-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 00-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 00-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
-    </button>
-  </header>
+    const healthData = {
+        '张伟': {
+            medications: [
+                { time: '早 8:00', name: '阿莫西林胶囊', dosage: '0.5g · 饭后', taken: false },
+                { time: '中 12:30', name: '盐酸二甲双胍', dosage: '0.25g · 餐中', taken: false },
+                { time: '晚 21:00', name: '阿托伐他汀钙', dosage: '20mg · 睡前', taken: false }
+            ],
+            refill: { drug: '阿莫西林', remaining: 12, daily: 2, expiryDate: '2026-07-03' },
+            nextReminder: '今日 21:00'
+        },
+        '李秀兰': {
+            medications: [
+                { time: '早 7:30', name: '硝苯地平缓释片', dosage: '30mg · 晨服', taken: false },
+                { time: '中 12:00', name: '盐酸二甲双胍', dosage: '0.5g · 餐中', taken: false },
+                { time: '晚 20:00', name: '阿托伐他汀钙', dosage: '20mg · 睡前', taken: false }
+            ],
+            refill: { drug: '硝苯地平', remaining: 8, daily: 1, expiryDate: '2026-07-10' },
+            nextReminder: '今日 20:00'
+        },
+        '张建国': {
+            medications: [
+                { time: '早 8:30', name: '缬沙坦胶囊', dosage: '80mg · 晨服', taken: false },
+                { time: '晚 19:30', name: '阿司匹林肠溶片', dosage: '100mg · 睡前', taken: false }
+            ],
+            refill: { drug: '缬沙坦', remaining: 20, daily: 2, expiryDate: '2026-07-20' },
+            nextReminder: '今日 19:30'
+        }
+    };
 
-  <!-- 主内容区 -->
-  <main class="content" id="mainContent">
-    <!-- 页面通过 JS 动态渲染 -->
-  </main>
+    const drugData = {
+        '阿莫西林胶囊': {
+            title: '阿莫西林胶囊 · 0.5g',
+            content: `<p><strong>【适应症】</strong>用于敏感菌所致的感染，如扁桃体炎、支气管炎等。</p>
+                      <p><strong>【用法】</strong>口服，成人一次0.5g，每6-8小时一次。</p>
+                      <p><strong>【禁忌】</strong>青霉素过敏者禁用。</p>
+                      <p><strong>【注意事项】</strong>用前需做皮试，肾功能减退者应调整剂量。</p>
+                      <p><strong>【不良反应】</strong>可能出现皮疹、腹泻等。</p>
+                      <p style="margin-top:12px; font-size:13px; color:#64748b;">数据仅供参考，请以药品实物说明书为准。</p>`
+        },
+        '盐酸二甲双胍': {
+            title: '盐酸二甲双胍 · 0.25g',
+            content: `<p><strong>【适应症】</strong>用于单纯饮食控制不满意的2型糖尿病。</p>
+                      <p><strong>【用法】</strong>餐中或餐后服用，起始剂量0.25g，每日2-3次。</p>
+                      <p><strong>【禁忌】</strong>严重肝肾功能不全、严重感染、缺氧状态禁用。</p>
+                      <p><strong>【注意事项】</strong>定期监测肝肾功能和血糖。</p>
+                      <p style="margin-top:12px; font-size:13px; color:#64748b;">数据仅供参考，请以药品实物说明书为准。</p>`
+        },
+        '阿托伐他汀钙': {
+            title: '阿托伐他汀钙 · 20mg',
+            content: `<p><strong>【适应症】</strong>用于高胆固醇血症、冠心病等。</p>
+                      <p><strong>【用法】</strong>晚间睡前服用，起始剂量10-20mg。</p>
+                      <p><strong>【禁忌】</strong>活动性肝病、妊娠期禁用。</p>
+                      <p><strong>【注意事项】</strong>需定期监测肝功能和肌酸激酶。</p>
+                      <p style="margin-top:12px; font-size:13px; color:#64748b;">数据仅供参考，请以药品实物说明书为准。</p>`
+        },
+        '硝苯地平缓释片': {
+            title: '硝苯地平缓释片 · 30mg',
+            content: `<p><strong>【适应症】</strong>用于高血压、心绞痛。</p>
+                      <p><strong>【用法】</strong>每日一次，晨服，整片吞服。</p>
+                      <p><strong>【禁忌】</strong>对本品过敏者、孕妇禁用。</p>
+                      <p style="margin-top:12px; font-size:13px; color:#64748b;">数据仅供参考，请以药品实物说明书为准。</p>`
+        },
+        '缬沙坦胶囊': {
+            title: '缬沙坦胶囊 · 80mg',
+            content: `<p><strong>【适应症】</strong>用于高血压、心力衰竭。</p>
+                      <p><strong>【用法】</strong>每日一次，晨服。</p>
+                      <p><strong>【禁忌】</strong>妊娠期禁用，严重肾衰患者慎用。</p>
+                      <p style="margin-top:12px; font-size:13px; color:#64748b;">数据仅供参考，请以药品实物说明书为准。</p>`
+        },
+        '阿司匹林肠溶片': {
+            title: '阿司匹林肠溶片 · 100mg',
+            content: `<p><strong>【适应症】</strong>用于预防血栓形成、心梗等。</p>
+                      <p><strong>【用法】</strong>每日一次，睡前服用。</p>
+                      <p><strong>【禁忌】</strong>对阿司匹林过敏者、活动性溃疡禁用。</p>
+                      <p style="margin-top:12px; font-size:13px; color:#64748b;">数据仅供参考，请以药品实物说明书为准。</p>`
+        }
+    };
 
-  <!-- 底部 Tab 导航 -->
-  <nav class="tabbar" id="tabbar">
-    <button class="tab active" data-page="home">
-      <svg viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
-      <span>首页</span>
-    </button>
-    <button class="tab" data-page="elders">
-      <svg viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
-      <span>老人档案</span>
-    </button>
-    <button class="tab fab-tab" data-page="upload">
-      <div class="fab">
-        <svg viewBox="0 0 24 24" width="28" height="28"><path fill="currentColor" d="M20 5h-3.17L15 3H9L7.17 5H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm-8 13c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>
-      </div>
-      <span>上传</span>
-    </button>
-    <button class="tab" data-page="meds">
-      <svg viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 3c1.93 0 3.5 1.57 3.5 3.5S13.93 13 12 13s-3.5-1.57-3.5-3.5S10.07 6 12 6zm7 13H5v-.23c0-.62.28-1.2.76-1.58C7.47 15.82 9.64 15 12 15s4.53.82 6.24 2.19c.48.38.76.97.76 1.58V19z"/></svg>
-      <span>用药</span>
-    </button>
-    <button class="tab" data-page="reminders">
-      <svg viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.89 2 2 2zm6-6v-5c0-3.07-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/></svg>
-      <span>提醒</span>
-    </button>
-  </nav>
+    let currentMember = '张伟';
 
-  <!-- 浮动按钮（快速添加） -->
-  <button class="fab-btn" id="fabQuick" style="display:none" aria-label="快速添加">
-    <svg viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
-  </button>
+    // ---------- 渲染首页 ----------
+    function renderHome(memberName) {
+        const data = healthData[memberName];
+        if (!data) return;
+        const container = document.getElementById('homeContent');
+        let html = '';
 
-  <!-- 模态框容器 -->
-  <div class="modal-mask" id="modalMask" style="display:none">
-    <div class="modal" id="modalBody"></div>
-  </div>
+        html += `<div class="card">
+            <div class="card-title"><i class="fas fa-pills"></i> 今日用药安排 <button onclick="openQuickMedEdit()" style="background:none;border:none;color:#2196F3;font-size:13px;cursor:pointer;padding:2px 8px;border-radius:4px;margin-left:auto;">✏️ 编辑</button></div>`;
+        data.medications.forEach(med => {
+            const timeClass = med.time.includes('早') ? 'morning' : med.time.includes('中') ? 'noon' : 'night';
+            const takenClass = med.taken ? 'taken' : '';
+            const btnText = med.taken ? '<i class="fas fa-check-circle"></i> 已服' : '<i class="far fa-circle"></i> 待服';
+            html += `<div class="med-schedule-item">
+                <span class="time-tag ${timeClass}">${med.time}</span>
+                <div class="med-info">
+                    <div class="name" onclick="openDrugInfo('${med.name}')">${med.name}</div>
+                    <div class="dosage">${med.dosage}</div>
+                </div>
+                <button class="med-status ${takenClass}" onclick="toggleMed(this, '${memberName}', '${med.name}')">${btnText}</button>
+            </div>`;
+        });
+        html += `<div style="margin-top:12px; font-size:14px; color:#2b7a78; background:#eaf3f2; padding:8px 14px; border-radius:50px; display:inline-block;">
+            <i class="fas fa-bell"></i> 下次提醒: ${data.nextReminder}
+        </div></div>`;
 
-  <!-- Toast 通知 -->
-  <div class="toast" id="toast"></div>
-</div>
+        const refill = data.refill;
+        const daysLeft = Math.ceil(refill.remaining / refill.daily);
+        const progress = Math.min((refill.remaining / (refill.daily * 30)) * 100, 100);
+        html += `<div class="card">
+            <div class="card-title"><i class="fas fa-calculator"></i> 开药倒计时</div>
+            <div><span style="font-weight:600;">${refill.drug}</span> <span class="badge">剩余 ${daysLeft} 天</span></div>
+            <div class="refill-progress">
+                <div class="bar-bg"><div class="bar-fill" style="width:${progress}%;"></div></div>
+                <div class="refill-date">
+                    <span>每日 ${refill.daily} 粒</span>
+                    <span>建议开药日: <i class="fas fa-calendar-alt"></i> ${refill.expiryDate}</span>
+                </div>
+            </div>
+            <div style="margin-top:12px; background:#f1f5f9; padding:10px 14px; border-radius:16px; display:flex; justify-content:space-between;">
+                <span>📦 剩余药量: ${refill.remaining} 粒</span>
+                <span style="font-weight:600; color:#0b3b5c;">可服用至 ${refill.expiryDate}</span>
+            </div>
+        </div>`;
 
+        container.innerHTML = html;
+    }
+
+    // ---------- 切换家人 ----------
+    function selectFamilyMember(name) {
+        currentMember = name;
+        document.getElementById('currentFamilyName').textContent = name;
+        document.getElementById('headerUsername').textContent = name;
+        renderHome(name);
+        closeDropdown();
+        document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+        document.getElementById('page-home').classList.add('active');
+        document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+        document.querySelector('.nav-item[data-page="page-home"]').classList.add('active');
+        document.getElementById('mainContent').scrollTop = 0;
+    }
+
+    // ---------- 下拉菜单 ----------
+    function toggleDropdown() {
+        const menu = document.getElementById('familyDropdown');
+        menu.classList.toggle('show');
+        if (menu.classList.contains('show')) renderDropdown();
+    }
+    function closeDropdown() {
+        document.getElementById('familyDropdown').classList.remove('show');
+    }
+    function renderDropdown() {
+        const menu = document.getElementById('familyDropdown');
+        let html = '';
+        familyMembers.forEach(m => {
+            const checked = m.name === currentMember ? '✓' : '';
+            html += `<button class="dropdown-item" onclick="selectFamilyMember('${m.name}')">
+                <span class="avatar-small" style="background:${m.color};">${m.avatar}</span>
+                <span>${m.name}</span>
+                ${checked ? '<span class="check"><i class="fas fa-check-circle"></i></span>' : ''}
+            </button>`;
+        });
+        html += `<div class="dropdown-divider"></div>
+            <button class="dropdown-item" onclick="openFamilyManagement()">
+                <i class="fas fa-cog" style="width:32px;text-align:center;"></i> 管理家庭
+            </button>`;
+        menu.innerHTML = html;
+    }
+    document.addEventListener('click', function(e) {
+        const btn = document.getElementById('familySelectorBtn');
+        const menu = document.getElementById('familyDropdown');
+        if (!btn.contains(e.target) && !menu.contains(e.target)) closeDropdown();
+    });
+
+    // ---------- 吃药切换 ----------
+    function toggleMed(btn, memberName, drugName) {
+        const data = healthData[memberName];
+        if (!data) return;
+        const med = data.medications.find(m => m.name === drugName);
+        if (med) med.taken = !med.taken;
+        renderHome(memberName);
+    }
+
+    // ---------- 药品说明书 ----------
+    function openDrugInfo(drugName) {
+        const page = document.getElementById('page-drug-info');
+        const title = document.getElementById('drugInfoTitle');
+        const content = document.getElementById('drugInfoContent');
+        const data = drugData[drugName];
+        if (data) {
+            title.textContent = data.title;
+            content.innerHTML = data.content;
+        } else {
+            title.textContent = drugName;
+            content.innerHTML = `<p style="color:#64748b;">暂无说明书数据。</p>`;
+        }
+        document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+        page.classList.add('active');
+        document.getElementById('mainContent').scrollTop = 0;
+    }
+    function closeDrugInfo() {
+        document.getElementById('page-drug-info').classList.remove('active');
+        document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+        document.getElementById('page-home').classList.add('active');
+        document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+        document.querySelector('.nav-item[data-page="page-home"]').classList.add('active');
+        document.getElementById('mainContent').scrollTop = 0;
+    }
+
+    // ---------- 消息 ----------
+    function openMessages() {
+        document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+        document.getElementById('page-messages').classList.add('active');
+        document.getElementById('mainContent').scrollTop = 0;
+    }
+    function closeMessages() {
+        document.getElementById('page-messages').classList.remove('active');
+        document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+        document.getElementById('page-home').classList.add('active');
+        document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+        document.querySelector('.nav-item[data-page="page-home"]').classList.add('active');
+        document.getElementById('mainContent').scrollTop = 0;
+    }
+
+    // ---------- 家庭管理 ----------
+    function openFamilyManagement() {
+        closeDropdown();
+        document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+        document.getElementById('page-family-manage').classList.add('active');
+        document.getElementById('mainContent').scrollTop = 0;
+    }
+    function closeFamilyManagement() {
+        document.getElementById('page-family-manage').classList.remove('active');
+        document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+        document.getElementById('page-home').classList.add('active');
+        document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+        document.querySelector('.nav-item[data-page="page-home"]').classList.add('active');
+        document.getElementById('mainContent').scrollTop = 0;
+    }
+
+    // ---------- 邀请 ----------
+    function openInvitePage() {
+        document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+        document.getElementById('page-invite').classList.add('active');
+        document.getElementById('mainContent').scrollTop = 0;
+    }
+    function closeInvitePage() {
+        document.getElementById('page-invite').classList.remove('active');
+        document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+        document.getElementById('page-family-manage').classList.add('active');
+        document.getElementById('mainContent').scrollTop = 0;
+    }
+    function openInviteAccept() {
+        document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+        document.getElementById('page-invite-accept').classList.add('active');
+        document.getElementById('mainContent').scrollTop = 0;
+    }
+    function closeInviteAccept() {
+        document.getElementById('page-invite-accept').classList.remove('active');
+        document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+        document.getElementById('page-home').classList.add('active');
+        document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+        document.querySelector('.nav-item[data-page="page-home"]').classList.add('active');
+        document.getElementById('mainContent').scrollTop = 0;
+    }
+    function acceptInvite() {
+        const editPerm = document.querySelector('input[name="editPerm"]:checked');
+        const allowEdit = editPerm && editPerm.id === 'editYes';
+        alert(`✅ 您已成功加入"张伟的家庭组"！\n${allowEdit ? '已授权邀请人编辑您的健康信息。' : '您选择了仅查看模式。'}`);
+        closeInviteAccept();
+    }
+
+    function toggleSwitch(el) {
+        el.classList.toggle('active');
+        const status = el.classList.contains('active') ? '已授权管理' : '未授权';
+        const parent = el.closest('.family-member');
+        const name = parent ? parent.querySelector('.member-info .name')?.innerText || '成员' : '成员';
+        alert(`🔄 已切换 ${name} 的授权状态: ${status}`);
+    }
+
+    // ---------- 扫描选择器 ----------
+    function openScanSelector() {
+        document.getElementById('scanOverlay').classList.add('show');
+    }
+    function closeScanSelector(e) {
+        if (e && e.target !== e.currentTarget) return;
+        document.getElementById('scanOverlay').classList.remove('show');
+    }
+    // 开始扫描（模拟）
+    function startScan(type) {
+        closeScanSelector();
+        // 显示模拟识别进度
+        const overlay = document.getElementById('scanOverlay');
+        // 我们利用原遮罩显示一个扫描中的临时状态（简单处理）
+        // 或直接弹出提示，然后模拟结果
+        // 为了体验，我们显示一个短时加载提示
+        const sheet = document.querySelector('.scan-sheet');
+        // 临时改变内容
+        const originalTitle = sheet.querySelector('.title');
+        const originalOptions = sheet.querySelectorAll('.scan-option');
+        const cancelBtn = sheet.querySelector('.scan-cancel');
+        // 隐藏选项和取消，显示进度
+        originalOptions.forEach(el => el.style.display = 'none');
+        cancelBtn.style.display = 'none';
+        originalTitle.innerHTML = `<i class="fas fa-spinner fa-pulse"></i> 正在识别 ${type}...`;
+
+        // 1.5秒后显示结果
+        setTimeout(() => {
+            // 恢复界面
+            originalOptions.forEach(el => el.style.display = 'flex');
+            cancelBtn.style.display = 'block';
+            originalTitle.innerHTML = '📸 选择扫描类型';
+            // 关闭遮罩
+            document.getElementById('scanOverlay').classList.remove('show');
+            // 根据类型模拟结果
+            let resultMsg = '';
+            if (type === '药品') {
+                resultMsg = '💊 识别成功：阿莫西林克拉维酸钾\n已自动录入家庭药箱！';
+                // 向药箱添加新药品（模拟）
+                addDrugToPharmacy('阿莫西林克拉维酸钾', '2028-03-14', '1盒 · 12粒/盒');
+            } else if (type === '病历') {
+                resultMsg = '📋 病历识别成功：高血压复诊记录\n已添加到病历列表。';
+                addRecord('高血压复诊（扫描识别）', '市第一人民医院 · 血压 138/88', '2026-07-11');
+            } else if (type === '处方') {
+                resultMsg = '📄 处方识别成功：阿莫西林胶囊 0.5g\n已关联到用药计划。';
+                // 可以添加用药提醒（简化）
+            } else if (type === '报告') {
+                resultMsg = '📊 报告识别成功：血常规报告\n已添加到电子报告列表。';
+                addReport('血常规报告（扫描）', '2026-07-11 · 体检中心');
+            }
+            alert(resultMsg);
+        }, 1500);
+    }
+
+    // 辅助：添加药品到药箱
+    function addDrugToPharmacy(name, expiry, qty) {
+        const list = document.getElementById('drugList');
+        const item = document.createElement('div');
+        item.className = 'drug-item';
+        item.innerHTML = `
+            <div class="drug-icon"><i class="fas fa-capsules"></i></div>
+            <div class="drug-info">
+                <div class="dname">${name}</div>
+                <div class="dexp">📅 过期: ${expiry} <span style="color:#16a34a; margin-left:6px;">✔ 有效</span></div>
+                <div class="qty">${qty}</div>
+            </div>
+        `;
+        list.appendChild(item);
+        // 更新药品数量
+        const countBadge = document.getElementById('drugCount');
+        const currentCount = parseInt(countBadge.textContent);
+        countBadge.textContent = (currentCount + 1) + ' 种';
+    }
+
+    // 辅助：添加病历
+    function addRecord(title, sub, date) {
+        const list = document.getElementById('recordsList');
+        const item = document.createElement('div');
+        item.className = 'record-item';
+        item.innerHTML = `
+            <span class="date">${date}</span>
+            <div class="title">${title}</div>
+            <div class="sub">${sub}</div>
+        `;
+        list.appendChild(item);
+    }
+
+    // 辅助：添加报告
+    function addReport(name, desc) {
+        const list = document.getElementById('reportsList');
+        const item = document.createElement('div');
+        item.className = 'report-item';
+        item.innerHTML = `
+            <div class="icon"><i class="fas fa-file-alt"></i></div>
+            <div class="info">
+                <div class="name">${name}</div>
+                <div class="desc">${desc}</div>
+            </div>
+            <i class="fas fa-chevron-right" style="color:#94a3b8;"></i>
+        `;
+        list.appendChild(item);
+    }
+
+    // 药箱中原有的扫描模拟（保留）
+    function simulateDrugScan() {
+        const resultDiv = document.getElementById('drugScanResult');
+        resultDiv.style.display = 'block';
+        resultDiv.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        setTimeout(() => {
+            alert('📸 识别成功! 药品信息已录入家庭药箱，过期提醒已自动设置。');
+        }, 300);
+    }
+
+    // ---------- 用药编辑和历史 ----------
+    function openQuickMedEdit() {
+        const data = DB.getAll();
+        const today = DB.today();
+        const activeMeds = data.medications.filter(m => (!m.endDate || m.endDate >= today) && m.status === 'active');
+
+        if (activeMeds.length === 0) {
+            alert('暂无用药计划，请先添加');
+            return;
+        }
+
+        let medsListHtml = activeMeds.map(m => `
+            <div class="med-schedule-item" style="cursor:pointer;" onclick="App.openMedicationForm('${m.id}')">
+                <span class="time-tag">${(m.times || [])[0] || '-'}</span>
+                <div class="med-info">
+                    <div class="name">${m.name}</div>
+                    <div class="dosage">${m.dose || '-'} · ${m.frequency || '-'}</div>
+                </div>
+                <i class="fas fa-chevron-right" style="color:#94a3b8;"></i>
+            </div>
+        `).join('');
+
+        // 使用简单的弹窗代替复杂的模态框
+        const modalHtml = `
+            <div style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:300;display:flex;align-items:center;justify-content:center;padding:20px;" onclick="closeMedEditModal(event)">
+                <div style="background:white;border-radius:24px;padding:20px;max-width:380px;width:100%;" onclick="event.stopPropagation();">
+                    <div style="font-size:18px;font-weight:700;margin-bottom:16px;">✏️ 编辑用药安排</div>
+                    <p style="font-size:13px;color:#666;margin-bottom:12px;">点击下方用药可编辑</p>
+                    ${medsListHtml}
+                    <div style="margin-top:16px;">
+                        <button class="btn-outline" onclick="App.openMedicationForm()" style="width:100%;">+ 添加新用药</button>
+                    </div>
+                    <div style="margin-top:12px;">
+                        <button onclick="viewMedHistory()" style="width:100%;background:#f1f5f9;border:none;padding:14px;border-radius:60px;font-weight:600;font-size:16px;cursor:pointer;">📋 查看用药历史</button>
+                    </div>
+                    <div style="margin-top:12px;">
+                        <button onclick="closeMedEditModal()" style="width:100%;background:#94a3b8;color:white;border:none;padding:14px;border-radius:60px;font-weight:600;font-size:16px;cursor:pointer;">关闭</button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        const modalDiv = document.createElement('div');
+        modalDiv.id = 'medEditModal';
+        modalDiv.innerHTML = modalHtml;
+        document.body.appendChild(modalDiv);
+    }
+
+    function closeMedEditModal(e) {
+        if (e && e.target !== e.currentTarget) return;
+        const modal = document.getElementById('medEditModal');
+        if (modal) modal.remove();
+    }
+
+    function viewMedHistory() {
+        closeMedEditModal();
+        const history = DB.getMedHistory();
+
+        if (history.length === 0) {
+            alert('暂无用药历史记录');
+            return;
+        }
+
+        let historyHtml = history.slice(0, 20).map(h => `
+            <div style="padding:12px 0;border-bottom:1px solid #f1f5f9;">
+                <div style="display:flex;justify-content:space-between;">
+                    <span style="font-weight:600;">${h.medName}</span>
+                    <span style="font-size:11px;color:#999;">${h.changedAt?.slice(0, 10) || ''}</span>
+                </div>
+                <div style="font-size:12px;margin-top:4px;">
+                    ${h.changeType === 'create' ? '➕ 新增' : h.changeType === 'update' ? '✏️ 修改' : '🗑️ 删除'}
+                </div>
+                ${h.oldValue ? `<div style="font-size:11px;color:#999;">原: ${h.oldValue.dose || '-'} · ${(h.oldValue.times || []).join(', ')}</div>` : ''}
+                ${h.newValue ? `<div style="font-size:11px;color:#4CAF50;">现: ${h.newValue.dose || '-'} · ${(h.newValue.times || []).join(', ')}</div>` : ''}
+            </div>
+        `).join('');
+
+        const modalHtml = `
+            <div style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:300;display:flex;align-items:center;justify-content:center;padding:20px;" onclick="closeMedHistoryModal(event)">
+                <div style="background:white;border-radius:24px;padding:20px;max-width:380px;width:100%;max-height:80vh;overflow-y:auto;" onclick="event.stopPropagation();">
+                    <div style="font-size:18px;font-weight:700;margin-bottom:16px;">📋 用药历史记录</div>
+                    <p style="font-size:12px;color:#999;margin-bottom:8px;">显示最近 20 条变更记录</p>
+                    ${historyHtml}
+                    <div style="margin-top:12px;">
+                        <button onclick="closeMedHistoryModal()" style="width:100%;background:#2b7a78;color:white;border:none;padding:14px;border-radius:60px;font-weight:600;font-size:16px;cursor:pointer;">关闭</button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        const modalDiv = document.createElement('div');
+        modalDiv.id = 'medHistoryModal';
+        modalDiv.innerHTML = modalHtml;
+        document.body.appendChild(modalDiv);
+    }
+
+    function closeMedHistoryModal(e) {
+        if (e && e.target !== e.currentTarget) return;
+        const modal = document.getElementById('medHistoryModal');
+        if (modal) modal.remove();
+    }
+
+    window.openQuickMedEdit = openQuickMedEdit;
+    window.closeMedEditModal = closeMedEditModal;
+    window.viewMedHistory = viewMedHistory;
+    window.closeMedHistoryModal = closeMedHistoryModal;
+
+    // ---------- 底部导航切换 ----------
+    document.querySelectorAll('.nav-item:not(.camera-btn)').forEach(item => {
+        item.addEventListener('click', function(e) {
+            const pageId = this.dataset.page;
+            if (!pageId) return;
+            closeAllSpecialPages();
+            document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+            document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+            document.getElementById(pageId).classList.add('active');
+            this.classList.add('active');
+            if (pageId === 'page-home') {
+                renderHome(currentMember);
+                document.getElementById('headerUsername').textContent = currentMember;
+                document.getElementById('currentFamilyName').textContent = currentMember;
+            } else {
+                document.getElementById('headerUsername').textContent = currentMember;
+            }
+            document.getElementById('mainContent').scrollTop = 0;
+        });
+    });
+
+    function closeAllSpecialPages() {
+        ['page-messages', 'page-family-manage', 'page-invite', 'page-invite-accept', 'page-drug-info'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.classList.remove('active');
+        });
+    }
+
+    // ---------- 初始化 ----------
+    renderHome('张伟');
+    document.getElementById('currentFamilyName').textContent = '张伟';
+    document.getElementById('headerUsername').textContent = '张伟';
+
+    // 暴露全局
+    window.selectFamilyMember = selectFamilyMember;
+    window.toggleDropdown = toggleDropdown;
+    window.toggleMed = toggleMed;
+    window.openDrugInfo = openDrugInfo;
+    window.closeDrugInfo = closeDrugInfo;
+    window.openMessages = openMessages;
+    window.closeMessages = closeMessages;
+    window.openFamilyManagement = openFamilyManagement;
+    window.closeFamilyManagement = closeFamilyManagement;
+    window.openInvitePage = openInvitePage;
+    window.closeInvitePage = closeInvitePage;
+    window.openInviteAccept = openInviteAccept;
+    window.closeInviteAccept = closeInviteAccept;
+    window.acceptInvite = acceptInvite;
+    window.toggleSwitch = toggleSwitch;
+    window.openScanSelector = openScanSelector;
+    window.closeScanSelector = closeScanSelector;
+    window.startScan = startScan;
+    window.simulateDrugScan = simulateDrugScan;
+
+    console.log('🏥 家庭健康中心已启动！点击中间拍照按钮可扫描识别。');
+</script>
+<script src="js/api.js"></script>
 <script src="js/storage.js"></script>
 <script src="js/ocr.js"></script>
-<script src="js/app.js"></script>
-
 </body>
 </html>
