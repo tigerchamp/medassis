@@ -31,9 +31,17 @@ async function register(req, res) {
     // 创建用户
     const userId = uuidv4();
     const hashedPassword = await bcrypt.hash(password, 10);
+    const avatar = name.charAt(0);
     await getPool().query(
-      'INSERT INTO users (id, name, phone, password, role, family_id) VALUES (?, ?, ?, ?, ?, ?)',
-      [userId, name, phone || null, hashedPassword, 'admin', familyId]
+      'INSERT INTO users (id, name, phone, password, role, family_id, avatar, authorized) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [userId, name, phone || null, hashedPassword, 'admin', familyId, avatar, true]
+    );
+
+    // 自动创建一条"自己"的成员档案
+    const selfElderId = uuidv4();
+    await getPool().query(
+      'INSERT INTO elders (id, family_id, user_id, name, gender, avatar, relation) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [selfElderId, familyId, userId, name, '男', avatar, 'self']
     );
 
     // 生成token
@@ -45,7 +53,7 @@ async function register(req, res) {
 
     res.json({
       token,
-      user: { id: userId, name, phone, role: 'admin' },
+      user: { id: userId, name, phone, role: 'admin', familyId, avatar, authorized: true },
       family: { id: familyId, name: '我的家庭', inviteCode }
     });
   } catch (err) {
@@ -89,7 +97,10 @@ async function login(req, res) {
         id: user.id,
         name: user.name,
         phone: user.phone,
-        role: user.role
+        role: user.role,
+        familyId: user.family_id,
+        avatar: user.avatar,
+        authorized: !!user.authorized
       },
       family: families[0] || null
     });
@@ -110,7 +121,10 @@ async function getProfile(req, res) {
         id: user.id,
         name: user.name,
         phone: user.phone,
-        role: user.role
+        role: user.role,
+        familyId: user.family_id,
+        avatar: user.avatar,
+        authorized: !!user.authorized
       },
       family: families[0] || null
     });
@@ -178,7 +192,7 @@ async function getFamilyMembers(req, res) {
   try {
     const familyId = req.familyId;
     const [members] = await getPool().query(
-      'SELECT id, name, phone, role, created_at FROM users WHERE family_id = ?',
+      'SELECT id, name, phone, role, authorized, avatar, created_at FROM users WHERE family_id = ?',
       [familyId]
     );
 
@@ -189,11 +203,53 @@ async function getFamilyMembers(req, res) {
   }
 }
 
+// 更新家庭组信息
+async function updateFamily(req, res) {
+  try {
+    const familyId = req.familyId;
+    const { name } = req.body;
+
+    if (name) {
+      await getPool().query('UPDATE families SET name = ? WHERE id = ?', [name, familyId]);
+    }
+
+    const [families] = await getPool().query('SELECT * FROM families WHERE id = ?', [familyId]);
+    res.json({ family: families[0] || null });
+  } catch (err) {
+    console.error('Update family error:', err);
+    res.status(500).json({ error: '更新家庭信息失败' });
+  }
+}
+
+// 切换成员授权状态
+async function toggleAuthorization(req, res) {
+  try {
+    const { userId } = req.params;
+    const familyId = req.familyId;
+
+    // 检查目标用户是否在同一家庭
+    const [users] = await getPool().query('SELECT * FROM users WHERE id = ? AND family_id = ?', [userId, familyId]);
+    if (users.length === 0) {
+      return res.status(404).json({ error: '用户不存在' });
+    }
+
+    const newStatus = !users[0].authorized;
+    await getPool().query('UPDATE users SET authorized = ? WHERE id = ?', [newStatus, userId]);
+
+    res.json({ userId, authorized: newStatus });
+  } catch (err) {
+    console.error('Toggle authorization error:', err);
+    res.status(500).json({ error: '更新授权状态失败' });
+  }
+}
+
 module.exports = {
   register,
   login,
   getProfile,
   updateProfile,
   joinFamily,
-  getFamilyMembers
+  getFamilyMembers,
+  updateFamily,
+  toggleAuthorization
 };

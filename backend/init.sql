@@ -16,8 +16,10 @@ CREATE TABLE IF NOT EXISTS users (
   name VARCHAR(50) NOT NULL COMMENT '姓名',
   phone VARCHAR(20) COMMENT '手机号',
   password VARCHAR(255) NOT NULL COMMENT '密码（加密）',
-  role ENUM('admin', 'member', 'readonly') DEFAULT 'member' COMMENT '角色：admin=管理员 member=成员 readonly=只读',
+  role ENUM('admin', 'member', 'readonly') DEFAULT 'member' COMMENT '角色',
   family_id VARCHAR(36) COMMENT '所属家庭ID',
+  authorized BOOLEAN DEFAULT FALSE COMMENT '是否允许他人代为编辑',
+  avatar VARCHAR(10) COMMENT '头像（姓名首字或emoji）',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   INDEX idx_family (family_id),
@@ -31,6 +33,7 @@ CREATE TABLE IF NOT EXISTS families (
   id VARCHAR(36) PRIMARY KEY COMMENT '家庭ID',
   name VARCHAR(100) NOT NULL DEFAULT '我的家庭' COMMENT '家庭名称',
   invite_code VARCHAR(20) UNIQUE COMMENT '邀请码',
+  invite_expiry DATETIME COMMENT '邀请有效期',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='家庭表';
@@ -95,7 +98,7 @@ CREATE TABLE IF NOT EXISTS medications (
   note TEXT COMMENT '备注',
   source_prescription_id VARCHAR(36) COMMENT '来源药方ID',
   reminder BOOLEAN DEFAULT TRUE COMMENT '是否提醒',
-  status ENUM('active', 'ended') DEFAULT 'active' COMMENT '状态：active=进行中 ended=已结束',
+  status ENUM('active', 'ended') DEFAULT 'active' COMMENT '状态',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   INDEX idx_elder (elder_id),
@@ -119,7 +122,29 @@ CREATE TABLE IF NOT EXISTS med_logs (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='服药记录表';
 
 -- =========================================
--- 7. 文件表（MinIO元数据）
+-- 7. 药品库存表（药箱）
+-- =========================================
+CREATE TABLE IF NOT EXISTS drug_inventory (
+  id VARCHAR(36) PRIMARY KEY COMMENT '库存ID',
+  family_id VARCHAR(36) NOT NULL COMMENT '所属家庭ID',
+  elder_id VARCHAR(36) COMMENT '关联老人ID（可选）',
+  name VARCHAR(100) NOT NULL COMMENT '药品名称',
+  specification VARCHAR(100) COMMENT '规格（如 20粒/盒）',
+  quantity INT DEFAULT 1 COMMENT '数量（盒/支）',
+  expiry_date DATE COMMENT '有效期',
+  status ENUM('valid', 'expiring_soon', 'expired') DEFAULT 'valid' COMMENT '状态',
+  source_prescription_id VARCHAR(36) COMMENT '来源处方ID',
+  note TEXT COMMENT '备注',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  INDEX idx_family (family_id),
+  INDEX idx_elder (elder_id),
+  INDEX idx_status (status),
+  INDEX idx_expiry (expiry_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='药品库存表';
+
+-- =========================================
+-- 8. 文件表（MinIO元数据）
 -- =========================================
 CREATE TABLE IF NOT EXISTS files (
   id VARCHAR(36) PRIMARY KEY COMMENT '文件ID',
@@ -131,22 +156,6 @@ CREATE TABLE IF NOT EXISTS files (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '上传时间',
   INDEX idx_family (family_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='文件表';
-
--- =========================================
--- 示例数据（可选，取消注释执行）
--- =========================================
-
--- 插入示例家庭
--- INSERT INTO families (id, name, invite_code) VALUES
--- ('fam_001', '我的家庭', 'ABC123');
-
--- 插入示例用户（密码是 123456 的 bcrypt 哈希）
--- INSERT INTO users (id, name, phone, password, role, family_id) VALUES
--- ('user_001', '管理员', '13800000000', '$2a$10$XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX', 'admin', 'fam_001');
-
--- 插入示例老人
--- INSERT INTO elders (id, family_id, name, gender, age, blood_type, allergies, conditions) VALUES
--- ('elder_001', 'fam_001', '张爷爷', '男', 72, 'A型', '青霉素、海鲜', '高血压3级、2型糖尿病、冠心病');
 
 -- =========================================
 -- 完成

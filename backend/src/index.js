@@ -12,17 +12,22 @@ const recordRoutes = require('./routes/records');
 const medicationRoutes = require('./routes/medications');
 const searchRoutes = require('./routes/search');
 const uploadRoutes = require('./routes/upload');
+const drugRoutes = require('./routes/drugs');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const path = require('path');
 
 // 中间件
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:8080',
+  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
   credentials: true
 }));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+
+// 静态文件（前端）
+app.use(express.static(path.join(__dirname, '../../')));
 
 // 路由
 app.use('/api/auth', authRoutes);
@@ -31,6 +36,7 @@ app.use('/api/records', recordRoutes);
 app.use('/api/medications', medicationRoutes);
 app.use('/api/search', searchRoutes);
 app.use('/api/upload', uploadRoutes);
+app.use('/api/drugs', drugRoutes);
 
 // 健康检查
 app.get('/api/health', (req, res) => {
@@ -52,13 +58,25 @@ app.use((err, req, res, next) => {
 // 启动服务器
 async function startServer() {
   try {
-    // 初始化数据库
-    await initDatabase();
-    console.log('数据库初始化完成');
+    // 如果传了 --rebuild 参数，重建数据库
+    const shouldRebuild = process.argv.includes('--rebuild');
+    if (shouldRebuild) {
+      const { rebuildDatabase } = require('./config/database');
+      await rebuildDatabase();
+      console.log('数据库重建完成');
+    } else {
+      await initDatabase();
+      console.log('数据库初始化完成');
+    }
 
     // 初始化 MinIO bucket
-    await ensureBucket();
-    console.log('MinIO 初始化完成');
+    try {
+      await ensureBucket();
+      console.log('MinIO 初始化完成');
+    } catch (err) {
+      console.log('MinIO 初始化失败:', err.message);
+      console.log('文件上传功能将不可用，请检查 MinIO 配置');
+    }
 
     app.listen(PORT, () => {
       console.log(`服务器运行在 http://localhost:${PORT}`);
