@@ -199,7 +199,7 @@
           <div class="quick-item" onclick="App.goTo('settings')"><div class="quick-icon">⚙️</div><span>设置</span></div>
         </div>
       </div>
-      <div class="card"><h3 class="card-title">今日用药 <small style="color:#4CAF50;cursor:pointer;" onclick="App.goTo('meds')">查看全部 →</small></h3>${upcomingHtml}</div>
+      <div class="card"><h3 class="card-title">今日用药 <small style="color:#4CAF50;cursor:pointer;" onclick="App.goTo('meds')">查看全部 →</small><button onclick="App.openQuickMedEdit(event)" style="background:none;border:none;color:#2196F3;font-size:13px;cursor:pointer;padding:2px 8px;border-radius:4px;"><span>✏️ 编辑</span></button></h3>${upcomingHtml}</div>
       <div class="card"><h3 class="card-title">最近病历 <small style="color:#4CAF50;cursor:pointer;" onclick="App.goTo('records')">查看全部 →</small></h3>${recentHtml}</div>
       <div class="card"><h3 class="card-title">家人档案</h3>${eldersHtml}</div>
       <div style="height:24px;"></div>
@@ -1400,6 +1400,72 @@
     }, 30000);
   }
 
+  // ============ 首页快速编辑用药 ============
+  function openQuickMedEdit(e) {
+    if (e) e.stopPropagation();
+    const data = DB.getAll();
+    const today = DB.today();
+    const activeMeds = data.medications.filter(m => (!m.endDate || m.endDate >= today) && m.status === 'active');
+
+    if (activeMeds.length === 0) {
+      toast('暂无用药计划，请先添加');
+      return;
+    }
+
+    const medsListHtml = activeMeds.map(m => `
+      <div class="med-card" style="margin:8px 0;box-shadow:none;background:#F9F9F9;cursor:pointer;" onclick="App.openMedicationForm('${m.id}')">
+        <div class="med-head"><h4 class="med-name">${escapeHtml(m.name)}</h4><span class="med-status active">进行中</span></div>
+        <div class="med-detail">${escapeHtml(m.dose || '-')} · ${escapeHtml(m.frequency || '-')}</div>
+        <div class="med-times">${(m.times || []).map(t => `<span class="med-time">⏰ ${escapeHtml(t)}</span>`).join('')}</div>
+      </div>
+    `).join('');
+
+    showModal(`
+      <div class="modal-head"><h3>✏️ 编辑用药安排</h3><button class="modal-close" onclick="App.closeModal()">×</button></div>
+      <p style="font-size:13px;color:#666;margin:0 0 12px;">点击下方用药可编辑，修改后会自动保存历史记录</p>
+      ${medsListHtml}
+      <div style="margin-top:16px;">
+        <button class="btn btn-outline btn-block" onclick="App.openMedicationForm()">+ 添加新用药</button>
+      </div>
+      <div style="margin-top:12px;">
+        <button class="btn btn-block" style="background:#9E9E9E;" onclick="App.viewMedHistory()">📋 查看用药历史</button>
+      </div>
+    `);
+  }
+
+  function viewMedHistory() {
+    const history = DB.getMedHistory();
+    closeModal();
+
+    if (history.length === 0) {
+      toast('暂无用药历史记录');
+      return;
+    }
+
+    const historyHtml = history.slice(0, 20).map(h => `
+      <div class="med-card" style="margin:8px 0;box-shadow:none;background:#FAFAFA;">
+        <div class="med-head">
+          <h4 class="med-name">${escapeHtml(h.medName)}</h4>
+          <span style="font-size:11px;color:#999;">${escapeHtml(h.changedAt?.slice(0, 10) || '')}</span>
+        </div>
+        <div class="med-detail" style="font-size:12px;">
+          ${h.changeType === 'create' ? '➕ 新增' : h.changeType === 'update' ? '✏️ 修改' : '🗑️ 删除'}
+        </div>
+        ${h.oldValue ? `<div style="font-size:11px;color:#999;margin-top:4px;">原: ${escapeHtml(h.oldValue.dose || '-')} · ${(h.oldValue.times || []).join(', ')}</div>` : ''}
+        ${h.newValue ? `<div style="font-size:11px;color:#4CAF50;margin-top:2px;">现: ${escapeHtml(h.newValue.dose || '-')} · ${(h.newValue.times || []).join(', ')}</div>` : ''}
+      </div>
+    `).join('');
+
+    showModal(`
+      <div class="modal-head"><h3>📋 用药历史记录</h3><button class="modal-close" onclick="App.closeModal()">×</button></div>
+      <p style="font-size:12px;color:#999;margin:0 0 8px;">显示最近 20 条变更记录</p>
+      ${historyHtml}
+      <div style="margin-top:12px;">
+        <button class="btn btn-block" onclick="App.closeModal()">关闭</button>
+      </div>
+    `);
+  }
+
   // ============ 公开 API ============
   window.App = {
     goTo, openElderForm, saveElder, confirmDeleteElder,
@@ -1411,7 +1477,8 @@
     openMemberForm, saveMember,
     openProfileForm, saveProfile,
     openExportModal, exportReport, exportAllJson, confirmReset, toggleFontSize,
-    closeModal
+    closeModal,
+    openQuickMedEdit, viewMedHistory
   };
 
   // ============ 登录/注册 ============
@@ -1535,6 +1602,15 @@
       location.reload();
     }
   }
+
+  // 将登录相关函数暴露到全局作用域，供 HTML onclick 调用
+  window.showLoginTab = showLoginTab;
+  window.doLogin = doLogin;
+  window.doRegister = doRegister;
+  window.skipLogin = skipLogin;
+  window.showJoinFamily = showJoinFamily;
+  window.hideJoinFamily = hideJoinFamily;
+  window.doJoinFamily = doJoinFamily;
 
   window.addEventListener('auth_required', () => {
     showLoginPage();

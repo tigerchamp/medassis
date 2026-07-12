@@ -24,6 +24,7 @@
     prescriptions: [],
     medications: [],
     medLogs: [],
+    medHistory: [], // 用药变更历史记录
     notes: [],
     settings: {
       fontSize: 'normal',
@@ -413,6 +414,19 @@
       if (med.status === undefined) med.status = 'active';
       if (med.reminder === undefined) med.reminder = true;
       data.medications.push(med);
+      
+      // 记录用药历史
+      if (!data.medHistory) data.medHistory = [];
+      data.medHistory.push({
+        id: uid('medhist'),
+        medId: med.id,
+        medName: med.name,
+        changeType: 'create',
+        oldValue: null,
+        newValue: { dose: med.dose, frequency: med.frequency, times: med.times, startDate: med.startDate, endDate: med.endDate },
+        changedAt: now()
+      });
+      
       saveData(data);
 
       if (IS_ONLINE_MODE && API.isLoggedIn()) {
@@ -425,7 +439,21 @@
       const data = loadData();
       const idx = data.medications.findIndex(m => m.id === id);
       if (idx >= 0) {
+        const oldMed = { ...data.medications[idx] };
         data.medications[idx] = { ...data.medications[idx], ...patch, updatedAt: now() };
+        
+        // 记录用药历史
+        if (!data.medHistory) data.medHistory = [];
+        data.medHistory.push({
+          id: uid('medhist'),
+          medId: id,
+          medName: data.medications[idx].name,
+          changeType: 'update',
+          oldValue: { dose: oldMed.dose, frequency: oldMed.frequency, times: oldMed.times, startDate: oldMed.startDate, endDate: oldMed.endDate },
+          newValue: { dose: patch.dose || oldMed.dose, frequency: patch.frequency || oldMed.frequency, times: patch.times || oldMed.times, startDate: patch.startDate || oldMed.startDate, endDate: patch.endDate || oldMed.endDate },
+          changedAt: now()
+        });
+        
         saveData(data);
 
         if (IS_ONLINE_MODE && API.isLoggedIn()) {
@@ -438,6 +466,22 @@
     },
     deleteMedication(id) {
       const data = loadData();
+      const med = data.medications.find(m => m.id === id);
+      
+      if (med) {
+        // 记录用药历史（删除）
+        if (!data.medHistory) data.medHistory = [];
+        data.medHistory.push({
+          id: uid('medhist'),
+          medId: id,
+          medName: med.name,
+          changeType: 'delete',
+          oldValue: { dose: med.dose, frequency: med.frequency, times: med.times, startDate: med.startDate, endDate: med.endDate },
+          newValue: null,
+          changedAt: now()
+        });
+      }
+      
       data.medications = data.medications.filter(m => m.id !== id);
       data.medLogs = data.medLogs.filter(l => l.medId !== id);
       saveData(data);
@@ -546,6 +590,12 @@
       data.family.members.push(member);
       saveData(data);
       return member;
+    },
+
+    // 用药历史记录
+    getMedHistory() {
+      const data = loadData();
+      return (data.medHistory || []).sort((a, b) => (b.changedAt || '').localeCompare(a.changedAt || ''));
     },
 
     // 会话
