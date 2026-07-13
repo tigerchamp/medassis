@@ -7,67 +7,13 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - DB_HOST=mysql
-      - DB_PORT=3306
-      - MINIO_ENDPOINT=minio
-      - MINIO_PORT=9000
-      - FRONTEND_URL=http://localhost:3000
+      - DB_HOST=host.docker.internal
+      - MINIO_ENDPOINT=host.docker.internal
     env_file:
       - .env
-    depends_on:
-      mysql:
-        condition: service_healthy
-      minio:
-        condition: service_healthy
     restart: unless-stopped
     networks:
       - medassis-network
-
-  mysql:
-    image: mysql:8.0
-    container_name: medassis-mysql
-    ports:
-      - "3306:3306"
-    environment:
-      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
-      MYSQL_DATABASE: ${DB_NAME}
-      MYSQL_USER: ${DB_USER}
-      MYSQL_PASSWORD: ${DB_PASSWORD}
-    volumes:
-      - mysql-data:/var/lib/mysql
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "--silent"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
-    networks:
-      - medassis-network
-
-  minio:
-    image: minio/minio:latest
-    container_name: medassis-minio
-    ports:
-      - "9000:9000"
-      - "9001:9001"
-    environment:
-      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY}
-      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY}
-    volumes:
-      - minio-data:/data
-    command: server /data --console-address ":9001"
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
-    networks:
-      - medassis-network
-
-volumes:
-  mysql-data:
-  minio-data:
 
 networks:
   medassis-network:
