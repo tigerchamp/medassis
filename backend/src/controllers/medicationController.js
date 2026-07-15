@@ -1,6 +1,8 @@
 const { getPool } = require('../config/database');
 const { v4: uuidv4 } = require('uuid');
 
+function fmtDate(d) { return d instanceof Date ? d.toISOString().slice(0, 10) : d; }
+
 // 获取用药列表
 async function getMedications(req, res) {
   try {
@@ -32,8 +34,8 @@ async function getMedications(req, res) {
       dose: m.dose,
       frequency: m.frequency,
       times: typeof m.times === 'string' ? JSON.parse(m.times) : (m.times || []),
-      startDate: m.start_date,
-      endDate: m.end_date,
+      startDate: fmtDate(m.start_date),
+      endDate: fmtDate(m.end_date),
       note: m.note,
       sourcePrescriptionId: m.source_prescription_id,
       reminder: !!m.reminder,

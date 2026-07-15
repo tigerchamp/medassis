@@ -41,7 +41,7 @@ async function register(req, res) {
     const selfElderId = uuidv4();
     await getPool().query(
       'INSERT INTO elders (id, family_id, user_id, name, gender, avatar, relation) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      [selfElderId, familyId, userId, name, '男', avatar, 'self']
+      [selfElderId, familyId, userId, name, '未知', avatar, 'self']
     );
 
     // 生成token

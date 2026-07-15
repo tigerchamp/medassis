@@ -66,7 +66,7 @@ async function addElder(req, res) {
     await getPool().query(
       `INSERT INTO elders (id, family_id, name, gender, age, blood_type, allergies, conditions, phone, avatar, relation)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, familyId, name, gender || '男', age || 0, bloodType || null, allergies || null, conditions || null, phone || null, elderAvatar, relation || 'other']
+      [id, familyId, name, gender || '未知', age || 0, bloodType || null, allergies || null, conditions || null, phone || null, elderAvatar, relation || 'other']
     );
 
     const [elders] = await getPool().query('SELECT * FROM elders WHERE id = ?', [id]);

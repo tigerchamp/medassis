@@ -4,6 +4,11 @@ const OCR_TEMPLATES = {
         { diagnosis: '高血压3级', hospital: '市中心医院', department: '心内科', chiefComplaint: '头晕、头痛伴乏力1周', metrics: [{ name: '收缩压', value: '155', unit: 'mmHg', ref: '90-140', abnormal: true }, { name: '舒张压', value: '95', unit: 'mmHg', ref: '60-90', abnormal: true }, { name: '空腹血糖', value: '7.8', unit: 'mmol/L', ref: '3.9-6.1', abnormal: true }], orders: '低盐低脂饮食，规律服药，监测血压血糖，1周后复诊。' },
         { diagnosis: '2型糖尿病', hospital: '人民医院', department: '内分泌科', chiefComplaint: '多饮多尿伴体重下降2月', metrics: [{ name: '空腹血糖', value: '9.1', unit: 'mmol/L', ref: '3.9-6.1', abnormal: true }, { name: '糖化血红蛋白', value: '8.2', unit: '%', ref: '4.0-6.0', abnormal: true }], orders: '糖尿病饮食，规律降糖药物治疗，每周监测血糖2-3次。' },
     ],
+    report: [
+        { diagnosis: '胸部CT平扫', hospital: '市中心医院', department: '影像科', findings: '双肺纹理清晰，右肺中叶见小斑片状磨玻璃影，边界模糊，约8mm×6mm，余肺野未见明显实变及结节。纵隔居中，心影大小形态未见明显异常。双侧胸腔未见积液征象。', conclusion: '右肺中叶磨玻璃结节，建议6个月后CT复查随访。' },
+        { diagnosis: '腹部超声检查', hospital: '人民医院', department: '超声科', findings: '肝脏形态正常，实质回声均匀，未见明显占位性病变。胆囊大小正常，壁光滑，腔内未见异常回声。胰腺显示清晰，未见异常。双肾形态正常，皮髓质分界清，未见明显积水及占位。', conclusion: '腹部超声未见明显异常。' },
+        { diagnosis: '头颅MRI平扫', hospital: '省立医院', department: '影像科', findings: '双侧大脑半球对称，脑灰白质分界清。双侧基底节区可见小点状长T2信号影，FLAIR呈高信号，最大径约3mm。脑室系统无扩张，中线结构居中。小脑及脑干未见明显异常信号。', conclusion: '双侧基底节区腔隙性脑梗塞，建议结合临床定期随访。' },
+    ],
     medication: [
         { name: '苯磺酸氨氯地平片', dose: '5mg', frequency: '每日1次', times: ['08:00'], note: '晨起服用' },
         { name: '二甲双胍缓释片', dose: '0.5g', frequency: '每日2次', times: ['08:00', '20:00'], note: '餐中或餐后服用' },
@@ -118,6 +123,7 @@ const App = {
             addDrug: () => PageAddDrug.render(),
             recordDetail: () => PageRecordDetail.render(),
             elderDetail: () => PageElderDetail.render(),
+            profileEdit: () => PageProfileEdit.render(),
         };
         return (pages[page] || pages.home)();
     },
@@ -201,16 +207,16 @@ const App = {
         await new Promise(r => setTimeout(r, 1500));
         const today = new Date().toISOString().slice(0, 10);
 
-        if (type === '病历' || type === '报告') {
+        if (type === '病历') {
             const result = pick(OCR_TEMPLATES.record);
             this.closeModal();
             this.openModal(`
                 <div style="display:flex;align-items:center;margin-bottom:16px;">
-                    <h3 style="flex:1;margin:0;">识别结果 - ${type}</h3>
-                    <button class="btn-outline" style="width:auto;padding:6px 12px;font-size:13px;" onclick="App.switchToScan('${type}')"><i class="fas fa-camera"></i> 重新扫描</button>
+                    <h3 style="flex:1;margin:0;">识别结果 - 病历</h3>
+                    <button class="btn-outline" style="width:auto;padding:6px 12px;font-size:13px;" onclick="App.switchToScan('病历')"><i class="fas fa-camera"></i> 重新扫描</button>
                 </div>
                 <div class="form-group"><label>关联成员</label><select id="ocr-record-elder">${this._memberOptions()}</select></div>
-                <div class="form-group"><label>类型</label><select id="ocr-record-type"><option ${type === '病历' ? 'selected' : ''}>病历</option><option ${type === '报告' ? 'selected' : ''}>检查报告</option></select></div>
+                <div class="form-group"><label>类型</label><select id="ocr-record-type"><option selected>病历</option><option>检查报告</option></select></div>
                 <div class="form-group"><label>就诊日期</label><input id="ocr-record-date" type="date" value="${today}"></div>
                 <div class="form-group"><label>医院</label><input id="ocr-hospital" value="${result.hospital}"></div>
                 <div class="form-group"><label>科室</label><input id="ocr-department" value="${result.department}"></div>
@@ -221,6 +227,26 @@ const App = {
                 <button class="btn-outline" style="margin-top:8px;" onclick="App.closeModal()">取消</button>
             `);
             App._ocrMetrics = result.metrics;
+        } else if (type === '报告') {
+            const result = pick(OCR_TEMPLATES.report);
+            this.closeModal();
+            this.openModal(`
+                <div style="display:flex;align-items:center;margin-bottom:16px;">
+                    <h3 style="flex:1;margin:0;">识别结果 - 检查报告</h3>
+                    <button class="btn-outline" style="width:auto;padding:6px 12px;font-size:13px;" onclick="App.switchToScan('报告')"><i class="fas fa-camera"></i> 重新扫描</button>
+                </div>
+                <div class="form-group"><label>关联成员</label><select id="ocr-record-elder">${this._memberOptions()}</select></div>
+                <div class="form-group"><label>类型</label><select id="ocr-record-type"><option>病历</option><option selected>检查报告</option></select></div>
+                <div class="form-group"><label>检查日期</label><input id="ocr-record-date" type="date" value="${today}"></div>
+                <div class="form-group"><label>医院</label><input id="ocr-hospital" value="${result.hospital}"></div>
+                <div class="form-group"><label>科室</label><input id="ocr-department" value="${result.department}"></div>
+                <div class="form-group"><label>检查项目</label><input id="ocr-diagnosis" value="${result.diagnosis}"></div>
+                <div class="form-group"><label>检查所见</label><textarea id="ocr-findings" rows="4">${result.findings}</textarea></div>
+                <div class="form-group"><label>报告结论</label><textarea id="ocr-conclusion" rows="3">${result.conclusion}</textarea></div>
+                <button class="btn-primary" onclick="App.saveOcrRecord()">保存报告</button>
+                <button class="btn-outline" style="margin-top:8px;" onclick="App.closeModal()">取消</button>
+            `);
+            App._ocrMetrics = [];
         } else if (type === '处方') {
             const meds = [pick(OCR_TEMPLATES.medication), pick(OCR_TEMPLATES.medication)];
             this.closeModal();
@@ -282,39 +308,44 @@ const App = {
                 hospital: document.getElementById('ocr-hospital').value,
                 department: document.getElementById('ocr-department').value,
                 chiefComplaint: document.getElementById('ocr-complaint')?.value || '',
-                orders: document.getElementById('ocr-orders').value,
+                findings: document.getElementById('ocr-findings')?.value || '',
+                conclusion: document.getElementById('ocr-conclusion')?.value || '',
+                orders: document.getElementById('ocr-orders')?.value || '',
                 metrics: App._ocrMetrics || [],
                 confidence: 0.85,
             });
             this.closeModal();
-            this.toast('病历保存成功');
+            this.toast('保存成功');
             if (this.state.currentPage === 'records' || this.state.currentPage === 'home') this.switchPage(this.state.currentPage);
         } catch (err) { this.toast(err.message); }
     },
 
     async saveOcrMeds() {
+        if (this._ocrMedsSaving) return;
+        this._ocrMedsSaving = true;
         try {
-            for (let i = 0; i < App._ocrMeds.length; i++) {
-                const name = document.getElementById(`ocr-med-name-${i}`).value;
-                const dose = document.getElementById(`ocr-med-dose-${i}`).value;
-                const freq = document.getElementById(`ocr-med-freq-${i}`).value;
-                const start = document.getElementById(`ocr-med-start-${i}`)?.value;
-                const note = document.getElementById(`ocr-med-note-${i}`)?.value;
-                if (name) {
-                    await Api.medications.add({
-                        elderId: document.getElementById('ocr-med-elder')?.value || this.state.currentMemberId,
-                        name, dose, frequency: freq,
-                        times: App._ocrMeds[i].times || ['08:00'],
-                        note: note || App._ocrMeds[i].note || '',
-                        startDate: start || new Date().toISOString().slice(0, 10),
-                        status: 'active'
-                    });
-                }
+            const medCount = App._ocrMeds ? App._ocrMeds.length : 0;
+            for (let i = 0; i < medCount; i++) {
+                const name = document.getElementById(`ocr-med-name-${i}`);
+                if (!name || !name.value.trim()) continue;
+                const dose = document.getElementById(`ocr-med-dose-${i}`);
+                const freq = document.getElementById(`ocr-med-freq-${i}`);
+                const start = document.getElementById(`ocr-med-start-${i}`);
+                const note = document.getElementById(`ocr-med-note-${i}`);
+                await Api.medications.add({
+                    elderId: document.getElementById('ocr-med-elder')?.value || this.state.currentMemberId,
+                    name: name.value, dose: dose?.value || '', frequency: freq?.value || '',
+                    times: App._ocrMeds[i].times || ['08:00'],
+                    note: note?.value || App._ocrMeds[i].note || '',
+                    startDate: start?.value || new Date().toISOString().slice(0, 10),
+                    status: 'active'
+                });
             }
             this.closeModal();
             this.toast('用药已添加');
             if (this.state.currentPage === 'home') this.switchPage('home');
         } catch (err) { this.toast(err.message); }
+        finally { this._ocrMedsSaving = false; }
     },
 
     async saveOcrDrug() {
@@ -388,6 +419,31 @@ const App = {
         document.getElementById('loginForm').style.display = 'block';
     },
 
+    async saveProfile() {
+        const selfElder = this.state.members.find(m => m.relation === 'self');
+        if (!selfElder) { this.toast('未找到个人信息'); return; }
+        const name = document.getElementById('pe-name')?.value.trim();
+        const gender = document.getElementById('pe-gender')?.value;
+        const age = parseInt(document.getElementById('pe-age')?.value) || 0;
+        const bloodType = document.getElementById('pe-blood')?.value || null;
+        const allergies = document.getElementById('pe-allergies')?.value.trim() || null;
+        const conditions = document.getElementById('pe-conditions')?.value.trim() || null;
+        const phone = document.getElementById('pe-phone')?.value.trim() || null;
+        if (!name) { this.toast('姓名不能为空'); return; }
+        try {
+            await Api.elders.update(selfElder.id, { name, gender, age, bloodType, allergies, conditions, phone });
+            if (phone && phone !== this.state.user.phone) {
+                await Api.auth.updateProfile({ phone });
+            }
+            if (name !== this.state.user.name) {
+                await Api.auth.updateProfile({ name });
+            }
+            await this.loadData();
+            this.toast('个人信息已保存');
+            this.goBack();
+        } catch (err) { this.toast(err.message); }
+    },
+
     async toggleMedTaken(btn) {
         if (btn.classList.contains('taken')) {
             btn.classList.remove('taken');
@@ -444,22 +500,44 @@ const App = {
 
     async saveRecord() {
         const elderId = document.getElementById('recordElderId').value;
-        const diagnosis = document.getElementById('recordDiagnosis').value.trim();
-        if (!diagnosis) { this.toast('请输入诊断'); return; }
-        try {
-            await Api.records.add({
-                elderId,
-                type: document.getElementById('recordType').value,
-                visitDate: document.getElementById('recordDate').value || new Date().toISOString().slice(0, 10),
-                diagnosis,
-                hospital: document.getElementById('recordHospital').value,
-                department: document.getElementById('recordDept').value,
-                orders: document.getElementById('recordOrders').value,
-                chiefComplaint: document.getElementById('recordComplaint').value,
-            });
-            this.toast('添加成功');
-            this.goBack();
-        } catch (err) { this.toast(err.message); }
+        const type = document.getElementById('recordType').value;
+        const isReport = type === '检查报告';
+
+        if (isReport) {
+            const examName = document.getElementById('recordExamName').value.trim();
+            if (!examName) { this.toast('请输入检查项目'); return; }
+            try {
+                await Api.records.add({
+                    elderId,
+                    type,
+                    visitDate: document.getElementById('recordDate').value || new Date().toISOString().slice(0, 10),
+                    diagnosis: examName,
+                    hospital: document.getElementById('recordHospital').value,
+                    department: document.getElementById('recordDept').value,
+                    findings: document.getElementById('recordFindings').value,
+                    conclusion: document.getElementById('recordConclusion').value,
+                });
+                this.toast('报告添加成功');
+                this.goBack();
+            } catch (err) { this.toast(err.message); }
+        } else {
+            const diagnosis = document.getElementById('recordDiagnosis').value.trim();
+            if (!diagnosis) { this.toast('请输入诊断'); return; }
+            try {
+                await Api.records.add({
+                    elderId,
+                    type,
+                    visitDate: document.getElementById('recordDate').value || new Date().toISOString().slice(0, 10),
+                    diagnosis,
+                    hospital: document.getElementById('recordHospital').value,
+                    department: document.getElementById('recordDept').value,
+                    orders: document.getElementById('recordOrders').value,
+                    chiefComplaint: document.getElementById('recordComplaint').value,
+                });
+                this.toast('添加成功');
+                this.goBack();
+            } catch (err) { this.toast(err.message); }
+        }
     },
 
     async saveDrug() {

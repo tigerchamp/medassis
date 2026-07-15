@@ -30,6 +30,26 @@ async function ensureBucket() {
   }
 }
 
+// 仅检查MinIO连通性（不创建bucket）
+async function checkMinio() {
+  try {
+    await minioClient.listBuckets();
+    const exists = await minioClient.bucketExists(BUCKET_NAME);
+    if (!exists) {
+      console.warn(`MinIO bucket '${BUCKET_NAME}' 不存在，文件上传功能暂不可用，请使用 --init 初始化`);
+      isAvailable = false;
+    } else {
+      isAvailable = true;
+    }
+    return isAvailable;
+  } catch (err) {
+    console.error('MinIO 连接失败:', err.message);
+    console.error('文件上传功能将不可用，请检查 MinIO 配置');
+    isAvailable = false;
+    return false;
+  }
+}
+
 function checkAvailable() {
   if (!isAvailable) {
     throw new Error('MinIO 服务不可用，文件上传功能暂不可用');
@@ -81,4 +101,4 @@ async function getFileUrl(key) {
   }
 }
 
-module.exports = { minioClient, ensureBucket, uploadFile, deleteFile, getFileUrl, BUCKET_NAME, isAvailable: () => isAvailable };
+module.exports = { minioClient, ensureBucket, checkMinio, uploadFile, deleteFile, getFileUrl, BUCKET_NAME, isAvailable: () => isAvailable };

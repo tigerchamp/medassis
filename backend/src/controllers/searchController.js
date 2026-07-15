@@ -1,5 +1,7 @@
 const { getPool } = require('../config/database');
 
+function fmtDate(d) { return d instanceof Date ? d.toISOString().slice(0, 10) : d; }
+
 // 获取统计数据
 async function getStats(req, res) {
   try {
@@ -73,11 +75,13 @@ async function search(req, res) {
         id: r.id,
         elderId: r.elder_id,
         type: r.type,
-        visitDate: r.visit_date,
+        visitDate: fmtDate(r.visit_date),
         hospital: r.hospital,
         department: r.department,
         diagnosis: r.diagnosis,
         chiefComplaint: r.chief_complaint,
+        findings: r.findings,
+        conclusion: r.conclusion,
         metrics: typeof r.metrics === 'string' ? JSON.parse(r.metrics) : (r.metrics || []),
         orders: r.orders
       })),
@@ -88,8 +92,8 @@ async function search(req, res) {
         dose: m.dose,
         frequency: m.frequency,
         times: typeof m.times === 'string' ? JSON.parse(m.times) : (m.times || []),
-        startDate: m.start_date,
-        endDate: m.end_date,
+        startDate: fmtDate(m.start_date),
+        endDate: fmtDate(m.end_date),
         note: m.note,
         status: m.status
       }))

@@ -1,9 +1,9 @@
-require('dotenv').config();
+require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
 
 const express = require('express');
 const cors = require('cors');
-const { initDatabase } = require('./config/database');
-const { ensureBucket } = require('./services/minio');
+const { checkDatabase, initDatabase } = require('./config/database');
+const { checkMinio, ensureBucket } = require('./services/minio');
 
 // 导入路由
 const authRoutes = require('./routes/auth');
@@ -58,32 +58,38 @@ app.use((err, req, res, next) => {
 // 启动服务器
 async function startServer() {
   try {
-    // 如果传了 --rebuild 参数，重建数据库
     const shouldRebuild = process.argv.includes('--rebuild');
+    const shouldInit = process.argv.includes('--init');
+
     if (shouldRebuild) {
+      // --rebuild: 重建数据库（会清除所有数据！）
       const { rebuildDatabase } = require('./config/database');
       await rebuildDatabase();
-      console.log('数据库重建完成');
-    } else {
+      console.log('✓ 数据库重建完成');
+    } else if (shouldInit) {
+      // --init: 初始化数据库表和MinIO bucket（首次部署使用）
       await initDatabase();
-      console.log('数据库初始化完成');
-    }
-
-    // 初始化 MinIO bucket
-    try {
+      console.log('✓ 数据库初始化完成');
       await ensureBucket();
-      console.log('MinIO 初始化完成');
-    } catch (err) {
-      console.log('MinIO 初始化失败:', err.message);
-      console.log('文件上传功能将不可用，请检查 MinIO 配置');
+      console.log('✓ MinIO 初始化完成');
+    } else {
+      // 默认：仅检查连通性，不修改任何数据
+      await checkDatabase();
+      console.log('✓ 数据库连接正常');
+      const minioOk = await checkMinio();
+      if (minioOk) {
+        console.log('✓ MinIO 连接正常');
+      } else {
+        console.log('⚠ MinIO 不可用，文件上传功能暂不可用');
+      }
     }
 
     app.listen(PORT, () => {
       console.log(`服务器运行在 http://localhost:${PORT}`);
-      console.log(`API 地址: http://localhost:${PORT}/api`);
     });
   } catch (err) {
-    console.error('启动失败:', err);
+    console.error('启动失败:', err.message || err);
+    console.error(err.stack);
     process.exit(1);
   }
 }

@@ -1,20 +1,9 @@
-FROM node:20-alpine AS builder
-
-WORKDIR /app
-
-COPY backend/package*.json ./backend/
-
-RUN apk add --no-cache python3 make g++ && \
-    npm config set registry https://registry.npmmirror.com && \
-    cd backend && npm ci --only=production && \
-    apk del python3 make g++
-
 FROM node:20-alpine
 
 WORKDIR /app
 
-COPY --from=builder /app/backend/node_modules ./backend/node_modules
-
+# 直接拷贝宿主机已编译好的node_modules
+COPY backend/node_modules ./backend/node_modules
 COPY backend/src ./backend/src
 COPY index.html ./
 COPY css ./css

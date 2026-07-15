@@ -63,7 +63,7 @@ async function initDatabase() {
         family_id VARCHAR(36) NOT NULL,
         user_id VARCHAR(36) COMMENT '关联用户ID（自己时非空）',
         name VARCHAR(50) NOT NULL,
-        gender ENUM('男', '女') DEFAULT '男',
+        gender ENUM('男', '女', '未知') DEFAULT '未知',
         age INT DEFAULT 0,
         blood_type VARCHAR(20),
         allergies TEXT,
@@ -90,6 +90,8 @@ async function initDatabase() {
         department VARCHAR(50),
         diagnosis TEXT,
         chief_complaint TEXT,
+        findings TEXT COMMENT '检查所见（报告类型）',
+        conclusion TEXT COMMENT '报告结论（报告类型）',
         metrics JSON,
         orders TEXT,
         image_url TEXT,
@@ -220,12 +222,40 @@ async function rebuildDatabase() {
   console.log('数据库重建完成');
 }
 
+// 检查数据库连通性并确保连接池可用
+async function checkDatabase() {
+  const connection = await basePool.getConnection();
+  try {
+    // 确保数据库存在
+    await connection.query(`CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`);
+    // 初始化连接池
+    if (!pool) {
+      pool = mysql.createPool({
+        host: process.env.DB_HOST || 'localhost',
+        port: process.env.DB_PORT || 3306,
+        user: process.env.DB_USER || 'root',
+        password: process.env.DB_PASSWORD || '',
+        database: DB_NAME,
+        waitForConnections: true,
+        connectionLimit: 10,
+        queueLimit: 0,
+        enableKeepAlive: true,
+        keepAliveInitialDelay: 0
+      });
+    }
+    // 简单查询验证连通性
+    await pool.query('SELECT 1');
+  } finally {
+    connection.release();
+  }
+}
+
 // 获取连接池（初始化后可用）
 function getPool() {
   if (!pool) {
-    throw new Error('数据库未初始化，请先调用 initDatabase()');
+    throw new Error('数据库未初始化，请先调用 checkDatabase()');
   }
   return pool;
 }
 
-module.exports = { getPool, initDatabase, rebuildDatabase };
+module.exports = { getPool, checkDatabase, initDatabase, rebuildDatabase };
