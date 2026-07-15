@@ -1,6 +1,6 @@
 const { getPool } = require('../config/database');
 
-function fmtDate(d) { return d instanceof Date ? d.toISOString().slice(0, 10) : d; }
+function fmtDate(d) { if (d instanceof Date) { const y = d.getFullYear(); const m = String(d.getMonth() + 1).padStart(2, '0'); const day = String(d.getDate()).padStart(2, '0'); return `${y}-${m}-${day}`; } return d; }
 
 // 获取统计数据
 async function getStats(req, res) {

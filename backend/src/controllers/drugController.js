@@ -1,6 +1,8 @@
 const { getPool } = require('../config/database');
 const { v4: uuidv4 } = require('uuid');
 
+function fmtDate(d) { if (d instanceof Date) { const y = d.getFullYear(); const m = String(d.getMonth() + 1).padStart(2, '0'); const day = String(d.getDate()).padStart(2, '0'); return `${y}-${m}-${day}`; } return d; }
+
 // 获取药品库存列表
 async function getDrugs(req, res) {
   try {
@@ -26,7 +28,7 @@ async function getDrugs(req, res) {
       name: d.name,
       specification: d.specification,
       quantity: d.quantity,
-      expiryDate: d.expiry_date ? d.expiry_date.toISOString().slice(0, 10) : null,
+      expiryDate: d.expiry_date ? fmtDate(d.expiry_date) : null,
       status: d.status,
       sourcePrescriptionId: d.source_prescription_id,
       note: d.note,
@@ -74,7 +76,7 @@ async function getDrug(req, res) {
         name: d.name,
         specification: d.specification,
         quantity: d.quantity,
-        expiryDate: d.expiry_date ? d.expiry_date.toISOString().slice(0, 10) : null,
+        expiryDate: d.expiry_date ? fmtDate(d.expiry_date) : null,
         status: d.status,
         sourcePrescriptionId: d.source_prescription_id,
         note: d.note,
@@ -125,7 +127,7 @@ async function addDrug(req, res) {
         name: d.name,
         specification: d.specification,
         quantity: d.quantity,
-        expiryDate: d.expiry_date ? d.expiry_date.toISOString().slice(0, 10) : null,
+        expiryDate: d.expiry_date ? fmtDate(d.expiry_date) : null,
         status: d.status,
         note: d.note,
         createdAt: d.created_at
@@ -151,7 +153,7 @@ async function updateDrug(req, res) {
 
     // 重新计算状态
     let status = drugs[0].status;
-    const effectiveExpiry = expiryDate !== undefined ? expiryDate : (drugs[0].expiry_date ? drugs[0].expiry_date.toISOString().slice(0, 10) : null);
+    const effectiveExpiry = expiryDate !== undefined ? expiryDate : (drugs[0].expiry_date ? fmtDate(drugs[0].expiry_date) : null);
     if (effectiveExpiry) {
       const expiry = new Date(effectiveExpiry);
       const now = new Date();
@@ -190,7 +192,7 @@ async function updateDrug(req, res) {
         name: d.name,
         specification: d.specification,
         quantity: d.quantity,
-        expiryDate: d.expiry_date ? d.expiry_date.toISOString().slice(0, 10) : null,
+        expiryDate: d.expiry_date ? fmtDate(d.expiry_date) : null,
         status: d.status,
         note: d.note,
         createdAt: d.created_at

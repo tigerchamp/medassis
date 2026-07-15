@@ -222,7 +222,7 @@ async function rebuildDatabase() {
   console.log('数据库重建完成');
 }
 
-// 检查数据库连通性并确保连接池可用
+// 检查数据库连通性并确保连接池可用，同时自动补充缺失的列
 async function checkDatabase() {
   const connection = await basePool.getConnection();
   try {
@@ -245,8 +245,59 @@ async function checkDatabase() {
     }
     // 简单查询验证连通性
     await pool.query('SELECT 1');
+    // 自动补充缺失的列（兼容已有数据库）
+    await _ensureColumns(pool);
   } finally {
     connection.release();
+  }
+}
+
+// 自动检测并添加缺失的列
+async function _ensureColumns(p) {
+  // 先检查各表是否存在，不存在则创建
+  const [tables] = await p.query(`SHOW TABLES`);
+  const tableNames = tables.map(t => Object.values(t)[0]);
+
+  // 如果核心表不存在，执行完整初始化
+  const requiredTables = ['users', 'families', 'elders', 'records', 'medications', 'drug_inventory'];
+  const missingTables = requiredTables.filter(t => !tableNames.includes(t));
+  if (missingTables.length > 0) {
+    console.log(`检测到缺失的表: ${missingTables.join(', ')}，执行初始化...`);
+    await initDatabase();
+    return;
+  }
+
+  // 检查records表是否缺少findings和conclusion列
+  const [cols] = await p.query(`SHOW COLUMNS FROM records LIKE 'findings'`);
+  if (cols.length === 0) {
+    await p.query(`ALTER TABLE records ADD COLUMN findings TEXT COMMENT '检查所见（报告类型）' AFTER chief_complaint`);
+    await p.query(`ALTER TABLE records ADD COLUMN conclusion TEXT COMMENT '报告结论（报告类型）' AFTER findings`);
+    console.log('已补充 records 表的 findings/conclusion 列');
+  }
+  // 检查elders表是否缺少relation列
+  const [relCols] = await p.query(`SHOW COLUMNS FROM elders LIKE 'relation'`);
+  if (relCols.length === 0) {
+    await p.query(`ALTER TABLE elders ADD COLUMN relation ENUM('self', 'parent', 'spouse_parent', 'spouse', 'other') DEFAULT 'other' COMMENT '与操作者的关系' AFTER avatar`);
+    console.log('已补充 elders 表的 relation 列');
+  }
+  // 检查elders表是否缺少user_id列
+  const [uidCols] = await p.query(`SHOW COLUMNS FROM elders LIKE 'user_id'`);
+  if (uidCols.length === 0) {
+    await p.query(`ALTER TABLE elders ADD COLUMN user_id VARCHAR(36) COMMENT '关联用户ID（自己时非空）' AFTER family_id`);
+    await p.query(`ALTER TABLE elders ADD INDEX idx_user (user_id)`);
+    console.log('已补充 elders 表的 user_id 列');
+  }
+  // 检查users表是否缺少authorized列
+  const [authCols] = await p.query(`SHOW COLUMNS FROM users LIKE 'authorized'`);
+  if (authCols.length === 0) {
+    await p.query(`ALTER TABLE users ADD COLUMN authorized BOOLEAN DEFAULT TRUE AFTER role`);
+    console.log('已补充 users 表的 authorized 列');
+  }
+  // 检查gender列是否包含'未知'选项
+  const [genderCols] = await p.query(`SHOW COLUMNS FROM elders LIKE 'gender'`);
+  if (genderCols.length > 0 && genderCols[0].Type && !genderCols[0].Type.includes('未知')) {
+    await p.query(`ALTER TABLE elders MODIFY COLUMN gender ENUM('男', '女', '未知') DEFAULT '未知'`);
+    console.log('已更新 elders 表 gender 列的 ENUM 值');
   }
 }
 
