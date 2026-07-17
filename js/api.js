@@ -31,6 +31,7 @@ const Api = {
         profile: () => api('/auth/profile'),
         updateProfile: (data) => api('/auth/profile', { method: 'PUT', body: JSON.stringify(data) }),
         familyMembers: () => api('/auth/family-members'),
+        families: () => api('/auth/families'),
         joinFamily: (inviteCode) => api('/auth/join-family', { method: 'POST', body: JSON.stringify({ inviteCode }) }),
         updateFamily: (name) => api('/auth/family', { method: 'PUT', body: JSON.stringify({ name }) }),
         toggleAuthorize: (userId) => api(`/auth/authorize/${userId}`, { method: 'PUT' }),

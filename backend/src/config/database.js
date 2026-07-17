@@ -152,6 +152,7 @@ async function initDatabase() {
         elder_id VARCHAR(36),
         name VARCHAR(100) NOT NULL,
         specification VARCHAR(100),
+        manufacturer VARCHAR(100),
         quantity INT DEFAULT 1,
         expiry_date DATE,
         status ENUM('valid', 'expiring_soon', 'expired') DEFAULT 'valid',
@@ -189,6 +190,14 @@ async function initDatabase() {
     `);
 
     console.log('数据库表初始化完成');
+
+    // 兼容旧表：添加 manufacturer 列（如已存在则跳过）
+    try {
+      await connection.query(`ALTER TABLE drug_inventory ADD COLUMN manufacturer VARCHAR(100) AFTER specification`);
+      console.log('添加 manufacturer 列成功');
+    } catch (e) {
+      if (!e.message.includes('Duplicate column name')) console.error('添加 manufacturer 列:', e.message);
+    }
 
     // 初始化完成后，创建带数据库的连接池
     pool = mysql.createPool({

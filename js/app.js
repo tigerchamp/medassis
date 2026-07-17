@@ -15,8 +15,8 @@ const OCR_TEMPLATES = {
         { name: '阿托伐他汀钙片', dose: '20mg', frequency: '每晚1次', times: ['21:30'], note: '睡前服用' },
     ],
     drug: [
-        { name: '阿莫西林胶囊', specification: '20粒/盒', quantity: 2, expiryDate: '2028-03-14' },
-        { name: '硝苯地平缓释片', specification: '30片/盒', quantity: 1, expiryDate: '2027-12-01' },
+        { name: '阿莫西林胶囊', specification: '20粒/盒', manufacturer: '联邦制药', quantity: 2, expiryDate: '2028-03-14' },
+        { name: '硝苯地平缓释片', specification: '30片/盒', manufacturer: '拜耳医药', quantity: 1, expiryDate: '2027-12-01' },
     ],
 };
 function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
@@ -117,12 +117,13 @@ const App = {
             profile: () => PageProfile.render(),
             messages: () => PageMessages.render(),
             family: () => PageFamily.render(),
-            invite: () => PageInvite.render(),
+            joinFamily: () => PageJoinFamily.render(),
             addMed: () => PageAddMed.render(),
             addRecord: () => PageAddRecord.render(),
             addDrug: () => PageAddDrug.render(),
             recordDetail: () => PageRecordDetail.render(),
             elderDetail: () => PageElderDetail.render(),
+            drugInfo: () => PageDrugInfo.render(),
             profileEdit: () => PageProfileEdit.render(),
         };
         return (pages[page] || pages.home)();
@@ -279,6 +280,7 @@ const App = {
                 </div>
                 <div class="form-group"><label>药品名称</label><input id="ocr-drug-name" value="${drug.name}"></div>
                 <div class="form-group"><label>规格</label><input id="ocr-drug-spec" value="${drug.specification}"></div>
+                <div class="form-group"><label>厂商</label><input id="ocr-drug-manufacturer" value="${drug.manufacturer || ''}" placeholder="如：扬子江药业"></div>
                 <div class="form-group"><label>数量</label><input id="ocr-drug-qty" type="number" value="${drug.quantity}"></div>
                 <div class="form-group"><label>有效期</label><input id="ocr-drug-exp" type="date" value="${drug.expiryDate}"></div>
                 <div class="form-group"><label>备注</label><input id="ocr-drug-note" placeholder="备注信息"></div>
@@ -354,6 +356,7 @@ const App = {
                 elderId: this.state.currentMemberId,
                 name: document.getElementById('ocr-drug-name').value,
                 specification: document.getElementById('ocr-drug-spec').value,
+                manufacturer: document.getElementById('ocr-drug-manufacturer')?.value || '',
                 quantity: parseInt(document.getElementById('ocr-drug-qty').value) || 1,
                 expiryDate: document.getElementById('ocr-drug-exp').value,
                 note: document.getElementById('ocr-drug-note')?.value || '',
@@ -467,6 +470,13 @@ const App = {
         this.switchPage('recordDetail');
     },
 
+    viewDrugInfo(name, spec, manufacturer) {
+        this.state.currentDrugName = name;
+        this.state.currentDrugSpec = spec || '';
+        this.state.currentDrugManufacturer = manufacturer || '';
+        this.switchPage('drugInfo');
+    },
+
     async deleteRecord(id) {
         if (!confirm('确认删除此病历？')) return;
         try { await Api.records.delete(id); this.toast('已删除'); this.goBack(); } catch (err) { this.toast(err.message); }
@@ -502,18 +512,34 @@ const App = {
         const elderId = document.getElementById('recordElderId').value;
         const type = document.getElementById('recordType').value;
         const isReport = type === '检查报告';
+        const isPrescription = type === '处方';
 
-        if (isReport) {
+        if (isPrescription) {
+            const medName = document.getElementById('recordMedName').value.trim();
+            if (!medName) { this.toast('请输入药品名称'); return; }
+            try {
+                await Api.medications.add({
+                    elderId,
+                    name: medName,
+                    dose: document.getElementById('recordMedDose').value,
+                    frequency: document.getElementById('recordMedFreq').value,
+                    startDate: document.getElementById('recordDate3').value || new Date().toISOString().slice(0, 10),
+                    note: document.getElementById('recordMedNote').value,
+                });
+                this.toast('处方添加成功');
+                this.goBack();
+            } catch (err) { this.toast(err.message); }
+        } else if (isReport) {
             const examName = document.getElementById('recordExamName').value.trim();
             if (!examName) { this.toast('请输入检查项目'); return; }
             try {
                 await Api.records.add({
                     elderId,
                     type,
-                    visitDate: document.getElementById('recordDate').value || new Date().toISOString().slice(0, 10),
+                    visitDate: document.getElementById('recordDate2').value || new Date().toISOString().slice(0, 10),
                     diagnosis: examName,
-                    hospital: document.getElementById('recordHospital').value,
-                    department: document.getElementById('recordDept').value,
+                    hospital: document.getElementById('recordHospital2').value,
+                    department: document.getElementById('recordDept2').value,
                     findings: document.getElementById('recordFindings').value,
                     conclusion: document.getElementById('recordConclusion').value,
                 });
@@ -548,6 +574,7 @@ const App = {
                 elderId: this.state.currentMemberId,
                 name,
                 specification: document.getElementById('drugSpec').value,
+                manufacturer: document.getElementById('drugManufacturer').value,
                 quantity: parseInt(document.getElementById('drugQty').value) || 1,
                 expiryDate: document.getElementById('drugExp').value,
                 note: document.getElementById('drugNote').value,
@@ -599,6 +626,20 @@ const App = {
             this.state.family = res.family;
             this.updateHeader();
             this.toast('家庭组名称已更新');
+        } catch (err) { this.toast(err.message); }
+    },
+
+    async editFamilyName(familyId, currentName) {
+        const newName = prompt('修改家庭组名称', currentName);
+        if (!newName || newName === currentName) return;
+        try {
+            await Api.auth.updateFamily(newName);
+            if (this.state.family && this.state.family.id === familyId) {
+                this.state.family.name = newName;
+                this.updateHeader();
+            }
+            this.toast('名称已更新');
+            PageFamily.loadFamilies();
         } catch (err) { this.toast(err.message); }
     },
 };

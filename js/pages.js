@@ -69,7 +69,7 @@ const PageHome = {
                     return `<div class="med-schedule-item">
                         <span class="time-tag ${tagClass}">${tagText} ${timeStr}</span>
                         <div class="med-info">
-                            <div class="name">${m.name}</div>
+                            <div class="name" style="cursor:pointer;color:#2b7a78;" onclick="App.viewDrugInfo('${m.name.replace(/'/g, "\\'")}','','')">${m.name}</div>
                             <div class="dosage">${m.dose || ''} · ${m.frequency || ''}</div>
                         </div>
                         <button class="med-status" onclick="App.toggleMedTaken(this)">待服</button>
@@ -228,13 +228,6 @@ const PagePharmacy = {
         <div class="card">
             <div class="card-title"><i class="fas fa-kit-medical"></i> 家庭药箱 <button class="btn-outline" style="width:auto;padding:6px 14px;font-size:13px;margin-left:auto;" onclick="App.switchPage('addDrug')"><i class="fas fa-plus"></i> 添加</button></div>
             <div id="pharmacyList"><p class="text-muted" style="text-align:center;padding:20px;">加载中...</p></div>
-        </div>
-        <div class="card">
-            <div class="card-title"><i class="fas fa-camera-retro"></i> 拍照录入药品</div>
-            <div class="scan-area" onclick="App.openScanSelector()">
-                <i class="fas fa-barcode"></i>
-                <p>扫描药盒 / 拍照识别</p>
-            </div>
         </div>`;
     },
 
@@ -258,9 +251,9 @@ const PagePharmacy = {
                     return `<div class="drug-item">
                         <div class="drug-icon"><i class="fas ${icon}"></i></div>
                         <div class="drug-info">
-                            <div class="dname">${d.name}</div>
+                            <div class="dname" style="cursor:pointer;color:#2b7a78;" onclick="App.viewDrugInfo('${d.name.replace(/'/g, "\\'")}','${(d.specification || '').replace(/'/g, "\\'")}','${(d.manufacturer || '').replace(/'/g, "\\'")}')">${d.name}</div>
                             <div class="dexp">📅 过期: ${d.expiryDate || '未设置'} ${statusHtml}</div>
-                            ${d.specification ? `<div class="qty">${d.quantity || 1}盒 · ${d.specification}</div>` : `<div class="qty">数量: ${d.quantity || 1}</div>`}
+                            ${d.specification ? `<div class="qty">${d.quantity || 1}盒 · ${d.specification}${d.manufacturer ? ' · ' + d.manufacturer : ''}</div>` : `<div class="qty">数量: ${d.quantity || 1}${d.manufacturer ? ' · ' + d.manufacturer : ''}</div>`}
                         </div>
                         <button style="background:none;border:none;color:#b91c1c;cursor:pointer;padding:8px;" onclick="App.deleteDrug('${d.id}')"><i class="fas fa-trash"></i></button>
                     </div>`;
@@ -377,47 +370,79 @@ const PageMessages = {
     }
 };
 
-// ---------- 家庭组管理（合并成员档案到家庭成员区块）----------
+// ---------- 家庭组管理（家庭组列表+加入家庭）----------
 const PageFamily = {
     render() {
-        const family = App.state.family;
-        const familyName = family ? family.name : '我的家庭';
         this.loadContent();
         return `
         <div class="sub-header">
             <button class="back-btn" onclick="App.goBack()"><i class="fas fa-arrow-left"></i></button>
             <h2>家庭组管理</h2>
         </div>
+        <button class="btn-outline" style="width:100%;margin-bottom:12px;padding:10px;" onclick="App.switchPage('joinFamily')"><i class="fas fa-sign-in-alt"></i> 加入家庭</button>
         <div class="card">
-            <div class="card-title"><i class="fas fa-home"></i> 家庭组信息</div>
-            <div class="form-group"><label>家庭组名称</label><div style="display:flex;gap:8px;"><input id="familyNameInput" value="${familyName}" style="flex:1;"><button class="btn-outline" style="width:auto;padding:8px 16px;font-size:13px;white-space:nowrap;" onclick="App.updateFamilyName()">保存</button></div></div>
-            ${family && family.invite_code ? `<div class="form-group"><label>邀请码</label><div style="display:flex;align-items:center;gap:8px;"><span style="font-family:monospace;font-size:16px;letter-spacing:2px;background:#eef2f6;padding:8px 16px;border-radius:8px;flex:1;" id="familyInviteCode">${family.invite_code}</span><button class="btn-outline" style="width:auto;padding:8px 16px;font-size:13px;" onclick="App.copyInviteCode()">复制</button></div></div>` : ''}
+            <div class="card-title"><i class="fas fa-home"></i> 我的家庭组</div>
+            <div id="familyList"><p class="text-muted" style="text-align:center;padding:20px;">加载中...</p></div>
         </div>
         <div class="card">
-            <div class="card-title"><i class="fas fa-users"></i> 家庭成员</div>
+            <div class="card-title"><i class="fas fa-users"></i> 当前家庭成员</div>
             <div id="familyMembersList"><p class="text-muted" style="text-align:center;padding:20px;">加载中...</p></div>
-        </div>
-        <button class="btn-primary" style="margin-top:8px;" onclick="App.switchPage('invite')"><i class="fas fa-user-plus"></i> 邀请家人加入</button>`;
+        </div>`;
     },
 
     async loadContent() {
+        // 独立加载家庭组列表，避免异常影响成员列表
+        this.loadFamilies();
+        // 独立加载家庭成员列表
+        this.loadMembers();
+    },
+
+    async loadFamilies() {
         try {
-            // 加载家庭成员（users表）
+            const famRes = await Api.auth.families();
+            const families = famRes.families || [];
+            const currentFamilyId = App.state.family ? App.state.family.id : null;
+
+            const listEl = document.getElementById('familyList');
+            if (listEl) {
+                if (families.length === 0) {
+                    listEl.innerHTML = '<p class="text-muted" style="text-align:center;padding:20px;">暂无家庭组</p>';
+                } else {
+                    listEl.innerHTML = families.map(f => {
+                        const isCurrent = f.id === currentFamilyId;
+                        return `<div style="display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid #f1f5f9;${isCurrent ? 'background:#f0fdf4;border-radius:8px;padding:12px;' : ''}">
+                            <div style="width:40px;height:40px;border-radius:50%;background:#d1e0e8;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px;flex-shrink:0;"><i class="fas fa-home"></i></div>
+                            <div style="flex:1;min-width:0;">
+                                <div style="font-weight:600;">${f.name}${isCurrent ? ' <span style="font-size:11px;background:#16a34a;color:#fff;padding:1px 6px;border-radius:4px;">当前</span>' : ''}</div>
+                                <div class="text-muted" style="font-size:12px;">创建者: ${f.creator_name || '未知'}</div>
+                                <div style="font-size:12px;color:#6b7280;">邀请码: <span style="font-family:monospace;letter-spacing:1px;">${f.invite_code || ''}</span></div>
+                            </div>
+                            <button class="btn-outline" style="width:auto;padding:6px 12px;font-size:12px;flex-shrink:0;" onclick="App.editFamilyName('${f.id}','${f.name.replace(/'/g, "\\'")}')"><i class="fas fa-edit"></i></button>
+                        </div>`;
+                    }).join('');
+                }
+            }
+        } catch (err) {
+            console.error('加载家庭组列表失败:', err);
+            const listEl = document.getElementById('familyList');
+            if (listEl) listEl.innerHTML = '<p class="text-muted" style="text-align:center;padding:20px;">加载失败</p>';
+        }
+    },
+
+    async loadMembers() {
+        try {
             const res = await Api.auth.familyMembers();
             const members = res.members || [];
-            // 加载成员档案（elders表）
             const elders = App.state.members || [];
 
             const membersEl = document.getElementById('familyMembersList');
             if (membersEl) {
-                if (members.length === 0 && elders.length === 0) {
+                if (members.length === 0) {
                     membersEl.innerHTML = '<p class="text-muted" style="text-align:center;padding:20px;">暂无家庭成员</p>';
                 } else {
-                    // 合并：遍历所有成员，匹配其elders档案信息
                     const relationMap = { self: '本人', parent: '父母', spouse_parent: '公婆/岳父母', spouse: '配偶', other: '其他' };
                     membersEl.innerHTML = members.map(m => {
                         const isCurrent = App.state.user && m.id === App.state.user.id;
-                        // 查找该用户对应的elder档案
                         const elder = elders.find(e => e.user_id === m.id);
                         const elderInfo = elder ? `
                             <div style="margin-top:6px;padding-top:6px;border-top:1px dashed #e2e8f0;">
@@ -446,46 +471,26 @@ const PageFamily = {
                 }
             }
         } catch (err) {
+            console.error('加载家庭成员失败:', err);
             const membersEl = document.getElementById('familyMembersList');
-            if (membersEl) membersEl.innerHTML = '<p class="text-muted" style="text-align:center;">加载失败</p>';
+            if (membersEl) membersEl.innerHTML = '<p class="text-muted" style="text-align:center;padding:20px;">加载失败</p>';
         }
     }
 };
 
-// ---------- 邀请页 ----------
-const PageInvite = {
+// ---------- 加入家庭页（输入邀请码）----------
+const PageJoinFamily = {
     render() {
-        this.loadContent();
         return `
         <div class="sub-header">
             <button class="back-btn" onclick="App.switchPage('family')"><i class="fas fa-arrow-left"></i></button>
-            <h2>邀请家人</h2>
-        </div>
-        <div class="invite-card">
-            <div style="width:140px;height:140px;background:#e9edf2;margin:16px auto;display:flex;align-items:center;justify-content:center;border-radius:20px;">
-                <i class="fas fa-qrcode" style="font-size:80px;color:#2b7a78;"></i>
-            </div>
-            <p style="font-weight:600;font-size:18px;">扫描二维码加入家庭</p>
-            <div style="background:#eef2f6;border-radius:40px;padding:12px;margin:12px 0;">
-                <span class="invite-code-text" style="font-family:monospace;font-size:14px;letter-spacing:2px;" id="inviteCodeDisplay">加载中...</span>
-                <br><button class="btn-outline" style="width:auto;padding:6px 20px;margin-top:8px;font-size:13px;" onclick="App.copyInviteCode()">复制邀请码</button>
-            </div>
+            <h2>加入家庭</h2>
         </div>
         <div class="card">
             <div class="card-title"><i class="fas fa-sign-in-alt"></i> 通过邀请码加入</div>
-            <div class="form-group"><input id="joinCode" placeholder="输入邀请码"></div>
-            <button class="btn-primary" onclick="App.joinFamily()">加入家庭</button>
+            <div class="form-group"><label>邀请码</label><input id="joinCode" placeholder="输入邀请码" style="font-family:monospace;letter-spacing:2px;font-size:16px;"></div>
+            <button class="btn-primary" onclick="App.joinFamily()">加入</button>
         </div>`;
-    },
-
-    async loadContent() {
-        try {
-            const profileRes = await Api.auth.profile();
-            if (profileRes.family && profileRes.family.invite_code) {
-                const el = document.getElementById('inviteCodeDisplay');
-                if (el) el.textContent = profileRes.family.invite_code;
-            }
-        } catch {}
     }
 };
 
@@ -534,19 +539,31 @@ const PageAddRecord = {
         </div>
         <div class="card">
             <div class="form-group"><label>关联成员 *</label><select id="recordElderId">${memberOptions}</select></div>
-            <div class="form-group"><label>类型</label><select id="recordType" onchange="PageAddRecord.onTypeChange(this.value)"><option value="病历">病历</option><option value="检查报告">检查报告</option><option value="药方">药方</option></select></div>
-            <div class="form-group"><label id="recordDateLabel">就诊日期</label><input id="recordDate" type="date"></div>
-            <div class="form-group"><label>医院</label><input id="recordHospital" placeholder="医院名称"></div>
-            <div class="form-group"><label>科室</label><input id="recordDept" placeholder="科室"></div>
+            <div class="form-group"><label>类型</label><select id="recordType" onchange="PageAddRecord.onTypeChange(this.value)"><option value="病历">病历</option><option value="检查报告">检查报告</option><option value="处方">处方</option></select></div>
             <div id="recordFieldsMedical">
+                <div class="form-group"><label id="recordDateLabel">就诊日期</label><input id="recordDate" type="date"></div>
+                <div class="form-group"><label>医院</label><input id="recordHospital" placeholder="医院名称"></div>
+                <div class="form-group"><label>科室</label><input id="recordDept" placeholder="科室"></div>
                 <div class="form-group"><label>主诉</label><textarea id="recordComplaint" placeholder="主要症状"></textarea></div>
                 <div class="form-group"><label>诊断 *</label><input id="recordDiagnosis" placeholder="诊断结果"></div>
                 <div class="form-group"><label>医嘱</label><textarea id="recordOrders" placeholder="医嘱内容"></textarea></div>
             </div>
             <div id="recordFieldsReport" style="display:none;">
+                <div class="form-group"><label>检查日期</label><input id="recordDate2" type="date"></div>
+                <div class="form-group"><label>医院</label><input id="recordHospital2" placeholder="医院名称"></div>
+                <div class="form-group"><label>科室</label><input id="recordDept2" placeholder="科室"></div>
                 <div class="form-group"><label>检查项目 *</label><input id="recordExamName" placeholder="如：胸部CT平扫"></div>
                 <div class="form-group"><label>检查所见</label><textarea id="recordFindings" rows="4" placeholder="检查所见内容"></textarea></div>
                 <div class="form-group"><label>报告结论</label><textarea id="recordConclusion" rows="3" placeholder="报告结论内容"></textarea></div>
+            </div>
+            <div id="recordFieldsPrescription" style="display:none;">
+                <div class="form-group"><label>开始日期</label><input id="recordDate3" type="date"></div>
+                <div style="background:#f8fafd;border-radius:12px;padding:12px;margin-bottom:8px;">
+                    <div class="form-group"><label>药品名称 *</label><input id="recordMedName" placeholder="如：阿莫西林胶囊"></div>
+                    <div class="form-group"><label>剂量</label><input id="recordMedDose" placeholder="如：5mg"></div>
+                    <div class="form-group"><label>频次</label><input id="recordMedFreq" placeholder="如：每日1次"></div>
+                    <div class="form-group"><label>备注</label><input id="recordMedNote" placeholder="如：餐后服用"></div>
+                </div>
             </div>
             <button class="btn-primary" onclick="App.saveRecord()">保存</button>
         </div>`;
@@ -555,15 +572,19 @@ const PageAddRecord = {
     onTypeChange(type) {
         const medicalFields = document.getElementById('recordFieldsMedical');
         const reportFields = document.getElementById('recordFieldsReport');
-        const dateLabel = document.getElementById('recordDateLabel');
+        const prescriptionFields = document.getElementById('recordFieldsPrescription');
         if (type === '检查报告') {
             medicalFields.style.display = 'none';
             reportFields.style.display = 'block';
-            dateLabel.textContent = '检查日期';
+            prescriptionFields.style.display = 'none';
+        } else if (type === '处方') {
+            medicalFields.style.display = 'none';
+            reportFields.style.display = 'none';
+            prescriptionFields.style.display = 'block';
         } else {
             medicalFields.style.display = 'block';
             reportFields.style.display = 'none';
-            dateLabel.textContent = '就诊日期';
+            prescriptionFields.style.display = 'none';
         }
     }
 };
@@ -580,11 +601,75 @@ const PageAddDrug = {
         <div class="card">
             <div class="form-group"><label>药品名称 *</label><input id="drugName" placeholder="如：阿莫西林胶囊"></div>
             <div class="form-group"><label>规格</label><input id="drugSpec" placeholder="如：20粒/盒"></div>
+            <div class="form-group"><label>厂商</label><input id="drugManufacturer" placeholder="如：扬子江药业"></div>
             <div class="form-group"><label>数量</label><input id="drugQty" type="number" value="1" min="1"></div>
             <div class="form-group"><label>有效期</label><input id="drugExp" type="date"></div>
             <div class="form-group"><label>备注</label><textarea id="drugNote" placeholder="备注信息"></textarea></div>
             <button class="btn-primary" onclick="App.saveDrug()">保存</button>
         </div>`;
+    }
+};
+
+// ---------- 药品说明书 ----------
+const DRUG_INFO_DB = {
+    '苯磺酸氨氯地平片': { generic: '氨氯地平', category: '钙通道阻滞剂 (CCB)', indication: '高血压、心绞痛', contraindication: '对二氢吡啶类钙通道阻滞剂过敏者禁用。严重低血压、主动脉瓣狭窄、心力衰竭患者慎用。', dosage: '通常起始剂量5mg，每日1次，最大剂量10mg/日。老年或肝功能不全患者建议从2.5mg开始。', adverseReaction: '常见：头痛、水肿、头晕、面部潮红、心悸。少见：恶心、腹痛、嗜睡、牙龈增生。', interaction: '与CYP3A4强抑制剂(如克拉霉素、伊曲康唑)合用可升高血药浓度；与辛伐他汀合用需限制辛伐他汀剂量≤20mg/日。', precaution: '1.定期监测血压\n2.不可突然停药\n3.肝功能不全者减量\n4.孕妇及哺乳期妇女慎用', storage: '遮光，密封，25°C以下保存。' },
+    '二甲双胍缓释片': { generic: '二甲双胍', category: '双胍类降糖药', indication: '2型糖尿病，尤其肥胖患者的一线用药', contraindication: '1.肾功能不全(eGFR<30)\n2.代谢性酸中毒\n3.严重感染或缺氧状态\n4.酒精中毒\n5.碘造影检查前后48小时停用', dosage: '起始500mg每日1次，晚餐时服用。可逐步增至最大2000mg/日。', adverseReaction: '常见：恶心、腹泻、腹痛、食欲不振。罕见但严重：乳酸酸中毒(呕吐、呼吸困难、肌肉痛)。', interaction: '与酒精合用增加乳酸酸中毒风险；与碘造影剂合用需提前48小时停药；西咪替丁可升高其血药浓度。', precaution: '1.餐中或餐后服用减少胃肠反应\n2.每年监测肾功能和维生素B12\n3.碘造影前停药48小时，后复查肾功能再决定是否恢复\n4.缓释片不可碾碎或咀嚼', storage: '遮光，密封，30°C以下保存。' },
+    '阿托伐他汀钙片': { generic: '阿托伐他汀', category: 'HMG-CoA还原酶抑制剂 (他汀类)', indication: '高脂血症、混合性高脂血症、动脉粥样硬化性心血管病预防', contraindication: '1.活动性肝病或转氨酶持续升高\n2.孕妇及哺乳期妇女\n3.对本品过敏者', dosage: '常用10-20mg，每晚1次。可增至最大80mg/日。', adverseReaction: '常见：便秘、腹胀、腹痛、肌痛。少见：转氨酶升高。罕见但严重：横纹肌溶解(肌肉剧痛、酱油色尿)。', interaction: '与克拉霉素、伊曲康唑合用增加横纹肌溶解风险；与氨氯地平合用需注意剂量调整；避免与吉非贝齐合用。', precaution: '1.睡前服用效果最佳\n2.出现肌肉疼痛无力立即就医\n3.定期监测肝功能和肌酸激酶\n4.不可与西柚汁同服', storage: '遮光，密封，30°C以下保存。' },
+    '阿莫西林胶囊': { generic: '阿莫西林', category: 'β-内酰胺类抗生素 (青霉素类)', indication: '敏感菌所致感染：上呼吸道感染、泌尿道感染、皮肤软组织感染、幽门螺杆菌根除治疗', contraindication: '1.青霉素过敏者禁用\n2.传染性单核细胞增多症患者禁用(易出皮疹)', dosage: '成人一般0.5g，每8小时1次。幽门螺杆菌根除：1g，每日2次，联合用药。', adverseReaction: '常见：恶心、呕吐、腹泻。少见：皮疹、药物热。罕见：过敏性休克。', interaction: '与丙磺舒合用可升高血药浓度；与别嘌醇合用增加皮疹风险；可降低口服避孕药效果。', precaution: '1.用前确认无青霉素过敏史\n2.完整疗程7-10天，不可症状好转即停药\n3.餐后服用减少胃肠反应\n4.服药期间多饮水', storage: '遮光，密封，阴凉干燥处保存。' },
+    '硝苯地平缓释片': { generic: '硝苯地平', category: '钙通道阻滞剂 (CCB)', indication: '高血压、心绞痛', contraindication: '1.对二氢吡啶类过敏者\n2.心源性休克\n3.不稳定型心绞痛禁用速释剂型', dosage: '起始30mg每日1次，可增至60mg/日。缓释片整片吞服，不可掰开或碾碎。', adverseReaction: '常见：头痛、踝部水肿、面部潮红、心悸。少见：牙龈增生、反射性心动过速。', precaution: '1.缓释片必须整片吞服\n2.避免与西柚汁同服\n3.长期用药不可突然停药\n4.定期监测血压和心率', interaction: '与CYP3A4抑制剂合用可升高血药浓度；与β受体阻滞剂合用注意低血压和心衰；避免与利福平合用。', storage: '遮光，密封，30°C以下保存。' },
+};
+
+const PageDrugInfo = {
+    render() {
+        const drugName = App.state.currentDrugName || '';
+        const drugSpec = App.state.currentDrugSpec || '';
+        const drugManufacturer = App.state.currentDrugManufacturer || '';
+        const info = DRUG_INFO_DB[drugName];
+        return `
+        <div class="sub-header">
+            <button class="back-btn" onclick="App.goBack()"><i class="fas fa-arrow-left"></i></button>
+            <h2>药品说明书</h2>
+            <div style="margin-left:auto;display:flex;gap:4px;">
+                <button class="btn-outline" style="width:auto;padding:4px 10px;font-size:12px;" onclick="PageDrugInfo.setFont('small')" id="fontSmall">小</button>
+                <button class="btn-outline" style="width:auto;padding:4px 10px;font-size:12px;background:#2b7a78;color:#fff;border-color:#2b7a78;" onclick="PageDrugInfo.setFont('medium')" id="fontMedium">中</button>
+                <button class="btn-outline" style="width:auto;padding:4px 10px;font-size:12px;" onclick="PageDrugInfo.setFont('large')" id="fontLarge">大</button>
+            </div>
+        </div>
+        <div id="drugInfoContent" style="font-size:15px;line-height:1.8;">
+            <div class="card">
+                <div style="font-size:1.4em;font-weight:700;margin-bottom:4px;">${drugName}</div>
+                ${drugSpec || drugManufacturer ? `<div class="text-muted" style="font-size:0.9em;">${drugSpec ? '规格: ' + drugSpec : ''}${drugSpec && drugManufacturer ? ' | ' : ''}${drugManufacturer ? '厂商: ' + drugManufacturer : ''}</div>` : ''}
+                ${info ? `<div class="text-muted" style="font-size:0.9em;">通用名: ${info.generic} | 类别: ${info.category}</div>` : ''}
+            </div>
+            ${info ? `
+            <div class="card"><div class="card-title"><i class="fas fa-stethoscope"></i> 适应症</div><p style="white-space:pre-wrap;">${info.indication}</p></div>
+            <div class="card"><div class="card-title" style="color:#dc2626;"><i class="fas fa-ban"></i> 禁忌</div><p style="white-space:pre-wrap;color:#dc2626;">${info.contraindication}</p></div>
+            <div class="card"><div class="card-title"><i class="fas fa-prescription-bottle-alt"></i> 用法用量</div><p style="white-space:pre-wrap;">${info.dosage}</p></div>
+            <div class="card"><div class="card-title" style="color:#d97706;"><i class="fas fa-exclamation-triangle"></i> 不良反应</div><p style="white-space:pre-wrap;">${info.adverseReaction}</p></div>
+            <div class="card"><div class="card-title"><i class="fas fa-exchange-alt"></i> 药物相互作用</div><p style="white-space:pre-wrap;">${info.interaction}</p></div>
+            <div class="card"><div class="card-title"><i class="fas fa-info-circle"></i> 注意事项</div><p style="white-space:pre-wrap;">${info.precaution}</p></div>
+            <div class="card"><div class="card-title"><i class="fas fa-temperature-low"></i> 贮藏</div><p style="white-space:pre-wrap;">${info.storage}</p></div>
+            ` : `
+            <div class="card"><p class="text-muted" style="text-align:center;padding:20px;">暂无「${drugName}」的说明书数据<br><span style="font-size:0.85em;">当前收录常见药品说明书，持续补充中</span></p></div>
+            `}
+        </div>`;
+    },
+
+    setFont(size) {
+        const el = document.getElementById('drugInfoContent');
+        if (!el) return;
+        const sizes = { small: '13px', medium: '15px', large: '20px' };
+        el.style.fontSize = sizes[size] || '15px';
+        // 更新按钮样式
+        ['Small', 'Medium', 'Large'].forEach(s => {
+            const btn = document.getElementById('font' + s);
+            if (btn) {
+                const active = s.toLowerCase() === size;
+                btn.style.background = active ? '#2b7a78' : '';
+                btn.style.color = active ? '#fff' : '';
+                btn.style.borderColor = active ? '#2b7a78' : '';
+            }
+        });
     }
 };
 

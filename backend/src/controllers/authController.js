@@ -243,6 +243,27 @@ async function toggleAuthorization(req, res) {
   }
 }
 
+// 获取用户所属的所有家庭组
+async function getUserFamilies(req, res) {
+  try {
+    const userId = req.user.id;
+    // 查找用户关联的所有家庭，通过 users 表的 family_id 关联
+    // 创建者：优先用 families.created_by，若不存在则取家庭中 role='admin' 的用户
+    const [rows] = await getPool().query(
+      `SELECT DISTINCT f.id, f.name, f.invite_code,
+              (SELECT u2.name FROM users u2 WHERE u2.family_id = f.id AND u2.role = 'admin' LIMIT 1) as creator_name
+       FROM families f
+       INNER JOIN users u ON u.family_id = f.id
+       WHERE u.id = ?`,
+      [userId]
+    );
+    res.json({ families: rows });
+  } catch (err) {
+    console.error('Get user families error:', err);
+    res.status(500).json({ error: '获取家庭组列表失败' });
+  }
+}
+
 module.exports = {
   register,
   login,
@@ -251,5 +272,6 @@ module.exports = {
   joinFamily,
   getFamilyMembers,
   updateFamily,
-  toggleAuthorization
+  toggleAuthorization,
+  getUserFamilies
 };

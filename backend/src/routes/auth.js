@@ -12,6 +12,7 @@ router.get('/profile', authMiddleware, authController.getProfile);
 router.put('/profile', authMiddleware, authController.updateProfile);
 router.post('/join-family', authMiddleware, authController.joinFamily);
 router.get('/family-members', authMiddleware, authController.getFamilyMembers);
+router.get('/families', authMiddleware, authController.getUserFamilies);
 router.put('/family', authMiddleware, authController.updateFamily);
 router.put('/authorize/:userId', authMiddleware, authController.toggleAuthorization);
 

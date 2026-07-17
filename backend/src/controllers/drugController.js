@@ -27,6 +27,7 @@ async function getDrugs(req, res) {
       elderId: d.elder_id,
       name: d.name,
       specification: d.specification,
+      manufacturer: d.manufacturer,
       quantity: d.quantity,
       expiryDate: d.expiry_date ? fmtDate(d.expiry_date) : null,
       status: d.status,
@@ -93,7 +94,7 @@ async function getDrug(req, res) {
 async function addDrug(req, res) {
   try {
     const familyId = req.familyId;
-    const { elderId, name, specification, quantity, expiryDate, note } = req.body;
+    const { elderId, name, specification, manufacturer, quantity, expiryDate, note } = req.body;
 
     if (!name) {
       return res.status(400).json({ error: '药品名称不能为空' });
@@ -109,12 +110,50 @@ async function addDrug(req, res) {
       else if (expiry <= thirtyDaysLater) status = 'expiring_soon';
     }
 
+    // 查重：厂商+规格+到期日均一致则更新数量
+    const [existing] = await getPool().query(
+      `SELECT * FROM drug_inventory WHERE family_id = ? AND name = ?
+       AND (specification = ? OR (specification IS NULL AND ? IS NULL))
+       AND (manufacturer = ? OR (manufacturer IS NULL AND ? IS NULL))
+       AND (expiry_date = ? OR (expiry_date IS NULL AND ? IS NULL))
+       LIMIT 1`,
+      [familyId, name, specification || null, specification || null, manufacturer || null, manufacturer || null, expiryDate || null, expiryDate || null]
+    );
+
+    if (existing.length > 0) {
+      // 已有同名同厂同规格同到期日的药品，更新数量
+      const existingDrug = existing[0];
+      const newQuantity = (existingDrug.quantity || 1) + (quantity || 1);
+      await getPool().query(
+        'UPDATE drug_inventory SET quantity = ? WHERE id = ?',
+        [newQuantity, existingDrug.id]
+      );
+      const [updated] = await getPool().query('SELECT * FROM drug_inventory WHERE id = ?', [existingDrug.id]);
+      const d = updated[0];
+      return res.json({
+        drug: {
+          id: d.id,
+          familyId: d.family_id,
+          elderId: d.elder_id,
+          name: d.name,
+          specification: d.specification,
+          manufacturer: d.manufacturer,
+          quantity: d.quantity,
+          expiryDate: d.expiry_date ? fmtDate(d.expiry_date) : null,
+          status: d.status,
+          note: d.note,
+          createdAt: d.created_at
+        },
+        merged: true
+      });
+    }
+
     const id = uuidv4();
 
     await getPool().query(
-      `INSERT INTO drug_inventory (id, family_id, elder_id, name, specification, quantity, expiry_date, status, note)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, familyId, elderId || null, name, specification || null, quantity || 1, expiryDate || null, status, note || null]
+      `INSERT INTO drug_inventory (id, family_id, elder_id, name, specification, manufacturer, quantity, expiry_date, status, note)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, familyId, elderId || null, name, specification || null, manufacturer || null, quantity || 1, expiryDate || null, status, note || null]
     );
 
     const [drugs] = await getPool().query('SELECT * FROM drug_inventory WHERE id = ?', [id]);
@@ -126,6 +165,7 @@ async function addDrug(req, res) {
         elderId: d.elder_id,
         name: d.name,
         specification: d.specification,
+        manufacturer: d.manufacturer,
         quantity: d.quantity,
         expiryDate: d.expiry_date ? fmtDate(d.expiry_date) : null,
         status: d.status,
@@ -144,7 +184,7 @@ async function updateDrug(req, res) {
   try {
     const { id } = req.params;
     const familyId = req.familyId;
-    const { elderId, name, specification, quantity, expiryDate, note } = req.body;
+    const { elderId, name, specification, manufacturer, quantity, expiryDate, note } = req.body;
 
     const [drugs] = await getPool().query('SELECT * FROM drug_inventory WHERE id = ? AND family_id = ?', [id, familyId]);
     if (drugs.length === 0) {
@@ -169,6 +209,7 @@ async function updateDrug(req, res) {
     if (elderId !== undefined) { updates.push('elder_id = ?'); values.push(elderId || null); }
     if (name !== undefined) { updates.push('name = ?'); values.push(name); }
     if (specification !== undefined) { updates.push('specification = ?'); values.push(specification); }
+    if (manufacturer !== undefined) { updates.push('manufacturer = ?'); values.push(manufacturer); }
     if (quantity !== undefined) { updates.push('quantity = ?'); values.push(quantity); }
     if (expiryDate !== undefined) { updates.push('expiry_date = ?'); values.push(expiryDate || null); }
     if (note !== undefined) { updates.push('note = ?'); values.push(note); }
@@ -191,6 +232,7 @@ async function updateDrug(req, res) {
         elderId: d.elder_id,
         name: d.name,
         specification: d.specification,
+        manufacturer: d.manufacturer,
         quantity: d.quantity,
         expiryDate: d.expiry_date ? fmtDate(d.expiry_date) : null,
         status: d.status,
