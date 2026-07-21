@@ -1,3 +1,16 @@
+const USE_MOCK = process.argv.includes('--mock') || process.argv.includes('--mock-data');
+
+if (USE_MOCK) {
+  const { fakePool } = require('../mock/fakePool');
+  module.exports = {
+    getPool: () => fakePool,
+    checkDatabase: async () => { console.log('✓ Mock模式: 使用内存数据库'); },
+    initDatabase: async () => { console.log('✓ Mock模式: 跳过数据库初始化'); },
+    rebuildDatabase: async () => { fakePool._reset(); console.log('✓ Mock模式: 内存数据库已重置'); }
+  };
+  return;
+}
+
 const mysql = require('mysql2/promise');
 
 // 先不指定 database，连接到 MySQL 服务器

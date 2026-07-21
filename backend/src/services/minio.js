@@ -1,3 +1,23 @@
+const USE_MOCK = process.argv.includes('--mock') || process.argv.includes('--mock-data');
+
+if (USE_MOCK) {
+  module.exports = {
+    minioClient: null,
+    ensureBucket: async () => { console.log('✓ Mock模式: 跳过MinIO初始化'); return true; },
+    checkMinio: async () => { console.log('✓ Mock模式: MinIO模拟可用'); return true; },
+    uploadFile: async (file, familyId) => ({
+      key: `mock://${familyId}/${file.originalname}`,
+      url: `mock://${familyId}/${file.originalname}`,
+      originalName: file.originalname, size: file.size, mimeType: file.mimetype
+    }),
+    deleteFile: async () => true,
+    getFileUrl: async (key) => key,
+    BUCKET_NAME: 'mock-bucket',
+    isAvailable: () => true
+  };
+  return;
+}
+
 const Minio = require('minio');
 const { v4: uuidv4 } = require('uuid');
 

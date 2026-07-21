@@ -58,10 +58,13 @@ app.use((err, req, res, next) => {
 // 启动服务器
 async function startServer() {
   try {
+    const useMock = process.argv.includes('--mock') || process.argv.includes('--mock-data');
     const shouldRebuild = process.argv.includes('--rebuild');
     const shouldInit = process.argv.includes('--init');
 
-    if (shouldRebuild) {
+    if (useMock) {
+      console.log('✓ Mock模式: 使用内存数据库, 跳过MySQL/MinIO连接');
+    } else if (shouldRebuild) {
       // --rebuild: 重建数据库（会清除所有数据！）
       const { rebuildDatabase } = require('./config/database');
       await rebuildDatabase();
