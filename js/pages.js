@@ -36,7 +36,11 @@ const PageHome = {
         this.loadContent(memberId);
         return `
         <div class="card">
-            <div class="card-title"><i class="fas fa-pills"></i> 今日用药安排</div>
+            <div class="card-title" style="display:flex;align-items:center;">
+                <span style="flex:1;"><i class="fas fa-pills"></i> 今日用药安排</span>
+                <button class="btn-outline" style="width:auto;padding:3px 10px;font-size:12px;margin-left:8px;" onclick="App.switchPage('medEdit')"><i class="fas fa-edit"></i> 编辑</button>
+                <button class="btn-outline" style="width:auto;padding:3px 10px;font-size:12px;margin-left:4px;" onclick="App.switchPage('medHistory')"><i class="fas fa-history"></i> 历史</button>
+            </div>
             <div id="homeMeds"><p class="text-muted" style="text-align:center;padding:12px;">加载中...</p></div>
         </div>
         <div id="homeRefill"></div>
@@ -714,6 +718,217 @@ const PageElderDetail = {
         } catch (err) {
             const el = document.getElementById('elderDetailContent');
             if (el) el.innerHTML = `<p>加载失败: ${err.message}</p>`;
+        }
+    }
+};
+
+// ---------- 用药编辑 ----------
+const PageMedEdit = {
+    render() {
+        this.loadContent();
+        return `
+        <div class="sub-header">
+            <button class="back-btn" onclick="App.goBack()"><i class="fas fa-arrow-left"></i></button>
+            <h2>编辑用药安排</h2>
+        </div>
+        <div id="medEditContent"><p class="text-muted" style="text-align:center;padding:40px;">加载中...</p></div>`;
+    },
+
+    async loadContent() {
+        const memberId = App.state.currentMemberId;
+        const member = App.getCurrentMember();
+        const el = document.getElementById('medEditContent');
+        if (!el) return;
+
+        try {
+            const medsRes = await Api.medications.getAll(memberId, true);
+            const meds = medsRes.medications || [];
+
+            if (meds.length === 0) {
+                el.innerHTML = '<p class="text-muted" style="text-align:center;padding:20px;">暂无活跃用药计划</p>';
+                return;
+            }
+
+            el.innerHTML = meds.map(m => {
+                const times = (m.times || []).join(', ');
+                return `<div class="card" style="margin-bottom:8px;">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+                    <div style="flex:1;">
+                        <div style="font-weight:700;font-size:16px;">${m.name}</div>
+                        <div class="text-muted" style="font-size:13px;">${m.dose || ''} · ${m.frequency || ''}</div>
+                        <div class="text-muted" style="font-size:13px;">时间: ${times || '未设置'}${m.note ? ' · ' + m.note : ''}</div>
+                    </div>
+                </div>
+                <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                    <button class="btn-outline" style="width:auto;padding:4px 10px;font-size:12px;" onclick="PageMedEdit.showEditForm('${m.id}')"><i class="fas fa-edit"></i> 修改</button>
+                    <button class="btn-outline" style="width:auto;padding:4px 10px;font-size:12px;color:#d97706;border-color:#d97706;" onclick="PageMedEdit.endMed('${m.id}','${m.name.replace(/'/g, "\\'")}')"><i class="fas fa-stop-circle"></i> 结束用药</button>
+                    <button class="btn-outline" style="width:auto;padding:4px 10px;font-size:12px;color:#dc2626;border-color:#dc2626;" onclick="PageMedEdit.deleteMed('${m.id}','${m.name.replace(/'/g, "\\'")}')"><i class="fas fa-trash"></i> 删除</button>
+                </div>
+                <div id="editForm-${m.id}" style="display:none;margin-top:10px;"></div>
+            </div>`;
+            }).join('');
+        } catch (err) {
+            el.innerHTML = `<p>加载失败: ${err.message}</p>`;
+        }
+    },
+
+    showEditForm(medId) {
+        const container = document.getElementById('editForm-' + medId);
+        if (!container) return;
+        if (container.style.display !== 'none') { container.style.display = 'none'; return; }
+
+        // 先获取当前用药详情
+        Api.medications.get(medId).then(res => {
+            const m = res.medication;
+            const timesStr = (m.times || []).join(', ');
+            container.style.display = 'block';
+            container.innerHTML = `
+            <div style="border-top:1px solid #eee;padding-top:10px;">
+                <div style="font-weight:600;margin-bottom:8px;">修改用药</div>
+                <div class="form-group"><label class="form-label">药品名称</label><input class="form-input" id="ef-name-${medId}" value="${m.name || ''}"></div>
+                <div class="form-group"><label class="form-label">每次剂量</label><input class="form-input" id="ef-dose-${medId}" value="${m.dose || ''}"></div>
+                <div class="form-group"><label class="form-label">频次</label><input class="form-input" id="ef-freq-${medId}" value="${m.frequency || ''}" placeholder="如: 每日2次"></div>
+                <div class="form-group"><label class="form-label">服药时间</label><input class="form-input" id="ef-times-${medId}" value="${timesStr}" placeholder="如: 08:00, 20:00"></div>
+                <div class="form-group"><label class="form-label">备注</label><input class="form-input" id="ef-note-${medId}" value="${m.note || ''}"></div>
+                <div style="display:flex;gap:8px;margin-top:8px;">
+                    <button class="btn-primary" style="flex:1;" onclick="PageMedEdit.saveEdit('${medId}')">保存</button>
+                    <button class="btn-outline" style="flex:1;" onclick="document.getElementById('editForm-${medId}').style.display='none'">取消</button>
+                </div>
+            </div>`;
+        }).catch(err => { container.innerHTML = `<p class="text-muted">获取详情失败</p>`; });
+    },
+
+    async saveEdit(medId) {
+        const name = document.getElementById('ef-name-' + medId)?.value;
+        const dose = document.getElementById('ef-dose-' + medId)?.value;
+        const frequency = document.getElementById('ef-freq-' + medId)?.value;
+        const timesStr = document.getElementById('ef-times-' + medId)?.value;
+        const note = document.getElementById('ef-note-' + medId)?.value;
+
+        const times = timesStr ? timesStr.split(/[,，\s]+/).filter(t => t) : undefined;
+
+        try {
+            // 保存历史：先获取旧用药，记录到历史
+            const oldRes = await Api.medications.get(medId);
+            const oldMed = oldRes.medication;
+
+            await Api.medications.update(medId, { name, dose, frequency, times, note });
+
+            // 保存历史记录（用 addMedication 添加一条 status=ended 的记录作为快照）
+            await Api.medications.add({
+                elderId: oldMed.elderId,
+                name: oldMed.name,
+                dose: oldMed.dose,
+                frequency: oldMed.frequency,
+                times: oldMed.times,
+                startDate: oldMed.startDate,
+                endDate: oldMed.endDate || new Date().toISOString().slice(0, 10),
+                note: '[历史] ' + (oldMed.note || ''),
+                reminder: false,
+                status: 'ended'
+            });
+
+            App.toast('已保存，历史记录已归档');
+            this.loadContent();
+        } catch (err) {
+            App.toast('保存失败: ' + err.message);
+        }
+    },
+
+    async endMed(medId, medName) {
+        if (!confirm(`确定结束「${medName}」的用药？\n当前用药安排将被归档到历史记录。`)) return;
+        try {
+            const oldRes = await Api.medications.get(medId);
+            const oldMed = oldRes.medication;
+            const today = new Date().toISOString().slice(0, 10);
+
+            // 将当前用药标记为 ended
+            await Api.medications.update(medId, { status: 'ended', endDate: today });
+
+            App.toast('用药已结束，已归档到历史记录');
+            this.loadContent();
+        } catch (err) {
+            App.toast('操作失败: ' + err.message);
+        }
+    },
+
+    async deleteMed(medId, medName) {
+        if (!confirm(`确定删除「${medName}」？\n删除后不可恢复！`)) return;
+        try {
+            await Api.medications.delete(medId);
+            App.toast('已删除');
+            this.loadContent();
+        } catch (err) {
+            App.toast('删除失败: ' + err.message);
+        }
+    }
+};
+
+// ---------- 用药历史 ----------
+const PageMedHistory = {
+    render() {
+        this.loadContent();
+        return `
+        <div class="sub-header">
+            <button class="back-btn" onclick="App.goBack()"><i class="fas fa-arrow-left"></i></button>
+            <h2>用药历史</h2>
+        </div>
+        <div id="medHistoryContent"><p class="text-muted" style="text-align:center;padding:40px;">加载中...</p></div>`;
+    },
+
+    async loadContent() {
+        const memberId = App.state.currentMemberId;
+        const el = document.getElementById('medHistoryContent');
+        if (!el) return;
+
+        try {
+            // 获取所有用药（含 ended）
+            const activeRes = await Api.medications.getAll(memberId, true);
+            const allRes = await Api.medications.getAll(memberId);
+            const activeMeds = activeRes.medications || [];
+            const allMeds = allRes.medications || [];
+            const endedMeds = allMeds.filter(m => m.status === 'ended');
+
+            let html = '';
+
+            // 当前用药
+            if (activeMeds.length > 0) {
+                html += '<div class="card-title" style="margin:12px 0 4px;font-size:15px;"><i class="fas fa-pills" style="color:#2b7a78;"></i> 当前用药</div>';
+                html += activeMeds.map(m => {
+                    const times = (m.times || []).join(', ');
+                    return `<div class="card" style="margin-bottom:6px;padding:10px 14px;">
+                        <div style="font-weight:600;">${m.name}</div>
+                        <div class="text-muted" style="font-size:12px;">${m.dose || ''} · ${m.frequency || ''} · ${times}</div>
+                        <div class="text-muted" style="font-size:12px;">开始: ${m.startDate || '未记录'}${m.note ? ' · ' + m.note : ''}</div>
+                    </div>`;
+                }).join('');
+            }
+
+            // 历史用药
+            if (endedMeds.length > 0) {
+                html += '<div class="card-title" style="margin:16px 0 4px;font-size:15px;"><i class="fas fa-history" style="color:#94a3b8;"></i> 历史用药</div>';
+                // 按结束日期分组
+                endedMeds.sort((a, b) => (b.endDate || b.createdAt || '') > (a.endDate || a.createdAt || '') ? 1 : -1);
+                html += endedMeds.map(m => {
+                    const times = (m.times || []).join(', ');
+                    const isHistoryNote = m.note && m.note.startsWith('[历史]');
+                    const noteDisplay = isHistoryNote ? m.note.replace('[历史] ', '') : m.note;
+                    return `<div class="card" style="margin-bottom:6px;padding:10px 14px;background:#f8fafc;">
+                        <div style="font-weight:600;color:#64748b;">${m.name} <span class="badge" style="background:#e2e8f0;color:#64748b;">已结束</span></div>
+                        <div class="text-muted" style="font-size:12px;">${m.dose || ''} · ${m.frequency || ''} · ${times}</div>
+                        <div class="text-muted" style="font-size:12px;">${m.startDate ? '开始: ' + m.startDate : ''}${m.endDate ? ' → 结束: ' + m.endDate : ''}</div>
+                        ${noteDisplay ? `<div class="text-muted" style="font-size:12px;">备注: ${noteDisplay}</div>` : ''}
+                    </div>`;
+                }).join('');
+            }
+
+            if (!html) {
+                html = '<p class="text-muted" style="text-align:center;padding:20px;">暂无用药记录</p>';
+            }
+
+            el.innerHTML = html;
+        } catch (err) {
+            el.innerHTML = `<p>加载失败: ${err.message}</p>`;
         }
     }
 };

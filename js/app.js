@@ -125,6 +125,8 @@ const App = {
             elderDetail: () => PageElderDetail.render(),
             drugInfo: () => PageDrugInfo.render(),
             profileEdit: () => PageProfileEdit.render(),
+            medEdit: () => PageMedEdit.render(),
+            medHistory: () => PageMedHistory.render(),
         };
         return (pages[page] || pages.home)();
     },
