@@ -725,7 +725,7 @@ const PageElderDetail = {
 // ---------- 用药编辑 ----------
 const PageMedEdit = {
     render() {
-        this.loadContent();
+        PageMedEdit.loadContent();
         return `
         <div class="sub-header">
             <button class="back-btn" onclick="App.goBack()"><i class="fas fa-arrow-left"></i></button>
@@ -736,11 +736,14 @@ const PageMedEdit = {
 
     async loadContent() {
         const memberId = App.state.currentMemberId;
-        const member = App.getCurrentMember();
         const el = document.getElementById('medEditContent');
         if (!el) return;
 
         try {
+            if (!memberId) {
+                el.innerHTML = '<p class="text-muted" style="text-align:center;padding:20px;">请先选择一位家庭成员</p>';
+                return;
+            }
             const medsRes = await Api.medications.getAll(memberId, true);
             const meds = medsRes.medications || [];
 
@@ -768,7 +771,8 @@ const PageMedEdit = {
             </div>`;
             }).join('');
         } catch (err) {
-            el.innerHTML = `<p>加载失败: ${err.message}</p>`;
+            console.error('用药编辑加载失败:', err);
+            el.innerHTML = `<p style="color:#dc2626;">加载失败: ${err.message || err}</p>`;
         }
     },
 
@@ -829,7 +833,7 @@ const PageMedEdit = {
             });
 
             App.toast('已保存，历史记录已归档');
-            this.loadContent();
+            PageMedEdit.loadContent();
         } catch (err) {
             App.toast('保存失败: ' + err.message);
         }
@@ -846,7 +850,7 @@ const PageMedEdit = {
             await Api.medications.update(medId, { status: 'ended', endDate: today });
 
             App.toast('用药已结束，已归档到历史记录');
-            this.loadContent();
+            PageMedEdit.loadContent();
         } catch (err) {
             App.toast('操作失败: ' + err.message);
         }
@@ -857,7 +861,7 @@ const PageMedEdit = {
         try {
             await Api.medications.delete(medId);
             App.toast('已删除');
-            this.loadContent();
+            PageMedEdit.loadContent();
         } catch (err) {
             App.toast('删除失败: ' + err.message);
         }
@@ -867,7 +871,7 @@ const PageMedEdit = {
 // ---------- 用药历史 ----------
 const PageMedHistory = {
     render() {
-        this.loadContent();
+        PageMedHistory.loadContent();
         return `
         <div class="sub-header">
             <button class="back-btn" onclick="App.goBack()"><i class="fas fa-arrow-left"></i></button>
@@ -882,6 +886,10 @@ const PageMedHistory = {
         if (!el) return;
 
         try {
+            if (!memberId) {
+                el.innerHTML = '<p class="text-muted" style="text-align:center;padding:20px;">请先选择一位家庭成员</p>';
+                return;
+            }
             // 获取所有用药（含 ended）
             const activeRes = await Api.medications.getAll(memberId, true);
             const allRes = await Api.medications.getAll(memberId);
@@ -928,7 +936,8 @@ const PageMedHistory = {
 
             el.innerHTML = html;
         } catch (err) {
-            el.innerHTML = `<p>加载失败: ${err.message}</p>`;
+            console.error('用药历史加载失败:', err);
+            el.innerHTML = `<p style="color:#dc2626;">加载失败: ${err.message || err}</p>`;
         }
     }
 };
