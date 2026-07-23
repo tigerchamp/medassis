@@ -1,7 +1,6 @@
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:'Inter',-apple-system,sans-serif;background:#f4f7fc;display:flex;justify-content:center;align-items:center;min-height:100vh;padding:16px}
 .phone-frame{max-width:420px;width:100%;background:#fff;border-radius:40px;box-shadow:0 25px 60px rgba(0,20,40,.12);overflow:hidden;position:relative;height:780px;display:flex;flex-direction:column}
-.status-bar{padding:18px 24px 8px;display:flex;justify-content:space-between;font-size:14px;font-weight:600;color:#1a2639;background:#fff;flex-shrink:0}
 .app-header{padding:8px 24px 12px;display:flex;justify-content:space-between;align-items:center;background:#fff;border-bottom:1px solid rgba(0,0,0,.03);flex-shrink:0;position:relative}
 .header-left{display:flex;align-items:center;gap:8px}
 .family-selector{display:flex;align-items:center;gap:6px;background:#e8f3f2;padding:6px 14px 6px 12px;border-radius:40px;cursor:pointer;font-weight:600;font-size:16px;color:#1a2639;transition:background .2s;border:none;font-family:inherit}
