@@ -872,7 +872,13 @@ const PageMedEdit = {
 
 // ---------- 用药历史 ----------
 const PageMedHistory = {
+    selectedYear: null,
+    selectedMonth: null,
+
     render() {
+        const now = new Date();
+        if (!this.selectedYear) this.selectedYear = now.getFullYear();
+        if (!this.selectedMonth) this.selectedMonth = now.getMonth() + 1;
         PageMedHistory.loadContent();
         return `
         <div class="sub-header">
@@ -882,66 +888,112 @@ const PageMedHistory = {
         <div id="medHistoryContent"><p class="text-muted" style="text-align:center;padding:40px;">加载中...</p></div>`;
     },
 
+    // 判断某用药在指定年月是否活跃
+    isActiveInMonth(med, year, month) {
+        const monthStart = new Date(year, month - 1, 1);
+        const monthEnd = new Date(year, month, 0); // 月末
+        const start = med.startDate ? new Date(med.startDate) : null;
+        const end = med.endDate ? new Date(med.endDate) : null;
+        // 用药开始日期 <= 月末 且 (结束日期为空 或 结束日期 >= 月初)
+        if (start && start > monthEnd) return false;
+        if (end && end < monthStart) return false;
+        return true;
+    },
+
     async loadContent() {
         const memberId = App.state.currentMemberId;
 
         try {
             if (!memberId) {
-                const el = document.getElementById('medHistoryContent');
-                if (el) el.innerHTML = '<p class="text-muted" style="text-align:center;padding:20px;">请先选择一位家庭成员</p>';
+                const el0 = document.getElementById('medHistoryContent');
+                if (el0) el0.innerHTML = '<p class="text-muted" style="text-align:center;padding:20px;">请先选择一位家庭成员</p>';
                 return;
             }
-            // 获取所有用药（含 ended）
-            const activeRes = await Api.medications.getAll(memberId, true);
+
             const allRes = await Api.medications.getAll(memberId);
-            const activeMeds = activeRes.medications || [];
             const allMeds = allRes.medications || [];
-            const endedMeds = allMeds.filter(m => m.status === 'ended');
 
             const el = document.getElementById('medHistoryContent');
             if (!el) return;
 
-            let html = '';
+            const year = this.selectedYear;
+            const month = this.selectedMonth;
 
-            // 当前用药
-            if (activeMeds.length > 0) {
-                html += '<div class="card-title" style="margin:12px 0 4px;font-size:15px;"><i class="fas fa-pills" style="color:#2b7a78;"></i> 当前用药</div>';
-                html += activeMeds.map(m => {
-                    const times = (m.times || []).join(', ');
-                    return `<div class="card" style="margin-bottom:6px;padding:10px 14px;">
-                        <div style="font-weight:600;">${m.name}</div>
-                        <div class="text-muted" style="font-size:12px;">${m.dose || ''} · ${m.frequency || ''} · ${times}</div>
-                        <div class="text-muted" style="font-size:12px;">开始: ${m.startDate || '未记录'}${m.note ? ' · ' + m.note : ''}</div>
-                    </div>`;
-                }).join('');
-            }
+            // 计算可选年份范围
+            const now = new Date();
+            const curYear = now.getFullYear();
+            let minYear = curYear;
+            allMeds.forEach(m => { if (m.startDate) { const y = new Date(m.startDate).getFullYear(); if (y < minYear) minYear = y; } });
+            const years = [];
+            for (let y = curYear; y >= minYear; y--) years.push(y);
 
-            // 历史用药
-            if (endedMeds.length > 0) {
-                html += '<div class="card-title" style="margin:16px 0 4px;font-size:15px;"><i class="fas fa-history" style="color:#94a3b8;"></i> 历史用药</div>';
-                // 按结束日期分组
-                endedMeds.sort((a, b) => (b.endDate || b.createdAt || '') > (a.endDate || a.createdAt || '') ? 1 : -1);
-                html += endedMeds.map(m => {
+            // 筛选当月用药
+            const monthMeds = allMeds.filter(m => this.isActiveInMonth(m, year, month));
+
+            // 月份选择器
+            let html = `
+            <div class="card" style="display:flex;align-items:center;gap:8px;padding:10px 14px;margin-bottom:8px;">
+                <i class="fas fa-calendar-alt" style="color:#2b7a78;"></i>
+                <select id="histYear" style="border:1px solid #ddd;border-radius:6px;padding:4px 8px;font-size:14px;" onchange="PageMedHistory.onMonthChange()">`;
+            years.forEach(y => { html += `<option value="${y}" ${y === year ? 'selected' : ''}>${y}年</option>`; });
+            html += `</select>
+                <select id="histMonth" style="border:1px solid #ddd;border-radius:6px;padding:4px 8px;font-size:14px;" onchange="PageMedHistory.onMonthChange()">`;
+            for (let m = 1; m <= 12; m++) { html += `<option value="${m}" ${m === month ? 'selected' : ''}>${m}月</option>`; }
+            html += `</select>
+                <button class="btn-outline" style="width:auto;padding:3px 8px;font-size:12px;margin-left:auto;" onclick="PageMedHistory.goToday()">本月</button>
+            </div>`;
+
+            // 标题
+            const isActive = (year === curYear && month === now.getMonth() + 1);
+            html += `<div class="card-title" style="margin:4px 0;font-size:15px;">
+                <i class="fas fa-pills" style="color:${isActive ? '#2b7a78' : '#94a3b8'};"></i>
+                ${year}年${month}月用药 (${monthMeds.length})
+            </div>`;
+
+            if (monthMeds.length === 0) {
+                html += '<p class="text-muted" style="text-align:center;padding:20px;">该月份暂无用药记录</p>';
+            } else {
+                // 按状态排序：active 在前，ended 在后
+                monthMeds.sort((a, b) => {
+                    if (a.status === 'active' && b.status !== 'active') return -1;
+                    if (a.status !== 'active' && b.status === 'active') return 1;
+                    return 0;
+                });
+                monthMeds.forEach(m => {
                     const times = (m.times || []).join(', ');
-                    const isHistoryNote = m.note && m.note.startsWith('[历史]');
-                    const noteDisplay = isHistoryNote ? m.note.replace('[历史] ', '') : m.note;
-                    return `<div class="card" style="margin-bottom:6px;padding:10px 14px;background:#f8fafc;">
-                        <div style="font-weight:600;color:#64748b;">${m.name} <span class="badge" style="background:#e2e8f0;color:#64748b;">已结束</span></div>
-                        <div class="text-muted" style="font-size:12px;">${m.dose || ''} · ${m.frequency || ''} · ${times}</div>
+                    const ended = m.status === 'ended';
+                    const noteDisplay = m.note && m.note.startsWith('[历史]') ? m.note.replace('[历史] ', '') : m.note;
+                    html += `<div class="card" style="margin-bottom:6px;padding:10px 14px;${ended ? 'background:#f8fafc;' : ''}">
+                        <div style="font-weight:600;${ended ? 'color:#64748b;' : ''}">${m.name}
+                            ${ended ? '<span class="badge" style="background:#e2e8f0;color:#64748b;">已结束</span>' : '<span class="badge" style="background:#d1fae5;color:#059669;">服用中</span>'}
+                        </div>
+                        <div class="text-muted" style="font-size:12px;">${m.dose || ''} · ${m.frequency || ''} · ${times || '未设置'}</div>
                         <div class="text-muted" style="font-size:12px;">${m.startDate ? '开始: ' + m.startDate : ''}${m.endDate ? ' → 结束: ' + m.endDate : ''}</div>
                         ${noteDisplay ? `<div class="text-muted" style="font-size:12px;">备注: ${noteDisplay}</div>` : ''}
                     </div>`;
-                }).join('');
-            }
-
-            if (!html) {
-                html = '<p class="text-muted" style="text-align:center;padding:20px;">暂无用药记录</p>';
+                });
             }
 
             el.innerHTML = html;
         } catch (err) {
             console.error('用药历史加载失败:', err);
-            el.innerHTML = `<p style="color:#dc2626;">加载失败: ${err.message || err}</p>`;
+            const errEl = document.getElementById('medHistoryContent');
+            if (errEl) errEl.innerHTML = `<p style="color:#dc2626;">加载失败: ${err.message || err}</p>`;
         }
+    },
+
+    onMonthChange() {
+        const yEl = document.getElementById('histYear');
+        const mEl = document.getElementById('histMonth');
+        if (yEl) this.selectedYear = parseInt(yEl.value);
+        if (mEl) this.selectedMonth = parseInt(mEl.value);
+        this.loadContent();
+    },
+
+    goToday() {
+        const now = new Date();
+        this.selectedYear = now.getFullYear();
+        this.selectedMonth = now.getMonth() + 1;
+        this.loadContent();
     }
 };
