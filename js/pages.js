@@ -736,16 +736,18 @@ const PageMedEdit = {
 
     async loadContent() {
         const memberId = App.state.currentMemberId;
-        const el = document.getElementById('medEditContent');
-        if (!el) return;
 
         try {
             if (!memberId) {
-                el.innerHTML = '<p class="text-muted" style="text-align:center;padding:20px;">请先选择一位家庭成员</p>';
+                const el = document.getElementById('medEditContent');
+                if (el) el.innerHTML = '<p class="text-muted" style="text-align:center;padding:20px;">请先选择一位家庭成员</p>';
                 return;
             }
             const medsRes = await Api.medications.getAll(memberId, true);
             const meds = medsRes.medications || [];
+
+            const el = document.getElementById('medEditContent');
+            if (!el) return;
 
             if (meds.length === 0) {
                 el.innerHTML = '<p class="text-muted" style="text-align:center;padding:20px;">暂无活跃用药计划</p>';
@@ -882,12 +884,11 @@ const PageMedHistory = {
 
     async loadContent() {
         const memberId = App.state.currentMemberId;
-        const el = document.getElementById('medHistoryContent');
-        if (!el) return;
 
         try {
             if (!memberId) {
-                el.innerHTML = '<p class="text-muted" style="text-align:center;padding:20px;">请先选择一位家庭成员</p>';
+                const el = document.getElementById('medHistoryContent');
+                if (el) el.innerHTML = '<p class="text-muted" style="text-align:center;padding:20px;">请先选择一位家庭成员</p>';
                 return;
             }
             // 获取所有用药（含 ended）
@@ -896,6 +897,9 @@ const PageMedHistory = {
             const activeMeds = activeRes.medications || [];
             const allMeds = allRes.medications || [];
             const endedMeds = allMeds.filter(m => m.status === 'ended');
+
+            const el = document.getElementById('medHistoryContent');
+            if (!el) return;
 
             let html = '';
 
