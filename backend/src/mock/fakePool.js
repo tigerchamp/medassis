@@ -1,10 +1,14 @@
 const { v4: uuidv4 } = require('uuid');
+const bcrypt = require('bcryptjs');
 
 const FAMILY_ID = 'mock-family-001';
 const USER_ID = 'mock-user-001';
 const ELDER_ID_SELF = 'mock-elder-self';
 const ELDER_ID_1 = 'mock-elder-001';
 const ELDER_ID_2 = 'mock-elder-002';
+
+// 预生成 123456 的 bcrypt 哈希，mock 登录账号：13800138000 / 123456
+const MOCK_PASSWORD_HASH = bcrypt.hashSync('123456', 10);
 
 const now = new Date();
 const nowStr = now.toISOString().slice(0, 19).replace('T', ' ');
@@ -26,7 +30,7 @@ function seed() {
   ];
 
   db.users = [
-    { id: USER_ID, name: '张三', phone: '13800138000', password: 'mock-password', role: 'admin', family_id: FAMILY_ID, authorized: true, avatar: '张', created_at: nowStr, updated_at: nowStr }
+    { id: USER_ID, name: '张三', phone: '13800138000', password: MOCK_PASSWORD_HASH, role: 'admin', family_id: FAMILY_ID, authorized: true, avatar: '张', created_at: nowStr, updated_at: nowStr }
   ];
 
   db.elders = [
