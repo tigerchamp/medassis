@@ -167,6 +167,23 @@ const PageRecords = {
 };
 
 // ---------- 病历/报告详情 ----------
+// ---------- 通用图片展示辅助函数 ----------
+function renderImageGallery(images) {
+    if (!images || images.length === 0) return '';
+    const token = localStorage.getItem('fh_token');
+    const urls = images.map(img => {
+        let url = img.url || '';
+        if (token && url.startsWith('/api/')) {
+            url += (url.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(token);
+        }
+        return url;
+    });
+    const urlsJson = JSON.stringify(urls).replace(/"/g, '&quot;');
+    return `<div class="card"><div class="card-title"><i class="fas fa-images"></i> 图片</div><div style="display:flex;gap:8px;flex-wrap:wrap;">${
+        urls.map((u, i) => `<img src="${u}" style="width:72px;height:72px;object-fit:cover;border-radius:8px;cursor:pointer;" onclick="ImageViewer.show(${urlsJson},${i})">`).join('')
+    }</div></div>`;
+}
+
 const PageRecordDetail = {
     render() {
         this.loadContent();
@@ -197,6 +214,7 @@ const PageRecordDetail = {
                 </div>
                 ${r.findings ? `<div class="card"><div class="card-title"><i class="fas fa-microscope"></i> 检查所见</div><p style="white-space:pre-wrap;line-height:1.8;">${r.findings}</p></div>` : ''}
                 ${r.conclusion ? `<div class="card"><div class="card-title"><i class="fas fa-clipboard-check"></i> 报告结论</div><p style="white-space:pre-wrap;line-height:1.8;">${r.conclusion}</p></div>` : ''}
+                ${renderImageGallery(r.images)}
                 <button class="btn-danger" style="margin-top:8px;" onclick="App.deleteRecord('${r.id}')">删除此报告</button>`;
             } else {
                 // 病历类型：显示主诉、检查指标、医嘱
@@ -215,6 +233,7 @@ const PageRecordDetail = {
                 </div>
                 ${metricsHtml ? `<div class="card"><div class="card-title"><i class="fas fa-chart-bar"></i> 检查指标</div>${metricsHtml}</div>` : ''}
                 ${r.orders ? `<div class="card"><div class="card-title"><i class="fas fa-stethoscope"></i> 医嘱</div><p>${r.orders}</p></div>` : ''}
+                ${renderImageGallery(r.images)}
                 <button class="btn-danger" style="margin-top:8px;" onclick="App.deleteRecord('${r.id}')">删除此病历</button>`;
             }
         } catch (err) {
@@ -525,8 +544,13 @@ const PageAddMed = {
             <div class="form-group"><label>服用时间（逗号分隔）</label><input id="medTimes" placeholder="如：08:00, 20:00"></div>
             <div class="form-group"><label>开始日期</label><input id="medStart" type="date"></div>
             <div class="form-group"><label>备注</label><textarea id="medNote" placeholder="服用注意事项"></textarea></div>
+            <div class="form-group"><label>图片</label><div id="medImages"></div></div>
             <button class="btn-primary" onclick="App.saveMed()">保存</button>
         </div>`;
+    },
+
+    afterRender() {
+        ImageUploader.init('medImages');
     }
 };
 
@@ -573,6 +597,7 @@ const PageAddRecord = {
                     <div class="form-group"><label>备注</label><input id="recordMedNote" placeholder="如：餐后服用"></div>
                 </div>
             </div>
+            <div class="form-group"><label>图片</label><div id="recordImages"></div></div>
             <button class="btn-primary" onclick="App.saveRecord()">保存</button>
         </div>`;
     },
@@ -594,6 +619,10 @@ const PageAddRecord = {
             reportFields.style.display = 'none';
             prescriptionFields.style.display = 'none';
         }
+    },
+
+    afterRender() {
+        ImageUploader.init('recordImages');
     }
 };
 
@@ -614,8 +643,13 @@ const PageAddDrug = {
             <div class="form-group"><label>数量</label><input id="drugQty" type="number" value="1" min="1"></div>
             <div class="form-group"><label>有效期</label><input id="drugExp" type="date"></div>
             <div class="form-group"><label>备注</label><textarea id="drugNote" placeholder="备注信息"></textarea></div>
+            <div class="form-group"><label>图片</label><div id="drugImages"></div></div>
             <button class="btn-primary" onclick="App.saveDrug()">保存</button>
         </div>`;
+    },
+
+    afterRender() {
+        ImageUploader.init('drugImages');
     }
 };
 

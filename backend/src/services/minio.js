@@ -12,6 +12,7 @@ if (USE_MOCK) {
     }),
     deleteFile: async () => true,
     getFileUrl: async (key) => key,
+    getFileStream: async () => null,
     BUCKET_NAME: 'mock-bucket',
     isAvailable: () => true
   };
@@ -121,4 +122,14 @@ async function getFileUrl(key) {
   }
 }
 
-module.exports = { minioClient, ensureBucket, checkMinio, uploadFile, deleteFile, getFileUrl, BUCKET_NAME, isAvailable: () => isAvailable };
+async function getFileStream(key) {
+  if (!isAvailable) return null;
+  try {
+    return await minioClient.getObject(BUCKET_NAME, key);
+  } catch (err) {
+    console.error('Get file stream error:', err.message);
+    return null;
+  }
+}
+
+module.exports = { minioClient, ensureBucket, checkMinio, uploadFile, deleteFile, getFileUrl, getFileStream, BUCKET_NAME, isAvailable: () => isAvailable };

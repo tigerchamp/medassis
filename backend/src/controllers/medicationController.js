@@ -1,6 +1,7 @@
 const { getPool } = require('../config/database');
 const { v4: uuidv4 } = require('uuid');
 const { resolveDrugCode } = require('../utils/drugLibrary');
+const { getEntityFiles, setEntityFiles, deleteEntityFiles } = require('../utils/entityFiles');
 
 function fmtDate(d) { if (d instanceof Date) { const y = d.getFullYear(); const m = String(d.getMonth() + 1).padStart(2, '0'); const day = String(d.getDate()).padStart(2, '0'); return `${y}-${m}-${day}`; } return d; }
 
@@ -71,7 +72,8 @@ async function getMedication(req, res) {
       return res.status(404).json({ error: '用药记录不存在' });
     }
 
-    res.json({ medication: formatMedication(medications[0]) });
+    const images = await getEntityFiles('medication', medications[0].id);
+    res.json({ medication: { ...formatMedication(medications[0]), images } });
   } catch (err) {
     console.error('Get medication error:', err);
     res.status(500).json({ error: '获取用药详情失败' });
@@ -82,7 +84,7 @@ async function getMedication(req, res) {
 async function addMedication(req, res) {
   try {
     const familyId = req.familyId;
-    const { elderId, drugCode, name, dose, frequency, times, startDate, endDate, note, reminder, status } = req.body;
+    const { elderId, drugCode, name, dose, frequency, times, startDate, endDate, note, reminder, status, fileIds } = req.body;
 
     if (!elderId) {
       return res.status(400).json({ error: '老人不能为空' });
@@ -111,8 +113,14 @@ async function addMedication(req, res) {
       [id, elderId, familyId, finalCode, finalName, dose || null, frequency || null, timesJson, startDate || null, endDate || null, note || null, reminder !== false, status || 'active']
     );
 
+    // 保存关联图片
+    if (fileIds && fileIds.length > 0) {
+      await setEntityFiles('medication', id, fileIds);
+    }
+
     const [medications] = await getPool().query('SELECT * FROM medications WHERE id = ?', [id]);
-    res.json({ medication: formatMedication(medications[0]) });
+    const images = await getEntityFiles('medication', id);
+    res.json({ medication: { ...formatMedication(medications[0]), images } });
   } catch (err) {
     console.error('Add medication error:', err);
     res.status(500).json({ error: '添加用药失败' });
@@ -124,7 +132,7 @@ async function updateMedication(req, res) {
   try {
     const { id } = req.params;
     const familyId = req.familyId;
-    const { elderId, drugCode, name, dose, frequency, times, startDate, endDate, note, reminder, status } = req.body;
+    const { elderId, drugCode, name, dose, frequency, times, startDate, endDate, note, reminder, status, fileIds } = req.body;
 
     const [medications] = await getPool().query('SELECT * FROM medications WHERE id = ? AND family_id = ?', [id, familyId]);
     if (medications.length === 0) {
@@ -162,8 +170,14 @@ async function updateMedication(req, res) {
       );
     }
 
+    // 更新关联图片
+    if (fileIds !== undefined) {
+      await setEntityFiles('medication', id, fileIds);
+    }
+
     const [updated] = await getPool().query('SELECT * FROM medications WHERE id = ?', [id]);
-    res.json({ medication: formatMedication(updated[0]) });
+    const images = await getEntityFiles('medication', id);
+    res.json({ medication: { ...formatMedication(updated[0]), images } });
   } catch (err) {
     console.error('Update medication error:', err);
     res.status(500).json({ error: '更新用药失败' });
@@ -185,6 +199,7 @@ async function deleteMedication(req, res) {
     await getPool().query('DELETE FROM med_logs WHERE med_id = ?', [id]);
     // 删除用药记录
     await getPool().query('DELETE FROM medications WHERE id = ? AND family_id = ?', [id, familyId]);
+    await deleteEntityFiles('medication', id);
 
     res.json({ message: '删除成功' });
   } catch (err) {

@@ -1,3 +1,123 @@
+// ========== 图片上传组件 ==========
+// 用法：<div id="xxx"></div> 然后 ImageUploader.init('xxx', existingImages)
+// 获取已上传的 fileIds：ImageUploader.getFileIds('xxx')
+const ImageUploader = {
+    _store: {}, // containerId -> { fileIds: [], previews: [] }
+
+    // 给 url 加上 token 参数（供 img 标签鉴权）
+    _authUrl(url) {
+        const token = localStorage.getItem('fh_token');
+        if (!token) return url;
+        const sep = url.includes('?') ? '&' : '?';
+        return url + sep + 'token=' + encodeURIComponent(token);
+    },
+
+    init(containerId, existingImages) {
+        const container = document.getElementById(containerId);
+        if (!container) return;
+        const existing = (existingImages || []).map(img => ({
+            fileId: img.fileId || img.id,
+            url: img.url,
+            originalName: img.originalName || ''
+        }));
+        this._store[containerId] = { fileIds: existing.map(e => e.fileId), previews: existing };
+        this._render(containerId);
+    },
+
+    _render(containerId) {
+        const container = document.getElementById(containerId);
+        const store = this._store[containerId] || { fileIds: [], previews: [] };
+        const urls = store.previews.map(x => this._authUrl(x.url));
+        const urlsJson = JSON.stringify(urls).replace(/"/g, '&quot;');
+        const previewHtml = store.previews.map((p, idx) => `
+            <div class="img-upload-item" style="position:relative;width:72px;height:72px;border-radius:8px;overflow:hidden;flex-shrink:0;">
+                <img src="${this._authUrl(p.url)}" style="width:100%;height:100%;object-fit:cover;cursor:pointer;" onclick="ImageViewer.show(${urlsJson},${idx})">
+                <button type="button" onclick="ImageUploader.remove('${containerId}',${idx})" style="position:absolute;top:2px;right:2px;width:20px;height:20px;border-radius:50%;background:rgba(0,0,0,0.55);color:#fff;border:none;font-size:14px;line-height:20px;cursor:pointer;display:flex;align-items:center;justify-content:center;">×</button>
+            </div>`).join('');
+        const addBtn = store.previews.length >= 9 ? '' : `
+            <label class="img-upload-add" style="width:72px;height:72px;border:2px dashed #cbd5e1;border-radius:8px;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;color:#94a3b8;font-size:12px;">
+                <i class="fas fa-camera" style="font-size:20px;margin-bottom:2px;"></i>添加
+                <input type="file" accept="image/*" multiple style="display:none;" onchange="ImageUploader._onSelect('${containerId}',this)">
+            </label>`;
+        container.innerHTML = `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start;">${previewHtml}${addBtn}</div>`;
+    },
+
+    async _onSelect(containerId, inputEl) {
+        const files = Array.from(inputEl.files);
+        if (!files.length) return;
+        inputEl.value = '';
+        const store = this._store[containerId];
+        if (!store) return;
+        try {
+            const res = await Api.upload(files);
+            for (const f of res.files) {
+                store.fileIds.push(f.id);
+                store.previews.push({ fileId: f.id, url: f.url, originalName: f.originalName });
+            }
+            this._render(containerId);
+        } catch (err) {
+            App.toast('图片上传失败: ' + err.message);
+        }
+    },
+
+    remove(containerId, idx) {
+        const store = this._store[containerId];
+        if (!store) return;
+        store.fileIds.splice(idx, 1);
+        store.previews.splice(idx, 1);
+        this._render(containerId);
+    },
+
+    getFileIds(containerId) {
+        const store = this._store[containerId];
+        return store ? store.fileIds : [];
+    }
+};
+
+// ========== 图片查看器（点击放大，左右翻看） ==========
+const ImageViewer = {
+    _urls: [],
+    _idx: 0,
+
+    show(urls, idx = 0) {
+        this._urls = urls;
+        this._idx = idx;
+        this._render();
+    },
+
+    _render() {
+        let overlay = document.getElementById('imageViewerOverlay');
+        if (!overlay) {
+            overlay = document.createElement('div');
+            overlay.id = 'imageViewerOverlay';
+            document.body.appendChild(overlay);
+        }
+        const hasPrev = this._idx > 0;
+        const hasNext = this._idx < this._urls.length - 1;
+        overlay.innerHTML = `
+            <div style="position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.92);display:flex;align-items:center;justify-content:center;" onclick="ImageViewer._onBgClick(event)">
+                <button type="button" onclick="ImageViewer.prev()" style="position:absolute;left:12px;top:50%;transform:translateY(-50%);width:44px;height:44px;border-radius:50%;background:rgba(255,255,255,0.15);color:#fff;border:none;font-size:22px;cursor:pointer;${hasPrev?'':'opacity:0.3;pointer-events:none;'}"><i class="fas fa-chevron-left"></i></button>
+                <img src="${this._urls[this._idx]}" style="max-width:92vw;max-height:88vh;object-fit:contain;border-radius:6px;" onclick="event.stopPropagation()">
+                <button type="button" onclick="ImageViewer.next()" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);width:44px;height:44px;border-radius:50%;background:rgba(255,255,255,0.15);color:#fff;border:none;font-size:22px;cursor:pointer;${hasNext?'':'opacity:0.3;pointer-events:none;'}"><i class="fas fa-chevron-right"></i></button>
+                <button type="button" onclick="ImageViewer.close()" style="position:absolute;top:16px;right:16px;width:40px;height:40px;border-radius:50%;background:rgba(255,255,255,0.15);color:#fff;border:none;font-size:20px;cursor:pointer;"><i class="fas fa-times"></i></button>
+                <div style="position:absolute;bottom:16px;left:50%;transform:translateX(-50%);color:rgba(255,255,255,0.7);font-size:14px;">${this._idx + 1} / ${this._urls.length}</div>
+            </div>`;
+    },
+
+    prev() { if (this._idx > 0) { this._idx--; this._render(); } },
+    next() { if (this._idx < this._urls.length - 1) { this._idx++; this._render(); } },
+    close() { const el = document.getElementById('imageViewerOverlay'); if (el) el.innerHTML = ''; },
+    _onBgClick(e) { if (e.target === e.currentTarget || e.target.tagName !== 'IMG') this.close(); }
+};
+
+// 键盘事件支持
+document.addEventListener('keydown', e => {
+    if (!document.getElementById('imageViewerOverlay')?.innerHTML) return;
+    if (e.key === 'ArrowLeft') ImageViewer.prev();
+    else if (e.key === 'ArrowRight') ImageViewer.next();
+    else if (e.key === 'Escape') ImageViewer.close();
+});
+
 // ========== 药品库下拉建议组件 ==========
 // 用法：在药品名称输入框上 oninput="DrugSuggest.onInput(this, '隐藏code字段id')"
 // 选中后自动填充名称到当前输入框、code 到隐藏字段；未选中直接提交则后端按名匹配/入库
@@ -627,6 +747,7 @@ const App = {
         try {
             const timesStr = document.getElementById('medTimes').value.trim();
             const times = timesStr ? timesStr.split(',').map(t => t.trim()) : ['08:00'];
+            const fileIds = ImageUploader.getFileIds('medImages');
             await Api.medications.add({
                 elderId, name, drugCode: drugCode || undefined,
                 dose: document.getElementById('medDose').value,
@@ -635,6 +756,7 @@ const App = {
                 startDate: document.getElementById('medStart').value || new Date().toISOString().slice(0, 10),
                 note: document.getElementById('medNote').value,
                 status: 'active',
+                fileIds: fileIds.length > 0 ? fileIds : undefined,
             });
             this.toast('添加成功');
             this.goBack();
@@ -646,6 +768,7 @@ const App = {
         const type = document.getElementById('recordType').value;
         const isReport = type === '检查报告';
         const isPrescription = type === '处方';
+        const fileIds = ImageUploader.getFileIds('recordImages');
 
         if (isPrescription) {
             const medName = document.getElementById('recordMedName').value.trim();
@@ -660,6 +783,7 @@ const App = {
                     frequency: document.getElementById('recordMedFreq').value,
                     startDate: document.getElementById('recordDate3').value || new Date().toISOString().slice(0, 10),
                     note: document.getElementById('recordMedNote').value,
+                    fileIds: fileIds.length > 0 ? fileIds : undefined,
                 });
                 this.toast('处方添加成功');
                 this.goBack();
@@ -677,6 +801,7 @@ const App = {
                     department: document.getElementById('recordDept2').value,
                     findings: document.getElementById('recordFindings').value,
                     conclusion: document.getElementById('recordConclusion').value,
+                    fileIds: fileIds.length > 0 ? fileIds : undefined,
                 });
                 this.toast('报告添加成功');
                 this.goBack();
@@ -694,6 +819,7 @@ const App = {
                     department: document.getElementById('recordDept').value,
                     orders: document.getElementById('recordOrders').value,
                     chiefComplaint: document.getElementById('recordComplaint').value,
+                    fileIds: fileIds.length > 0 ? fileIds : undefined,
                 });
                 this.toast('添加成功');
                 this.goBack();
@@ -707,6 +833,7 @@ const App = {
         if (!name) { this.toast('请输入药品名称'); return; }
         const specDosageVal = document.getElementById('specDosage').value;
         const unitCapVal = document.getElementById('unitCap').value;
+        const fileIds = ImageUploader.getFileIds('drugImages');
         try {
             await Api.drugs.add({
                 elderId: this.state.currentMemberId,
@@ -720,6 +847,7 @@ const App = {
                 quantity: parseInt(document.getElementById('drugQty').value) || 1,
                 expiryDate: document.getElementById('drugExp').value,
                 note: document.getElementById('drugNote').value,
+                fileIds: fileIds.length > 0 ? fileIds : undefined,
             });
             this.toast('添加成功');
             this.goBack();

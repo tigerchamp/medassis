@@ -2,10 +2,64 @@ const express = require('express');
 const router = express.Router();
 const multer = require('multer');
 const { authMiddleware } = require('../middleware/auth');
-const { uploadFile, deleteFile } = require('../services/minio');
+const { uploadFile, deleteFile, getFileStream } = require('../services/minio');
 const { getPool } = require('../config/database');
 const { v4: uuidv4 } = require('uuid');
 
+// 文件代理读取路由（需支持 img 标签的 ?token= 方式，放在 authMiddleware 之前）
+router.get('/file/:key', async (req, res) => {
+  try {
+    const key = decodeURIComponent(req.params.key);
+    let familyId = null;
+    // 方式1: Authorization header（普通请求）
+    const authHeader = req.headers.authorization;
+    if (authHeader) {
+      try {
+        const jwt = require('jsonwebtoken');
+        const JWT_SECRET = process.env.JWT_SECRET || 'family-health-secret';
+        const token = authHeader.replace('Bearer ', '');
+        const decoded = jwt.verify(token, JWT_SECRET);
+        familyId = decoded.familyId;
+      } catch (e) { /* ignore */ }
+    }
+    // 方式2: ?token= 参数（img 标签）
+    if (!familyId && req.query.token) {
+      try {
+        const jwt = require('jsonwebtoken');
+        const JWT_SECRET = process.env.JWT_SECRET || 'family-health-secret';
+        const decoded = jwt.verify(req.query.token, JWT_SECRET);
+        familyId = decoded.familyId;
+      } catch (e) { /* ignore */ }
+    }
+    if (!familyId) {
+      return res.status(401).json({ error: '未授权' });
+    }
+
+    const [files] = await getPool().query(
+      'SELECT * FROM files WHERE minio_key = ? AND family_id = ?',
+      [key, familyId]
+    );
+    if (files.length === 0) {
+      return res.status(404).json({ error: '文件不存在' });
+    }
+
+    const stream = await getFileStream(key);
+    if (!stream) {
+      return res.status(404).json({ error: '文件读取失败' });
+    }
+
+    const file = files[0];
+    if (file.mime_type) res.set('Content-Type', file.mime_type);
+    if (file.size) res.set('Content-Length', file.size);
+    res.set('Cache-Control', 'private, max-age=86400');
+    stream.pipe(res);
+  } catch (err) {
+    console.error('Get file error:', err);
+    res.status(500).json({ error: '文件读取失败' });
+  }
+});
+
+// 以下路由需要登录鉴权
 router.use(authMiddleware);
 
 // 配置 multer 内存存储
@@ -37,7 +91,7 @@ router.post('/upload', upload.array('files', 9), async (req, res) => {
 
       uploadedFiles.push({
         id,
-        url: result.url,
+        url: `/api/upload/file/${encodeURIComponent(result.key)}`,
         originalName: result.originalName,
         size: result.size
       });

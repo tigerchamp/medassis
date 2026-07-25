@@ -1,5 +1,6 @@
 const { getPool } = require('../config/database');
 const { v4: uuidv4 } = require('uuid');
+const { getEntityFiles, setEntityFiles, deleteEntityFiles } = require('../utils/entityFiles');
 
 function fmtDate(d) { if (d instanceof Date) { const y = d.getFullYear(); const m = String(d.getMonth() + 1).padStart(2, '0'); const day = String(d.getDate()).padStart(2, '0'); return `${y}-${m}-${day}`; } return d; }
 
@@ -64,6 +65,8 @@ async function getRecord(req, res) {
     }
 
     const r = records[0];
+    const images = await getEntityFiles('record', r.id);
+
     const record = {
       id: r.id,
       elderId: r.elder_id,
@@ -80,6 +83,7 @@ async function getRecord(req, res) {
       imageUrl: r.image_url,
       confidence: r.confidence,
       notes: typeof r.notes === 'string' ? JSON.parse(r.notes) : (r.notes || []),
+      images,
       createdAt: r.created_at
     };
 
@@ -94,7 +98,7 @@ async function getRecord(req, res) {
 async function addRecord(req, res) {
   try {
     const familyId = req.familyId;
-    const { elderId, type, visitDate, hospital, department, diagnosis, chiefComplaint, findings, conclusion, metrics, orders, imageUrl, confidence } = req.body;
+    const { elderId, type, visitDate, hospital, department, diagnosis, chiefComplaint, findings, conclusion, metrics, orders, imageUrl, confidence, fileIds } = req.body;
 
     if (!elderId) {
       return res.status(400).json({ error: '必须关联老人' });
@@ -116,7 +120,13 @@ async function addRecord(req, res) {
       [id, elderId, familyId, type || '病历', visitDate || null, hospital || null, department || null, diagnosis || null, chiefComplaint || null, findings || null, conclusion || null, metricsJson, orders || null, imageUrl || null, confidence || null, notesJson]
     );
 
+    // 保存关联图片
+    if (fileIds && fileIds.length > 0) {
+      await setEntityFiles('record', id, fileIds);
+    }
+
     const [records] = await getPool().query('SELECT * FROM records WHERE id = ?', [id]);
+    const images = await getEntityFiles('record', id);
     const r = records[0];
     res.json({
       record: {
@@ -135,6 +145,7 @@ async function addRecord(req, res) {
         imageUrl: r.image_url,
         confidence: r.confidence,
         notes: [],
+        images,
         createdAt: r.created_at
       }
     });
@@ -149,7 +160,7 @@ async function updateRecord(req, res) {
   try {
     const { id } = req.params;
     const familyId = req.familyId;
-    const { elderId, type, visitDate, hospital, department, diagnosis, chiefComplaint, findings, conclusion, metrics, orders, imageUrl, confidence } = req.body;
+    const { elderId, type, visitDate, hospital, department, diagnosis, chiefComplaint, findings, conclusion, metrics, orders, imageUrl, confidence, fileIds } = req.body;
 
     const [records] = await getPool().query('SELECT * FROM records WHERE id = ? AND family_id = ?', [id, familyId]);
     if (records.length === 0) {
@@ -181,7 +192,13 @@ async function updateRecord(req, res) {
       );
     }
 
+    // 更新关联图片
+    if (fileIds !== undefined) {
+      await setEntityFiles('record', id, fileIds);
+    }
+
     const [updated] = await getPool().query('SELECT * FROM records WHERE id = ?', [id]);
+    const images = await getEntityFiles('record', id);
     const r = updated[0];
     res.json({
       record: {
@@ -200,6 +217,7 @@ async function updateRecord(req, res) {
         imageUrl: r.image_url,
         confidence: r.confidence,
         notes: typeof r.notes === 'string' ? JSON.parse(r.notes) : (r.notes || []),
+        images,
         createdAt: r.created_at
       }
     });
@@ -221,6 +239,7 @@ async function deleteRecord(req, res) {
     }
 
     await getPool().query('DELETE FROM records WHERE id = ? AND family_id = ?', [id, familyId]);
+    await deleteEntityFiles('record', id);
     res.json({ message: '删除成功' });
   } catch (err) {
     console.error('Delete record error:', err);

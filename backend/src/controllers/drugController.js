@@ -1,6 +1,7 @@
 const { getPool } = require('../config/database');
 const { v4: uuidv4 } = require('uuid');
 const { resolveDrugCode } = require('../utils/drugLibrary');
+const { getEntityFiles, setEntityFiles, deleteEntityFiles } = require('../utils/entityFiles');
 
 function fmtDate(d) { if (d instanceof Date) { const y = d.getFullYear(); const m = String(d.getMonth() + 1).padStart(2, '0'); const day = String(d.getDate()).padStart(2, '0'); return `${y}-${m}-${day}`; } return d; }
 
@@ -95,7 +96,8 @@ async function getDrug(req, res) {
     if (drugs.length === 0) {
       return res.status(404).json({ error: '药品不存在' });
     }
-    res.json({ drug: formatDrug(drugs[0]) });
+    const images = await getEntityFiles('drug_inventory', drugs[0].id);
+    res.json({ drug: { ...formatDrug(drugs[0]), images } });
   } catch (err) {
     console.error('Get drug error:', err);
     res.status(500).json({ error: '获取药品详情失败' });
@@ -106,7 +108,7 @@ async function getDrug(req, res) {
 async function addDrug(req, res) {
   try {
     const familyId = req.familyId;
-    const { elderId, drugCode, name, specification, specDosage, specDosageUnit, unitCapacity, unitCapacityUnit, manufacturer, quantity, expiryDate, note } = req.body;
+    const { elderId, drugCode, name, specification, specDosage, specDosageUnit, unitCapacity, unitCapacityUnit, manufacturer, quantity, expiryDate, note, fileIds } = req.body;
 
     if (!drugCode && !name) {
       return res.status(400).json({ error: '请选择或输入药品名称' });
@@ -161,12 +163,18 @@ async function addDrug(req, res) {
       [id, familyId, elderId || null, finalCode, finalName, finalSpec || null, finalManu || null, quantity || 1, expiryDate || null, status, note || null]
     );
 
+    // 保存关联图片
+    if (fileIds && fileIds.length > 0) {
+      await setEntityFiles('drug_inventory', id, fileIds);
+    }
+
     const [drugs] = await getPool().query(
       `SELECT di.*, d.spec_dosage, d.spec_dosage_unit, d.unit_capacity, d.unit_capacity_unit
        FROM drug_inventory di LEFT JOIN drugs d ON di.drug_code COLLATE utf8mb4_unicode_ci = d.code WHERE di.id = ?`,
       [id]
     );
-    res.json({ drug: formatDrug(drugs[0]) });
+    const images = await getEntityFiles('drug_inventory', id);
+    res.json({ drug: { ...formatDrug(drugs[0]), images } });
   } catch (err) {
     console.error('Add drug error:', err);
     res.status(500).json({ error: '添加药品失败' });
@@ -178,7 +186,7 @@ async function updateDrug(req, res) {
   try {
     const { id } = req.params;
     const familyId = req.familyId;
-    const { elderId, drugCode, name, specification, quantity, expiryDate, note } = req.body;
+    const { elderId, drugCode, name, specification, quantity, expiryDate, note, fileIds } = req.body;
 
     const [drugs] = await getPool().query('SELECT * FROM drug_inventory WHERE id = ? AND family_id = ?', [id, familyId]);
     if (drugs.length === 0) {
@@ -224,12 +232,18 @@ async function updateDrug(req, res) {
       values
     );
 
+    // 更新关联图片
+    if (fileIds !== undefined) {
+      await setEntityFiles('drug_inventory', id, fileIds);
+    }
+
     const [updated] = await getPool().query(
       `SELECT di.*, d.spec_dosage, d.spec_dosage_unit, d.unit_capacity, d.unit_capacity_unit
        FROM drug_inventory di LEFT JOIN drugs d ON di.drug_code COLLATE utf8mb4_unicode_ci = d.code WHERE di.id = ?`,
       [id]
     );
-    res.json({ drug: formatDrug(updated[0]) });
+    const images = await getEntityFiles('drug_inventory', id);
+    res.json({ drug: { ...formatDrug(updated[0]), images } });
   } catch (err) {
     console.error('Update drug error:', err);
     res.status(500).json({ error: '更新药品失败' });
@@ -248,6 +262,7 @@ async function deleteDrug(req, res) {
     }
 
     await getPool().query('DELETE FROM drug_inventory WHERE id = ? AND family_id = ?', [id, familyId]);
+    await deleteEntityFiles('drug_inventory', id);
     res.json({ message: '删除成功' });
   } catch (err) {
     console.error('Delete drug error:', err);

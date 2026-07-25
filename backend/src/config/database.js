@@ -236,6 +236,20 @@ async function initDatabase() {
       UPDATE drug_inventory SET status = 'expiring_soon' WHERE expiry_date >= CURDATE() AND expiry_date <= DATE_ADD(CURDATE(), INTERVAL 30 DAY) AND status = 'valid'
     `);
 
+    // 8. 实体文件关联表（统一管理病历/检查报告/处方/药品等图片）
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS entity_files (
+        id VARCHAR(36) PRIMARY KEY,
+        entity_type VARCHAR(50) NOT NULL COMMENT '实体类型：record/medication/drug_inventory',
+        entity_id VARCHAR(36) NOT NULL COMMENT '实体ID',
+        file_id VARCHAR(36) NOT NULL COMMENT '关联 files 表ID',
+        sort_order INT DEFAULT 0 COMMENT '排序',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_entity (entity_type, entity_id),
+        INDEX idx_file (file_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+
     console.log('数据库表初始化完成');
 
     // 兼容旧表：添加 manufacturer 列（如已存在则跳过）
@@ -321,6 +335,42 @@ async function _ensureColumns(p) {
     console.log(`检测到缺失的表: ${missingTables.join(', ')}，执行初始化...`);
     await initDatabase();
     return;
+  }
+
+  // 检查并创建 files 表（如不存在）
+  const [filesTableExists] = await p.query(`SHOW TABLES LIKE 'files'`);
+  if (filesTableExists.length === 0) {
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS files (
+        id VARCHAR(36) PRIMARY KEY,
+        family_id VARCHAR(36) NOT NULL,
+        original_name VARCHAR(255) NOT NULL,
+        minio_key VARCHAR(500) NOT NULL,
+        size BIGINT,
+        mime_type VARCHAR(100),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_family (family_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+    console.log('已创建 files 文件表');
+  }
+
+  // 检查并创建 entity_files 表（如不存在）
+  const [efTableExists] = await p.query(`SHOW TABLES LIKE 'entity_files'`);
+  if (efTableExists.length === 0) {
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS entity_files (
+        id VARCHAR(36) PRIMARY KEY,
+        entity_type VARCHAR(50) NOT NULL COMMENT '实体类型：record/medication/drug_inventory',
+        entity_id VARCHAR(36) NOT NULL COMMENT '实体ID',
+        file_id VARCHAR(36) NOT NULL COMMENT '关联 files 表ID',
+        sort_order INT DEFAULT 0 COMMENT '排序',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_entity (entity_type, entity_id),
+        INDEX idx_file (file_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+    console.log('已创建 entity_files 关联表');
   }
 
   // 检查records表是否缺少findings和conclusion列
