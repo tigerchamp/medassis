@@ -20,3 +20,13 @@ npm-debug.log*
 
 # Build outputs
 backend/dist/
+
+# 国家药品目录 Excel 数据文件（不纳入代码库）
+国家药品目录/**/*.xlsx
+国家药品目录/**/~$*.xlsx
+
+# 本地调试/测试用脚本（正式导入脚本 import_drugs.js 不在此列）
+backend/explore_excel.js
+backend/test_logic.js
+backend/verify_import.js
+backend/explore_output.txt
