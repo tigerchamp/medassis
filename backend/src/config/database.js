@@ -124,6 +124,7 @@ async function initDatabase() {
         id VARCHAR(36) PRIMARY KEY,
         elder_id VARCHAR(36) NOT NULL,
         family_id VARCHAR(36) NOT NULL,
+        drug_code VARCHAR(50) COMMENT '关联药品库 drugs.code',
         name VARCHAR(100) NOT NULL,
         dose VARCHAR(50),
         frequency VARCHAR(50),
@@ -138,7 +139,8 @@ async function initDatabase() {
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         INDEX idx_elder (elder_id),
         INDEX idx_family (family_id),
-        INDEX idx_status (status)
+        INDEX idx_status (status),
+        INDEX idx_drug_code (drug_code)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     `);
 
@@ -163,6 +165,7 @@ async function initDatabase() {
         id VARCHAR(36) PRIMARY KEY,
         family_id VARCHAR(36) NOT NULL,
         elder_id VARCHAR(36),
+        drug_code VARCHAR(50) COMMENT '关联药品库 drugs.code',
         name VARCHAR(100) NOT NULL,
         specification VARCHAR(100),
         manufacturer VARCHAR(100),
@@ -176,8 +179,39 @@ async function initDatabase() {
         INDEX idx_family (family_id),
         INDEX idx_elder (elder_id),
         INDEX idx_status (status),
-        INDEX idx_expiry (expiry_date)
+        INDEX idx_expiry (expiry_date),
+        INDEX idx_drug_code (drug_code)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+
+    // 7.1 药品库表（国家药品编码本位码库，由 import_drugs.js 导入）
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS drugs (
+        code VARCHAR(50) NOT NULL COMMENT '药品编码(主键)',
+        approval_number VARCHAR(100) DEFAULT NULL COMMENT '批准文号/注册证号',
+        name VARCHAR(255) NOT NULL DEFAULT '' COMMENT '产品名称',
+        pinyin_abbr VARCHAR(50) DEFAULT '' COMMENT '产品名称拼音首字母缩写',
+        generic_name VARCHAR(255) DEFAULT NULL COMMENT '通用名',
+        category VARCHAR(100) DEFAULT NULL COMMENT '药品分类',
+        dosage_form VARCHAR(100) DEFAULT NULL COMMENT '剂型',
+        specification VARCHAR(500) DEFAULT NULL COMMENT '规格',
+        spec_dosage DECIMAL(10,3) DEFAULT NULL COMMENT '规格数值（每片/袋含量，如0.25）',
+        spec_dosage_unit ENUM('g','mg','ml','μg') DEFAULT NULL COMMENT '规格单位',
+        unit_capacity INT DEFAULT NULL COMMENT '单位容量数值（每包装含量，如20）',
+        unit_capacity_unit ENUM('片','粒','袋','支','瓶','贴') DEFAULT NULL COMMENT '包装单位',
+        manufacturer VARCHAR(255) DEFAULT NULL COMMENT '生产单位',
+        indication TEXT DEFAULT NULL COMMENT '适应症',
+        contraindication TEXT DEFAULT NULL COMMENT '禁忌症',
+        dosage_instruction TEXT DEFAULT NULL COMMENT '用法用量',
+        adverse_reaction TEXT DEFAULT NULL COMMENT '不良反应',
+        drug_interaction TEXT DEFAULT NULL COMMENT '药物相互作用',
+        precaution TEXT DEFAULT NULL COMMENT '注意事项',
+        storage TEXT DEFAULT NULL COMMENT '贮藏',
+        PRIMARY KEY (code),
+        INDEX idx_pinyin (pinyin_abbr),
+        INDEX idx_name (name),
+        INDEX idx_approval (approval_number)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='药品目录表'
     `);
 
     // 8. 文件表
@@ -320,6 +354,121 @@ async function _ensureColumns(p) {
   if (genderCols.length > 0 && genderCols[0].Type && !genderCols[0].Type.includes('未知')) {
     await p.query(`ALTER TABLE elders MODIFY COLUMN gender ENUM('男', '女', '未知') DEFAULT '未知'`);
     console.log('已更新 elders 表 gender 列的 ENUM 值');
+  }
+
+  // 检查并创建 drugs 药品库表（如不存在）
+  const [drugTableExists] = await p.query(`SHOW TABLES LIKE 'drugs'`);
+  if (drugTableExists.length === 0) {
+    await p.query(`
+      CREATE TABLE drugs (
+        code VARCHAR(50) NOT NULL COMMENT '药品编码(主键)',
+        approval_number VARCHAR(100) DEFAULT NULL COMMENT '批准文号/注册证号',
+        name VARCHAR(255) NOT NULL DEFAULT '' COMMENT '产品名称',
+        pinyin_abbr VARCHAR(50) DEFAULT '' COMMENT '产品名称拼音首字母缩写',
+        generic_name VARCHAR(255) DEFAULT NULL COMMENT '通用名',
+        category VARCHAR(100) DEFAULT NULL COMMENT '药品分类',
+        dosage_form VARCHAR(100) DEFAULT NULL COMMENT '剂型',
+        specification VARCHAR(500) DEFAULT NULL COMMENT '规格',
+        spec_dosage DECIMAL(10,3) DEFAULT NULL COMMENT '规格数值',
+        spec_dosage_unit ENUM('g','mg','ml','μg') DEFAULT NULL COMMENT '规格单位',
+        unit_capacity INT DEFAULT NULL COMMENT '单位容量数值',
+        unit_capacity_unit ENUM('片','粒','袋','支','瓶','贴') DEFAULT NULL COMMENT '包装单位',
+        manufacturer VARCHAR(255) DEFAULT NULL COMMENT '生产单位',
+        indication TEXT DEFAULT NULL COMMENT '适应症',
+        contraindication TEXT DEFAULT NULL COMMENT '禁忌症',
+        dosage_instruction TEXT DEFAULT NULL COMMENT '用法用量',
+        adverse_reaction TEXT DEFAULT NULL COMMENT '不良反应',
+        drug_interaction TEXT DEFAULT NULL COMMENT '药物相互作用',
+        precaution TEXT DEFAULT NULL COMMENT '注意事项',
+        storage TEXT DEFAULT NULL COMMENT '贮藏',
+        PRIMARY KEY (code),
+        INDEX idx_pinyin (pinyin_abbr),
+        INDEX idx_name (name),
+        INDEX idx_approval (approval_number)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='药品目录表'
+    `);
+    console.log('已创建 drugs 药品库表');
+  }
+
+  // 为 drugs 表补充 spec_dosage / spec_dosage_unit / unit_capacity / unit_capacity_unit 列
+  const drugColChecks = [
+    { col: 'spec_dosage', ddl: `ALTER TABLE drugs ADD COLUMN spec_dosage DECIMAL(10,3) DEFAULT NULL COMMENT '规格数值（每片/袋含量，如0.25）' AFTER specification` },
+    { col: 'spec_dosage_unit', ddl: `ALTER TABLE drugs ADD COLUMN spec_dosage_unit ENUM('g','mg','ml','μg') DEFAULT NULL COMMENT '规格单位' AFTER spec_dosage` },
+    { col: 'unit_capacity', ddl: `ALTER TABLE drugs ADD COLUMN unit_capacity INT DEFAULT NULL COMMENT '单位容量数值（每包装含量，如20）' AFTER spec_dosage_unit` },
+    { col: 'unit_capacity_unit', ddl: `ALTER TABLE drugs ADD COLUMN unit_capacity_unit ENUM('片','粒','袋','支','瓶','贴') DEFAULT NULL COMMENT '包装单位' AFTER unit_capacity` },
+    { col: 'generic_name', ddl: `ALTER TABLE drugs ADD COLUMN generic_name VARCHAR(255) DEFAULT NULL COMMENT '通用名' AFTER pinyin_abbr` },
+    { col: 'category', ddl: `ALTER TABLE drugs ADD COLUMN category VARCHAR(100) DEFAULT NULL COMMENT '药品分类' AFTER generic_name` },
+    { col: 'indication', ddl: `ALTER TABLE drugs ADD COLUMN indication TEXT DEFAULT NULL COMMENT '适应症' AFTER manufacturer` },
+    { col: 'contraindication', ddl: `ALTER TABLE drugs ADD COLUMN contraindication TEXT DEFAULT NULL COMMENT '禁忌症' AFTER indication` },
+    { col: 'dosage_instruction', ddl: `ALTER TABLE drugs ADD COLUMN dosage_instruction TEXT DEFAULT NULL COMMENT '用法用量' AFTER contraindication` },
+    { col: 'adverse_reaction', ddl: `ALTER TABLE drugs ADD COLUMN adverse_reaction TEXT DEFAULT NULL COMMENT '不良反应' AFTER dosage_instruction` },
+    { col: 'drug_interaction', ddl: `ALTER TABLE drugs ADD COLUMN drug_interaction TEXT DEFAULT NULL COMMENT '药物相互作用' AFTER adverse_reaction` },
+    { col: 'precaution', ddl: `ALTER TABLE drugs ADD COLUMN precaution TEXT DEFAULT NULL COMMENT '注意事项' AFTER drug_interaction` },
+    { col: 'storage', ddl: `ALTER TABLE drugs ADD COLUMN storage TEXT DEFAULT NULL COMMENT '贮藏' AFTER precaution` },
+  ];
+  for (const { col, ddl } of drugColChecks) {
+    const [rows] = await p.query(`SHOW COLUMNS FROM drugs LIKE '${col}'`);
+    if (rows.length === 0) {
+      await p.query(ddl);
+      console.log(`已补充 drugs 表的 ${col} 列`);
+    } else {
+      // 已存在但类型可能为旧 VARCHAR，统一改为 ENUM
+      const alterDDLs = {
+        spec_dosage_unit: `ALTER TABLE drugs MODIFY COLUMN spec_dosage_unit ENUM('g','mg','ml','μg') DEFAULT NULL COMMENT '规格单位'`,
+        unit_capacity_unit: `ALTER TABLE drugs MODIFY COLUMN unit_capacity_unit ENUM('片','粒','袋','支','瓶','贴') DEFAULT NULL COMMENT '包装单位'`,
+      };
+      if (alterDDLs[col]) {
+        const [colInfo] = await p.query(`SHOW COLUMNS FROM drugs LIKE '${col}'`);
+        const curType = (colInfo[0]?.Type || '').toLowerCase();
+        if (curType.includes('varchar')) {
+          // 先清空不在 ENUM 范围内的旧值（设为 NULL）
+          const enumVals = {
+            spec_dosage_unit: ['g', 'mg', 'ml', 'μg'],
+            unit_capacity_unit: ['片', '粒', '袋', '支', '瓶', '贴'],
+          };
+          if (enumVals[col]) {
+            const placeholders = enumVals[col].map(() => '?').join(',');
+            await p.query(`UPDATE drugs SET ${col} = NULL WHERE ${col} IS NOT NULL AND ${col} != '' AND ${col} NOT IN (${placeholders})`, enumVals[col]);
+            await p.query(`UPDATE drugs SET ${col} = NULL WHERE ${col} = ''`);
+          }
+          await p.query(alterDDLs[col]);
+          console.log(`已将 drugs 表的 ${col} 列从 VARCHAR 迁移为 ENUM`);
+        }
+      }
+    }
+  }
+
+  // 为 medications 表补充 drug_code 列（关联药品库）
+  const [medDrugCodeCols] = await p.query(`SHOW COLUMNS FROM medications LIKE 'drug_code'`);
+  if (medDrugCodeCols.length === 0) {
+    await p.query(`ALTER TABLE medications ADD COLUMN drug_code VARCHAR(50) COMMENT '关联药品库 drugs.code' AFTER family_id`);
+    await p.query(`ALTER TABLE medications ADD INDEX idx_drug_code (drug_code)`);
+    console.log('已补充 medications 表的 drug_code 列');
+  }
+
+  // 为 drug_inventory 表补充 drug_code 列（关联药品库）
+  const [invDrugCodeCols] = await p.query(`SHOW COLUMNS FROM drug_inventory LIKE 'drug_code'`);
+  if (invDrugCodeCols.length === 0) {
+    await p.query(`ALTER TABLE drug_inventory ADD COLUMN drug_code VARCHAR(50) COMMENT '关联药品库 drugs.code' AFTER elder_id`);
+    await p.query(`ALTER TABLE drug_inventory ADD INDEX idx_drug_code (drug_code)`);
+    console.log('已补充 drug_inventory 表的 drug_code 列');
+  }
+  // 为 drug_inventory 表补充 specification / manufacturer 列（旧表可能缺失）
+  const [invSpecCols] = await p.query(`SHOW COLUMNS FROM drug_inventory LIKE 'specification'`);
+  if (invSpecCols.length === 0) {
+    await p.query(`ALTER TABLE drug_inventory ADD COLUMN specification VARCHAR(100) AFTER name`);
+    console.log('已补充 drug_inventory 表的 specification 列');
+  }
+  const [invManuCols] = await p.query(`SHOW COLUMNS FROM drug_inventory LIKE 'manufacturer'`);
+  if (invManuCols.length === 0) {
+    await p.query(`ALTER TABLE drug_inventory ADD COLUMN manufacturer VARCHAR(100) AFTER specification`);
+    console.log('已补充 drug_inventory 表的 manufacturer 列');
+  }
+  // 清理：drug_inventory 表的 unit_capacity 列已迁移到 drugs 表
+  const [invCapCols] = await p.query(`SHOW COLUMNS FROM drug_inventory LIKE 'unit_capacity'`);
+  if (invCapCols.length > 0) {
+    await p.query(`ALTER TABLE drug_inventory DROP COLUMN unit_capacity`);
+    console.log('已移除 drug_inventory 表的 unit_capacity 列（已迁移至 drugs 表）');
   }
 }
 

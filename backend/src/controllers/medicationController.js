@@ -1,7 +1,27 @@
 const { getPool } = require('../config/database');
 const { v4: uuidv4 } = require('uuid');
+const { resolveDrugCode } = require('../utils/drugLibrary');
 
 function fmtDate(d) { if (d instanceof Date) { const y = d.getFullYear(); const m = String(d.getMonth() + 1).padStart(2, '0'); const day = String(d.getDate()).padStart(2, '0'); return `${y}-${m}-${day}`; } return d; }
+
+function formatMedication(m) {
+  return {
+    id: m.id,
+    elderId: m.elder_id,
+    drugCode: m.drug_code,
+    name: m.name,
+    dose: m.dose,
+    frequency: m.frequency,
+    times: typeof m.times === 'string' ? JSON.parse(m.times) : (m.times || []),
+    startDate: fmtDate(m.start_date),
+    endDate: fmtDate(m.end_date),
+    note: m.note,
+    sourcePrescriptionId: m.source_prescription_id,
+    reminder: !!m.reminder,
+    status: m.status,
+    createdAt: m.created_at
+  };
+}
 
 // 获取用药列表
 async function getMedications(req, res) {
@@ -27,21 +47,7 @@ async function getMedications(req, res) {
     const [medications] = await getPool().query(query, params);
 
     // 转换字段名
-    const formattedMeds = medications.map(m => ({
-      id: m.id,
-      elderId: m.elder_id,
-      name: m.name,
-      dose: m.dose,
-      frequency: m.frequency,
-      times: typeof m.times === 'string' ? JSON.parse(m.times) : (m.times || []),
-      startDate: fmtDate(m.start_date),
-      endDate: fmtDate(m.end_date),
-      note: m.note,
-      sourcePrescriptionId: m.source_prescription_id,
-      reminder: !!m.reminder,
-      status: m.status,
-      createdAt: m.created_at
-    }));
+    const formattedMeds = medications.map(formatMedication);
 
     res.json({ medications: formattedMeds });
   } catch (err) {
@@ -65,24 +71,7 @@ async function getMedication(req, res) {
       return res.status(404).json({ error: '用药记录不存在' });
     }
 
-    const m = medications[0];
-    res.json({
-      medication: {
-        id: m.id,
-        elderId: m.elder_id,
-        name: m.name,
-        dose: m.dose,
-        frequency: m.frequency,
-        times: typeof m.times === 'string' ? JSON.parse(m.times) : (m.times || []),
-        startDate: fmtDate(m.start_date),
-        endDate: fmtDate(m.end_date),
-        note: m.note,
-        sourcePrescriptionId: m.source_prescription_id,
-        reminder: !!m.reminder,
-        status: m.status,
-        createdAt: m.created_at
-      }
-    });
+    res.json({ medication: formatMedication(medications[0]) });
   } catch (err) {
     console.error('Get medication error:', err);
     res.status(500).json({ error: '获取用药详情失败' });
@@ -93,10 +82,13 @@ async function getMedication(req, res) {
 async function addMedication(req, res) {
   try {
     const familyId = req.familyId;
-    const { elderId, name, dose, frequency, times, startDate, endDate, note, reminder, status } = req.body;
+    const { elderId, drugCode, name, dose, frequency, times, startDate, endDate, note, reminder, status } = req.body;
 
-    if (!elderId || !name) {
-      return res.status(400).json({ error: '老人和药品名称不能为空' });
+    if (!elderId) {
+      return res.status(400).json({ error: '老人不能为空' });
+    }
+    if (!drugCode && !name) {
+      return res.status(400).json({ error: '药品名称不能为空' });
     }
 
     // 检查老人是否存在
@@ -105,34 +97,22 @@ async function addMedication(req, res) {
       return res.status(400).json({ error: '老人档案不存在' });
     }
 
+    // 关联药品库：前端传入 drugCode 则校验；否则按名称匹配，未匹配则新增入库
+    const resolved = await resolveDrugCode({ drugCode, name });
+    const finalCode = resolved.code;
+    const finalName = resolved.name;
+
     const id = uuidv4();
     const timesJson = JSON.stringify(times || ['08:00']);
 
     await getPool().query(
-      `INSERT INTO medications (id, elder_id, family_id, name, dose, frequency, times, start_date, end_date, note, reminder, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, elderId, familyId, name, dose || null, frequency || null, timesJson, startDate || null, endDate || null, note || null, reminder !== false, status || 'active']
+      `INSERT INTO medications (id, elder_id, family_id, drug_code, name, dose, frequency, times, start_date, end_date, note, reminder, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, elderId, familyId, finalCode, finalName, dose || null, frequency || null, timesJson, startDate || null, endDate || null, note || null, reminder !== false, status || 'active']
     );
 
     const [medications] = await getPool().query('SELECT * FROM medications WHERE id = ?', [id]);
-    const m = medications[0];
-    res.json({
-      medication: {
-        id: m.id,
-        elderId: m.elder_id,
-        name: m.name,
-        dose: m.dose,
-        frequency: m.frequency,
-        times: typeof m.times === 'string' ? JSON.parse(m.times) : (m.times || []),
-        startDate: fmtDate(m.start_date),
-        endDate: fmtDate(m.end_date),
-        note: m.note,
-        sourcePrescriptionId: m.source_prescription_id,
-        reminder: !!m.reminder,
-        status: m.status,
-        createdAt: m.created_at
-      }
-    });
+    res.json({ medication: formatMedication(medications[0]) });
   } catch (err) {
     console.error('Add medication error:', err);
     res.status(500).json({ error: '添加用药失败' });
@@ -144,7 +124,7 @@ async function updateMedication(req, res) {
   try {
     const { id } = req.params;
     const familyId = req.familyId;
-    const { elderId, name, dose, frequency, times, startDate, endDate, note, reminder, status } = req.body;
+    const { elderId, drugCode, name, dose, frequency, times, startDate, endDate, note, reminder, status } = req.body;
 
     const [medications] = await getPool().query('SELECT * FROM medications WHERE id = ? AND family_id = ?', [id, familyId]);
     if (medications.length === 0) {
@@ -154,8 +134,17 @@ async function updateMedication(req, res) {
     const updates = [];
     const values = [];
 
+    // 若传入 drugCode 或 name 变更，则重新关联药品库
+    if (drugCode || name) {
+      const resolved = await resolveDrugCode({
+        drugCode,
+        name: name || medications[0].name
+      });
+      updates.push('drug_code = ?'); values.push(resolved.code);
+      updates.push('name = ?'); values.push(resolved.name);
+    }
+
     if (elderId !== undefined) { updates.push('elder_id = ?'); values.push(elderId); }
-    if (name !== undefined) { updates.push('name = ?'); values.push(name); }
     if (dose !== undefined) { updates.push('dose = ?'); values.push(dose); }
     if (frequency !== undefined) { updates.push('frequency = ?'); values.push(frequency); }
     if (times !== undefined) { updates.push('times = ?'); values.push(JSON.stringify(times)); }
@@ -174,24 +163,7 @@ async function updateMedication(req, res) {
     }
 
     const [updated] = await getPool().query('SELECT * FROM medications WHERE id = ?', [id]);
-    const m = updated[0];
-    res.json({
-      medication: {
-        id: m.id,
-        elderId: m.elder_id,
-        name: m.name,
-        dose: m.dose,
-        frequency: m.frequency,
-        times: typeof m.times === 'string' ? JSON.parse(m.times) : (m.times || []),
-        startDate: fmtDate(m.start_date),
-        endDate: fmtDate(m.end_date),
-        note: m.note,
-        sourcePrescriptionId: m.source_prescription_id,
-        reminder: !!m.reminder,
-        status: m.status,
-        createdAt: m.created_at
-      }
-    });
+    res.json({ medication: formatMedication(updated[0]) });
   } catch (err) {
     console.error('Update medication error:', err);
     res.status(500).json({ error: '更新用药失败' });

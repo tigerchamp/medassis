@@ -13,6 +13,7 @@ const medicationRoutes = require('./routes/medications');
 const searchRoutes = require('./routes/search');
 const uploadRoutes = require('./routes/upload');
 const drugRoutes = require('./routes/drugs');
+const drugLibraryRoutes = require('./routes/drugLibrary');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -37,6 +38,7 @@ app.use('/api/medications', medicationRoutes);
 app.use('/api/search', searchRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/drugs', drugRoutes);
+app.use('/api/drug-library', drugLibraryRoutes);
 
 // 健康检查
 app.get('/api/health', (req, res) => {

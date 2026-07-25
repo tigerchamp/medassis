@@ -73,6 +73,10 @@ const Api = {
         update: (id, d) => api(`/drugs/${id}`, { method: 'PUT', body: JSON.stringify(d) }),
         delete: (id) => api(`/drugs/${id}`, { method: 'DELETE' }),
     },
+    drugLibrary: {
+        search: (q, limit = 20) => api(`/drug-library/search?q=${encodeURIComponent(q)}&limit=${limit}`),
+        get: (code) => api(`/drug-library/${encodeURIComponent(code)}`),
+    },
     search: (keyword) => api(`/search?keyword=${encodeURIComponent(keyword)}`),
     upload: async (files) => {
         const formData = new FormData();

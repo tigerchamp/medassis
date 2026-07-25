@@ -73,7 +73,7 @@ const PageHome = {
                     return `<div class="med-schedule-item">
                         <span class="time-tag ${tagClass}">${tagText} ${timeStr}</span>
                         <div class="med-info">
-                            <div class="name" style="cursor:pointer;color:#2b7a78;" onclick="App.viewDrugInfo('${m.name.replace(/'/g, "\\'")}','','')">${m.name}</div>
+                            <div class="name" style="cursor:pointer;color:#2b7a78;" onclick="App.viewDrugInfo('${m.name.replace(/'/g, "\\'")}','','','')">${m.name}</div>
                             <div class="dosage">${m.dose || ''} · ${m.frequency || ''}</div>
                         </div>
                         <button class="med-status" onclick="App.toggleMedTaken(this)">待服</button>
@@ -252,12 +252,16 @@ const PagePharmacy = {
                     if (d.status === 'expired') statusHtml = '<span class="danger">⛔ 已过期!</span>';
                     else if (d.status === 'expiring_soon') statusHtml = '<span class="danger">⚠ 即将过期</span>';
                     const icon = d.name.includes('注射') ? 'fa-syringe' : d.name.includes('片') ? 'fa-tablets' : 'fa-capsules';
+                    const specParts = [];
+                    if (d.specDosage != null) specParts.push(`每${d.specDosageUnit || '片'}${d.specDosage}${d.specDosageUnit === 'g' ? 'g' : ''}`);
+                    if (d.unitCapacity != null) specParts.push(`每${d.unitCapacityUnit || '盒'}${d.unitCapacity}${d.specDosageUnit || '片'}`);
+                    const specLine = specParts.length > 0 ? specParts.join('，') : (d.specification || '');
                     return `<div class="drug-item">
                         <div class="drug-icon"><i class="fas ${icon}"></i></div>
                         <div class="drug-info">
-                            <div class="dname" style="cursor:pointer;color:#2b7a78;" onclick="App.viewDrugInfo('${d.name.replace(/'/g, "\\'")}','${(d.specification || '').replace(/'/g, "\\'")}','${(d.manufacturer || '').replace(/'/g, "\\'")}')">${d.name}</div>
+                            <div class="dname" style="cursor:pointer;color:#2b7a78;" onclick="App.viewDrugInfo('${d.name.replace(/'/g, "\\'")}','${(d.specification || '').replace(/'/g, "\\'")}','${(d.manufacturer || '').replace(/'/g, "\\'")}','${(d.drugCode || '').replace(/'/g, "\\'")}')">${d.name}</div>
                             <div class="dexp">📅 过期: ${d.expiryDate || '未设置'} ${statusHtml}</div>
-                            ${d.specification ? `<div class="qty">${d.quantity || 1}盒 · ${d.specification}${d.manufacturer ? ' · ' + d.manufacturer : ''}</div>` : `<div class="qty">数量: ${d.quantity || 1}${d.manufacturer ? ' · ' + d.manufacturer : ''}</div>`}
+                            ${specLine || d.manufacturer ? `<div class="qty">${d.quantity || 1}${d.unitCapacityUnit || '盒'}${specLine ? ' · ' + specLine : ''}${d.manufacturer ? ' · ' + d.manufacturer : ''}</div>` : `<div class="qty">数量: ${d.quantity || 1}</div>`}
                         </div>
                         <button style="background:none;border:none;color:#b91c1c;cursor:pointer;padding:8px;" onclick="App.deleteDrug('${d.id}')"><i class="fas fa-trash"></i></button>
                     </div>`;
@@ -515,7 +519,7 @@ const PageAddMed = {
         </div>
         <div class="card">
             <div class="form-group"><label>关联成员 *</label><select id="medElderId">${memberOptions}</select></div>
-            <div class="form-group"><label>药品名称 *</label><input id="medName" placeholder="如：苯磺酸氨氯地平片"></div>
+            <div class="form-group"><label>药品名称 *</label><input id="medName" placeholder="输入名称或拼音首字母（如 SHP）" autocomplete="off" oninput="DrugSuggest.onInput(this,'medDrugCode')"><input type="hidden" id="medDrugCode"></div>
             <div class="form-group"><label>剂量</label><input id="medDose" placeholder="如：5mg"></div>
             <div class="form-group"><label>频次</label><select id="medFreq"><option>每日1次</option><option>每日2次</option><option>每日3次</option><option>每晚1次</option></select></div>
             <div class="form-group"><label>服用时间（逗号分隔）</label><input id="medTimes" placeholder="如：08:00, 20:00"></div>
@@ -563,7 +567,7 @@ const PageAddRecord = {
             <div id="recordFieldsPrescription" style="display:none;">
                 <div class="form-group"><label>开始日期</label><input id="recordDate3" type="date"></div>
                 <div style="background:#f8fafd;border-radius:12px;padding:12px;margin-bottom:8px;">
-                    <div class="form-group"><label>药品名称 *</label><input id="recordMedName" placeholder="如：阿莫西林胶囊"></div>
+                    <div class="form-group"><label>药品名称 *</label><input id="recordMedName" placeholder="输入名称或拼音首字母" autocomplete="off" oninput="DrugSuggest.onInput(this,'recordMedCode')"><input type="hidden" id="recordMedCode"></div>
                     <div class="form-group"><label>剂量</label><input id="recordMedDose" placeholder="如：5mg"></div>
                     <div class="form-group"><label>频次</label><input id="recordMedFreq" placeholder="如：每日1次"></div>
                     <div class="form-group"><label>备注</label><input id="recordMedNote" placeholder="如：餐后服用"></div>
@@ -603,9 +607,10 @@ const PageAddDrug = {
             <button style="background:none;border:none;cursor:pointer;font-size:20px;color:#2b7a78;margin-left:auto;padding:8px;" onclick="App.startScan('药品')" title="拍照识别"><i class="fas fa-camera"></i></button>
         </div>
         <div class="card">
-            <div class="form-group"><label>药品名称 *</label><input id="drugName" placeholder="如：阿莫西林胶囊"></div>
-            <div class="form-group"><label>规格</label><input id="drugSpec" placeholder="如：20粒/盒"></div>
-            <div class="form-group"><label>厂商</label><input id="drugManufacturer" placeholder="如：扬子江药业"></div>
+            <div class="form-group"><label>药品名称 *</label><input id="drugName" placeholder="输入名称或拼音首字母（如 SHP）" autocomplete="off" oninput="DrugSuggest.onInput(this,'drugCodeHidden',{specDosage:'specDosage',specDosageUnit:'specDosageUnit',unitCapacity:'unitCap',unitCapacityUnit:'unitCapUnit',manufacturer:'drugManu'})"><input type="hidden" id="drugCodeHidden"></div>
+            <div class="form-group"><label>规格（每片/袋含量）</label><div style="display:flex;gap:8px"><input id="specDosage" type="number" step="0.001" placeholder="如 0.25" style="flex:2"><select id="specDosageUnit" style="flex:1"><option value="g">g</option><option value="mg">mg</option><option value="ml">ml</option><option value="μg">μg</option></select></div></div>
+            <div class="form-group"><label>单位容量（每盒/瓶数量）</label><div style="display:flex;gap:8px"><input id="unitCap" type="number" placeholder="如 20" style="flex:2"><select id="unitCapUnit" style="flex:1"><option value="片">片</option><option value="粒">粒</option><option value="袋">袋</option><option value="支">支</option><option value="瓶">瓶</option><option value="贴">贴</option></select></div></div>
+            <div class="form-group"><label>生产厂商</label><input id="drugManu" placeholder="生产单位"></div>
             <div class="form-group"><label>数量</label><input id="drugQty" type="number" value="1" min="1"></div>
             <div class="form-group"><label>有效期</label><input id="drugExp" type="date"></div>
             <div class="form-group"><label>备注</label><textarea id="drugNote" placeholder="备注信息"></textarea></div>
@@ -615,20 +620,11 @@ const PageAddDrug = {
 };
 
 // ---------- 药品说明书 ----------
-const DRUG_INFO_DB = {
-    '苯磺酸氨氯地平片': { generic: '氨氯地平', category: '钙通道阻滞剂 (CCB)', indication: '高血压、心绞痛', contraindication: '对二氢吡啶类钙通道阻滞剂过敏者禁用。严重低血压、主动脉瓣狭窄、心力衰竭患者慎用。', dosage: '通常起始剂量5mg，每日1次，最大剂量10mg/日。老年或肝功能不全患者建议从2.5mg开始。', adverseReaction: '常见：头痛、水肿、头晕、面部潮红、心悸。少见：恶心、腹痛、嗜睡、牙龈增生。', interaction: '与CYP3A4强抑制剂(如克拉霉素、伊曲康唑)合用可升高血药浓度；与辛伐他汀合用需限制辛伐他汀剂量≤20mg/日。', precaution: '1.定期监测血压\n2.不可突然停药\n3.肝功能不全者减量\n4.孕妇及哺乳期妇女慎用', storage: '遮光，密封，25°C以下保存。' },
-    '二甲双胍缓释片': { generic: '二甲双胍', category: '双胍类降糖药', indication: '2型糖尿病，尤其肥胖患者的一线用药', contraindication: '1.肾功能不全(eGFR<30)\n2.代谢性酸中毒\n3.严重感染或缺氧状态\n4.酒精中毒\n5.碘造影检查前后48小时停用', dosage: '起始500mg每日1次，晚餐时服用。可逐步增至最大2000mg/日。', adverseReaction: '常见：恶心、腹泻、腹痛、食欲不振。罕见但严重：乳酸酸中毒(呕吐、呼吸困难、肌肉痛)。', interaction: '与酒精合用增加乳酸酸中毒风险；与碘造影剂合用需提前48小时停药；西咪替丁可升高其血药浓度。', precaution: '1.餐中或餐后服用减少胃肠反应\n2.每年监测肾功能和维生素B12\n3.碘造影前停药48小时，后复查肾功能再决定是否恢复\n4.缓释片不可碾碎或咀嚼', storage: '遮光，密封，30°C以下保存。' },
-    '阿托伐他汀钙片': { generic: '阿托伐他汀', category: 'HMG-CoA还原酶抑制剂 (他汀类)', indication: '高脂血症、混合性高脂血症、动脉粥样硬化性心血管病预防', contraindication: '1.活动性肝病或转氨酶持续升高\n2.孕妇及哺乳期妇女\n3.对本品过敏者', dosage: '常用10-20mg，每晚1次。可增至最大80mg/日。', adverseReaction: '常见：便秘、腹胀、腹痛、肌痛。少见：转氨酶升高。罕见但严重：横纹肌溶解(肌肉剧痛、酱油色尿)。', interaction: '与克拉霉素、伊曲康唑合用增加横纹肌溶解风险；与氨氯地平合用需注意剂量调整；避免与吉非贝齐合用。', precaution: '1.睡前服用效果最佳\n2.出现肌肉疼痛无力立即就医\n3.定期监测肝功能和肌酸激酶\n4.不可与西柚汁同服', storage: '遮光，密封，30°C以下保存。' },
-    '阿莫西林胶囊': { generic: '阿莫西林', category: 'β-内酰胺类抗生素 (青霉素类)', indication: '敏感菌所致感染：上呼吸道感染、泌尿道感染、皮肤软组织感染、幽门螺杆菌根除治疗', contraindication: '1.青霉素过敏者禁用\n2.传染性单核细胞增多症患者禁用(易出皮疹)', dosage: '成人一般0.5g，每8小时1次。幽门螺杆菌根除：1g，每日2次，联合用药。', adverseReaction: '常见：恶心、呕吐、腹泻。少见：皮疹、药物热。罕见：过敏性休克。', interaction: '与丙磺舒合用可升高血药浓度；与别嘌醇合用增加皮疹风险；可降低口服避孕药效果。', precaution: '1.用前确认无青霉素过敏史\n2.完整疗程7-10天，不可症状好转即停药\n3.餐后服用减少胃肠反应\n4.服药期间多饮水', storage: '遮光，密封，阴凉干燥处保存。' },
-    '硝苯地平缓释片': { generic: '硝苯地平', category: '钙通道阻滞剂 (CCB)', indication: '高血压、心绞痛', contraindication: '1.对二氢吡啶类过敏者\n2.心源性休克\n3.不稳定型心绞痛禁用速释剂型', dosage: '起始30mg每日1次，可增至60mg/日。缓释片整片吞服，不可掰开或碾碎。', adverseReaction: '常见：头痛、踝部水肿、面部潮红、心悸。少见：牙龈增生、反射性心动过速。', precaution: '1.缓释片必须整片吞服\n2.避免与西柚汁同服\n3.长期用药不可突然停药\n4.定期监测血压和心率', interaction: '与CYP3A4抑制剂合用可升高血药浓度；与β受体阻滞剂合用注意低血压和心衰；避免与利福平合用。', storage: '遮光，密封，30°C以下保存。' },
-};
-
 const PageDrugInfo = {
     render() {
         const drugName = App.state.currentDrugName || '';
         const drugSpec = App.state.currentDrugSpec || '';
         const drugManufacturer = App.state.currentDrugManufacturer || '';
-        const info = DRUG_INFO_DB[drugName];
         return `
         <div class="sub-header">
             <button class="back-btn" onclick="App.goBack()"><i class="fas fa-arrow-left"></i></button>
@@ -643,20 +639,69 @@ const PageDrugInfo = {
             <div class="card">
                 <div style="font-size:1.4em;font-weight:700;margin-bottom:4px;">${drugName}</div>
                 ${drugSpec || drugManufacturer ? `<div class="text-muted" style="font-size:0.9em;">${drugSpec ? '规格: ' + drugSpec : ''}${drugSpec && drugManufacturer ? ' | ' : ''}${drugManufacturer ? '厂商: ' + drugManufacturer : ''}</div>` : ''}
-                ${info ? `<div class="text-muted" style="font-size:0.9em;">通用名: ${info.generic} | 类别: ${info.category}</div>` : ''}
+                <div id="drugInfoExtra" class="text-muted" style="font-size:0.9em;"></div>
             </div>
-            ${info ? `
-            <div class="card"><div class="card-title"><i class="fas fa-stethoscope"></i> 适应症</div><p style="white-space:pre-wrap;">${info.indication}</p></div>
-            <div class="card"><div class="card-title" style="color:#dc2626;"><i class="fas fa-ban"></i> 禁忌</div><p style="white-space:pre-wrap;color:#dc2626;">${info.contraindication}</p></div>
-            <div class="card"><div class="card-title"><i class="fas fa-prescription-bottle-alt"></i> 用法用量</div><p style="white-space:pre-wrap;">${info.dosage}</p></div>
-            <div class="card"><div class="card-title" style="color:#d97706;"><i class="fas fa-exclamation-triangle"></i> 不良反应</div><p style="white-space:pre-wrap;">${info.adverseReaction}</p></div>
-            <div class="card"><div class="card-title"><i class="fas fa-exchange-alt"></i> 药物相互作用</div><p style="white-space:pre-wrap;">${info.interaction}</p></div>
-            <div class="card"><div class="card-title"><i class="fas fa-info-circle"></i> 注意事项</div><p style="white-space:pre-wrap;">${info.precaution}</p></div>
-            <div class="card"><div class="card-title"><i class="fas fa-temperature-low"></i> 贮藏</div><p style="white-space:pre-wrap;">${info.storage}</p></div>
-            ` : `
-            <div class="card"><p class="text-muted" style="text-align:center;padding:20px;">暂无「${drugName}」的说明书数据<br><span style="font-size:0.85em;">当前收录常见药品说明书，持续补充中</span></p></div>
-            `}
+            <div id="drugInfoBody"><p class="text-muted" style="text-align:center;padding:20px;">加载中...</p></div>
         </div>`;
+    },
+
+    async afterRender() {
+        const drugCode = App.state.currentDrugCode || '';
+        const drugName = App.state.currentDrugName || '';
+        if (drugCode) {
+            try {
+                const res = await Api.drugLibrary.get(drugCode);
+                const d = res.drug || {};
+                this._showInfo(d);
+            } catch (err) {
+                this._showEmpty(drugName);
+            }
+        } else {
+            // 无 drugCode 时尝试按名称搜索
+            try {
+                const res = await Api.drugLibrary.search(drugName, 1);
+                const drugs = res.drugs || [];
+                if (drugs.length > 0) {
+                    const d = drugs[0];
+                    this._showInfo(d);
+                } else {
+                    this._showEmpty(drugName);
+                }
+            } catch (err) {
+                this._showEmpty(drugName);
+            }
+        }
+    },
+
+    _showInfo(d) {
+        const extraEl = document.getElementById('drugInfoExtra');
+        const bodyEl = document.getElementById('drugInfoBody');
+        if (extraEl) {
+            const parts = [];
+            if (d.genericName) parts.push('通用名: ' + d.genericName);
+            if (d.category) parts.push('类别: ' + d.category);
+            extraEl.textContent = parts.join(' | ');
+        }
+        if (!bodyEl) return;
+        const sections = [];
+        if (d.indication) sections.push(`<div class="card"><div class="card-title"><i class="fas fa-stethoscope"></i> 适应症</div><p style="white-space:pre-wrap;">${d.indication}</p></div>`);
+        if (d.contraindication) sections.push(`<div class="card"><div class="card-title" style="color:#dc2626;"><i class="fas fa-ban"></i> 禁忌</div><p style="white-space:pre-wrap;color:#dc2626;">${d.contraindication}</p></div>`);
+        if (d.dosageInstruction) sections.push(`<div class="card"><div class="card-title"><i class="fas fa-prescription-bottle-alt"></i> 用法用量</div><p style="white-space:pre-wrap;">${d.dosageInstruction}</p></div>`);
+        if (d.adverseReaction) sections.push(`<div class="card"><div class="card-title" style="color:#d97706;"><i class="fas fa-exclamation-triangle"></i> 不良反应</div><p style="white-space:pre-wrap;">${d.adverseReaction}</p></div>`);
+        if (d.drugInteraction) sections.push(`<div class="card"><div class="card-title"><i class="fas fa-exchange-alt"></i> 药物相互作用</div><p style="white-space:pre-wrap;">${d.drugInteraction}</p></div>`);
+        if (d.precaution) sections.push(`<div class="card"><div class="card-title"><i class="fas fa-info-circle"></i> 注意事项</div><p style="white-space:pre-wrap;">${d.precaution}</p></div>`);
+        if (d.storage) sections.push(`<div class="card"><div class="card-title"><i class="fas fa-temperature-low"></i> 贮藏</div><p style="white-space:pre-wrap;">${d.storage}</p></div>`);
+        if (sections.length === 0) {
+            sections.push(`<div class="card"><p class="text-muted" style="text-align:center;padding:20px;">暂无「${d.name || ''}」的说明书数据<br><span style="font-size:0.85em;">持续补充中</span></p></div>`);
+        }
+        bodyEl.innerHTML = sections.join('');
+    },
+
+    _showEmpty(drugName) {
+        const bodyEl = document.getElementById('drugInfoBody');
+        if (bodyEl) {
+            bodyEl.innerHTML = `<div class="card"><p class="text-muted" style="text-align:center;padding:20px;">暂无「${drugName}」的说明书数据<br><span style="font-size:0.85em;">持续补充中</span></p></div>`;
+        }
     },
 
     setFont(size) {
@@ -664,7 +709,6 @@ const PageDrugInfo = {
         if (!el) return;
         const sizes = { small: '13px', medium: '15px', large: '20px' };
         el.style.fontSize = sizes[size] || '15px';
-        // 更新按钮样式
         ['Small', 'Medium', 'Large'].forEach(s => {
             const btn = document.getElementById('font' + s);
             if (btn) {

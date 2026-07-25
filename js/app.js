@@ -1,3 +1,122 @@
+// ========== 药品库下拉建议组件 ==========
+// 用法：在药品名称输入框上 oninput="DrugSuggest.onInput(this, '隐藏code字段id')"
+// 选中后自动填充名称到当前输入框、code 到隐藏字段；未选中直接提交则后端按名匹配/入库
+const DrugSuggest = {
+    _timer: null,
+    _currentInput: null,
+    _autoFillMap: null,
+    _lockedIds: [], // 被置灰的字段 ID 列表
+
+    onInput(inputEl, hiddenCodeId, autoFillMap) {
+        this._currentInput = inputEl;
+        this._autoFillMap = autoFillMap || null;
+        // 用户改了名称视为未选中，解锁字段
+        if (hiddenCodeId) {
+            const h = document.getElementById(hiddenCodeId);
+            if (h) h.value = '';
+        }
+        this._unlockFields();
+        if (this._autoFillMap) {
+            Object.values(this._autoFillMap).forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.value = '';
+            });
+        }
+        clearTimeout(this._timer);
+        const q = inputEl.value.trim();
+        this._hide();
+        if (!q) return;
+        this._timer = setTimeout(() => this._search(inputEl, q, hiddenCodeId), 220);
+    },
+
+    async _search(inputEl, q, hiddenCodeId) {
+        try {
+            const res = await Api.drugLibrary.search(q);
+            this._render(inputEl, res.drugs || [], hiddenCodeId);
+        } catch (e) { /* 静默失败 */ }
+    },
+
+    _render(inputEl, drugs, hiddenCodeId) {
+        let box = inputEl.parentNode.querySelector('.drug-suggest');
+        if (!box) {
+            box = document.createElement('div');
+            box.className = 'drug-suggest';
+            inputEl.parentNode.style.position = 'relative';
+            inputEl.parentNode.appendChild(box);
+        }
+        if (drugs.length === 0) {
+            box.innerHTML = '<div class="drug-suggest-item drug-suggest-empty">未找到，保存时将自动新增入库</div>';
+        } else {
+            this._lastDrugs = drugs;
+            box.innerHTML = drugs.map((d, i) => {
+                const spec = d.specification ? this._esc(d.specification) : '';
+                const manu = d.manufacturer ? this._esc(d.manufacturer) : '';
+                const name = this._esc(d.name);
+                const sub = [spec, manu].filter(x => x).join(' · ');
+                return `<div class="drug-suggest-item" onclick="DrugSuggest._pick(${i})">
+                    <div class="ds-name">${name}${d.pinyinAbbr ? `<span class="ds-py">${this._esc(d.pinyinAbbr)}</span>` : ''}</div>
+                    ${sub ? `<div class="ds-sub">${sub}</div>` : ''}
+                </div>`;
+            }).join('');
+        }
+        box.style.display = 'block';
+    },
+
+    _pick(index) {
+        const drug = (this._lastDrugs || [])[index];
+        if (!drug) return;
+        const inputEl = this._currentInput;
+        if (inputEl) inputEl.value = drug.name;
+        const hiddenEl = inputEl ? inputEl.parentNode.querySelector('input[type=hidden]') : null;
+        if (hiddenEl) hiddenEl.value = drug.code;
+        // 自动填充关联字段并置灰
+        this._unlockFields();
+        const lockIds = [];
+        if (this._autoFillMap) {
+            const fieldMap = {
+                specDosage: drug.specDosage,
+                specDosageUnit: drug.specDosageUnit,
+                unitCapacity: drug.unitCapacity,
+                unitCapacityUnit: drug.unitCapacityUnit,
+                manufacturer: drug.manufacturer,
+                specification: drug.specification
+            };
+            Object.entries(this._autoFillMap).forEach(([drugKey, elId]) => {
+                const el = document.getElementById(elId);
+                const val = fieldMap[drugKey];
+                if (el && val != null && val !== '') {
+                    el.value = val;
+                    el.disabled = true;
+                    lockIds.push(elId);
+                }
+            });
+        }
+        this._lockedIds = lockIds;
+        this._hide();
+    },
+
+    _unlockFields() {
+        this._lockedIds.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.disabled = false;
+        });
+        this._lockedIds = [];
+    },
+
+    _hide() {
+        document.querySelectorAll('.drug-suggest').forEach(b => b.style.display = 'none');
+    },
+
+    _esc(s) {
+        return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+};
+
+// 点击页面空白处关闭下拉
+document.addEventListener('click', (e) => {
+    if (!e.target.closest('.drug-suggest') && !e.target.matches('input')) DrugSuggest._hide();
+});
+
 // ========== OCR 模拟数据 ==========
 const OCR_TEMPLATES = {
     record: [
@@ -106,6 +225,16 @@ const App = {
         const main = document.getElementById('mainContent');
         main.innerHTML = `<div class="page active" id="page-${page}">${this.renderPage(page)}</div>`;
         main.scrollTop = 0;
+        // 调用页面的 afterRender 异步钩子
+        const pageObj = this._getPageObj(page);
+        if (pageObj && typeof pageObj.afterRender === 'function') {
+            pageObj.afterRender();
+        }
+    },
+
+    _getPageObj(page) {
+        const map = { drugInfo: PageDrugInfo, home: PageHome, records: PageRecords, pharmacy: PagePharmacy, profile: PageProfile, messages: PageMessages, family: PageFamily, joinFamily: PageJoinFamily, addMed: PageAddMed, addRecord: PageAddRecord, addDrug: PageAddDrug, recordDetail: PageRecordDetail, elderDetail: PageElderDetail, profileEdit: PageProfileEdit, medEdit: PageMedEdit, medHistory: PageMedHistory, login: PageLogin };
+        return map[page];
     },
 
     renderPage(page) {
@@ -472,10 +601,11 @@ const App = {
         this.switchPage('recordDetail');
     },
 
-    viewDrugInfo(name, spec, manufacturer) {
+    viewDrugInfo(name, spec, manufacturer, drugCode) {
         this.state.currentDrugName = name;
         this.state.currentDrugSpec = spec || '';
         this.state.currentDrugManufacturer = manufacturer || '';
+        this.state.currentDrugCode = drugCode || '';
         this.switchPage('drugInfo');
     },
 
@@ -492,12 +622,13 @@ const App = {
     async saveMed() {
         const elderId = document.getElementById('medElderId').value;
         const name = document.getElementById('medName').value.trim();
+        const drugCode = (document.getElementById('medDrugCode') || {}).value || '';
         if (!name) { this.toast('请输入药品名称'); return; }
         try {
             const timesStr = document.getElementById('medTimes').value.trim();
             const times = timesStr ? timesStr.split(',').map(t => t.trim()) : ['08:00'];
             await Api.medications.add({
-                elderId, name,
+                elderId, name, drugCode: drugCode || undefined,
                 dose: document.getElementById('medDose').value,
                 frequency: document.getElementById('medFreq').value,
                 times,
@@ -518,11 +649,13 @@ const App = {
 
         if (isPrescription) {
             const medName = document.getElementById('recordMedName').value.trim();
+            const medDrugCode = (document.getElementById('recordMedCode') || {}).value || '';
             if (!medName) { this.toast('请输入药品名称'); return; }
             try {
                 await Api.medications.add({
                     elderId,
                     name: medName,
+                    drugCode: medDrugCode || undefined,
                     dose: document.getElementById('recordMedDose').value,
                     frequency: document.getElementById('recordMedFreq').value,
                     startDate: document.getElementById('recordDate3').value || new Date().toISOString().slice(0, 10),
@@ -570,13 +703,20 @@ const App = {
 
     async saveDrug() {
         const name = document.getElementById('drugName').value.trim();
+        const drugCode = (document.getElementById('drugCodeHidden') || {}).value || '';
         if (!name) { this.toast('请输入药品名称'); return; }
+        const specDosageVal = document.getElementById('specDosage').value;
+        const unitCapVal = document.getElementById('unitCap').value;
         try {
             await Api.drugs.add({
                 elderId: this.state.currentMemberId,
                 name,
-                specification: document.getElementById('drugSpec').value,
-                manufacturer: document.getElementById('drugManufacturer').value,
+                drugCode: drugCode || undefined,
+                specDosage: specDosageVal ? parseFloat(specDosageVal) : undefined,
+                specDosageUnit: document.getElementById('specDosageUnit').value.trim() || undefined,
+                unitCapacity: unitCapVal ? parseInt(unitCapVal) : undefined,
+                unitCapacityUnit: document.getElementById('unitCapUnit').value.trim() || undefined,
+                manufacturer: document.getElementById('drugManu').value.trim() || undefined,
                 quantity: parseInt(document.getElementById('drugQty').value) || 1,
                 expiryDate: document.getElementById('drugExp').value,
                 note: document.getElementById('drugNote').value,
