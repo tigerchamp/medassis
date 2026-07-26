@@ -107,6 +107,7 @@ async function initDatabase() {
         conclusion TEXT COMMENT '报告结论（报告类型）',
         metrics JSON,
         orders TEXT,
+        doctor VARCHAR(50) COMMENT '主治医生',
         image_url TEXT,
         confidence DECIMAL(4,2),
         notes JSON,
@@ -373,12 +374,34 @@ async function _ensureColumns(p) {
     console.log('已创建 entity_files 关联表');
   }
 
+  // 检查并创建 hospitals 表（如不存在）
+  const [hospTableExists] = await p.query(`SHOW TABLES LIKE 'hospitals'`);
+  if (hospTableExists.length === 0) {
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS hospitals (
+        id VARCHAR(36) PRIMARY KEY,
+        name VARCHAR(200) NOT NULL,
+        address VARCHAR(500) DEFAULT NULL,
+        postcode VARCHAR(10) DEFAULT NULL,
+        phone VARCHAR(200) DEFAULT NULL,
+        UNIQUE INDEX idx_name (name)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+    console.log('已创建 hospitals 医院信息表');
+  }
+
   // 检查records表是否缺少findings和conclusion列
   const [cols] = await p.query(`SHOW COLUMNS FROM records LIKE 'findings'`);
   if (cols.length === 0) {
     await p.query(`ALTER TABLE records ADD COLUMN findings TEXT COMMENT '检查所见（报告类型）' AFTER chief_complaint`);
     await p.query(`ALTER TABLE records ADD COLUMN conclusion TEXT COMMENT '报告结论（报告类型）' AFTER findings`);
     console.log('已补充 records 表的 findings/conclusion 列');
+  }
+  // 检查records表是否缺少doctor列
+  const [doctorCols] = await p.query(`SHOW COLUMNS FROM records LIKE 'doctor'`);
+  if (doctorCols.length === 0) {
+    await p.query(`ALTER TABLE records ADD COLUMN doctor VARCHAR(50) COMMENT '主治医生' AFTER orders`);
+    console.log('已补充 records 表的 doctor 列');
   }
   // 检查elders表是否缺少relation列
   const [relCols] = await p.query(`SHOW COLUMNS FROM elders LIKE 'relation'`);

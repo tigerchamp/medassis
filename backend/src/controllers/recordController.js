@@ -36,6 +36,7 @@ async function getRecords(req, res) {
       conclusion: r.conclusion,
       metrics: typeof r.metrics === 'string' ? JSON.parse(r.metrics) : (r.metrics || []),
       orders: r.orders,
+      doctor: r.doctor,
       imageUrl: r.image_url,
       confidence: r.confidence,
       notes: typeof r.notes === 'string' ? JSON.parse(r.notes) : (r.notes || []),
@@ -80,6 +81,7 @@ async function getRecord(req, res) {
       conclusion: r.conclusion,
       metrics: typeof r.metrics === 'string' ? JSON.parse(r.metrics) : (r.metrics || []),
       orders: r.orders,
+      doctor: r.doctor,
       imageUrl: r.image_url,
       confidence: r.confidence,
       notes: typeof r.notes === 'string' ? JSON.parse(r.notes) : (r.notes || []),
@@ -98,7 +100,7 @@ async function getRecord(req, res) {
 async function addRecord(req, res) {
   try {
     const familyId = req.familyId;
-    const { elderId, type, visitDate, hospital, department, diagnosis, chiefComplaint, findings, conclusion, metrics, orders, imageUrl, confidence, fileIds } = req.body;
+    const { elderId, type, visitDate, hospital, department, diagnosis, chiefComplaint, findings, conclusion, metrics, orders, doctor, imageUrl, confidence, fileIds } = req.body;
 
     if (!elderId) {
       return res.status(400).json({ error: '必须关联老人' });
@@ -115,9 +117,9 @@ async function addRecord(req, res) {
     const notesJson = JSON.stringify([]);
 
     await getPool().query(
-      `INSERT INTO records (id, elder_id, family_id, type, visit_date, hospital, department, diagnosis, chief_complaint, findings, conclusion, metrics, orders, image_url, confidence, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, elderId, familyId, type || '病历', visitDate || null, hospital || null, department || null, diagnosis || null, chiefComplaint || null, findings || null, conclusion || null, metricsJson, orders || null, imageUrl || null, confidence || null, notesJson]
+      `INSERT INTO records (id, elder_id, family_id, type, visit_date, hospital, department, diagnosis, chief_complaint, findings, conclusion, metrics, orders, doctor, image_url, confidence, notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, elderId, familyId, type || '病历', visitDate || null, hospital || null, department || null, diagnosis || null, chiefComplaint || null, findings || null, conclusion || null, metricsJson, orders || null, doctor || null, imageUrl || null, confidence || null, notesJson]
     );
 
     // 保存关联图片
@@ -160,7 +162,7 @@ async function updateRecord(req, res) {
   try {
     const { id } = req.params;
     const familyId = req.familyId;
-    const { elderId, type, visitDate, hospital, department, diagnosis, chiefComplaint, findings, conclusion, metrics, orders, imageUrl, confidence, fileIds } = req.body;
+    const { elderId, type, visitDate, hospital, department, diagnosis, chiefComplaint, findings, conclusion, metrics, orders, doctor, imageUrl, confidence, fileIds } = req.body;
 
     const [records] = await getPool().query('SELECT * FROM records WHERE id = ? AND family_id = ?', [id, familyId]);
     if (records.length === 0) {
@@ -181,6 +183,7 @@ async function updateRecord(req, res) {
     if (conclusion !== undefined) { updates.push('conclusion = ?'); values.push(conclusion); }
     if (metrics !== undefined) { updates.push('metrics = ?'); values.push(JSON.stringify(metrics)); }
     if (orders !== undefined) { updates.push('orders = ?'); values.push(orders); }
+    if (doctor !== undefined) { updates.push('doctor = ?'); values.push(doctor); }
     if (imageUrl !== undefined) { updates.push('image_url = ?'); values.push(imageUrl); }
     if (confidence !== undefined) { updates.push('confidence = ?'); values.push(confidence); }
 

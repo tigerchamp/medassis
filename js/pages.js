@@ -227,11 +227,10 @@ const PageRecordDetail = {
                 el.innerHTML = `
                 <div class="card">
                     <div style="font-size:18px;font-weight:700;margin-bottom:8px;">${r.diagnosis || '未填写'}</div>
-                    <div class="text-muted">${r.type || ''} · ${r.visitDate || ''}</div>
-                    <div class="text-muted" style="margin-top:4px;">${r.hospital || ''} ${r.department ? '· ' + r.department : ''}</div>
+                    <div class="text-muted">${r.visitDate || ''}</div>
+                    <div class="text-muted" style="margin-top:4px;">${r.hospital || ''} ${r.department ? '· ' + r.department : ''}${r.doctor ? ' · ' + r.doctor : ''}</div>
                     ${r.chiefComplaint ? `<div style="margin-top:12px;"><strong>主诉：</strong>${r.chiefComplaint}</div>` : ''}
                 </div>
-                ${metricsHtml ? `<div class="card"><div class="card-title"><i class="fas fa-chart-bar"></i> 检查指标</div>${metricsHtml}</div>` : ''}
                 ${r.orders ? `<div class="card"><div class="card-title"><i class="fas fa-stethoscope"></i> 医嘱</div><p>${r.orders}</p></div>` : ''}
                 ${renderImageGallery(r.images)}
                 <button class="btn-danger" style="margin-top:8px;" onclick="App.deleteRecord('${r.id}')">删除此病历</button>`;
@@ -579,6 +578,7 @@ const PageAddRecord = {
                 <div class="form-group"><label>主诉</label><textarea id="recordComplaint" placeholder="主要症状"></textarea></div>
                 <div class="form-group"><label>诊断 *</label><input id="recordDiagnosis" placeholder="诊断结果"></div>
                 <div class="form-group"><label>医嘱</label><textarea id="recordOrders" placeholder="医嘱内容"></textarea></div>
+                <div class="form-group"><label>医生</label><input id="recordDoctor" placeholder="主治医生"></div>
             </div>
             <div id="recordFieldsReport" style="display:none;">
                 <div class="form-group"><label>检查日期</label><input id="recordDate2" type="date"></div>

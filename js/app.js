@@ -818,6 +818,7 @@ const App = {
                     hospital: document.getElementById('recordHospital').value,
                     department: document.getElementById('recordDept').value,
                     orders: document.getElementById('recordOrders').value,
+                    doctor: document.getElementById('recordDoctor').value,
                     chiefComplaint: document.getElementById('recordComplaint').value,
                     fileIds: fileIds.length > 0 ? fileIds : undefined,
                 });
