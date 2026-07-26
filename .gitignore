@@ -21,6 +21,14 @@ npm-debug.log*
 # Build outputs
 backend/dist/
 
+# Excel & Word 文件
+*.xlsx
+*.xls
+*.csv
+*.doc
+*.docx
+~$*
+
 # 国家药品目录 Excel 数据文件（不纳入代码库）
 国家药品目录/**/*.xlsx
 国家药品目录/**/~$*.xlsx

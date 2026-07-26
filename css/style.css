@@ -107,6 +107,18 @@ body{font-family:'Inter',-apple-system,sans-serif;background:#f4f7fc;display:fle
 .drug-suggest-item .ds-name{font-size:15px;color:#1e293b;font-weight:500;display:flex;justify-content:space-between;align-items:center;gap:8px}
 .drug-suggest-item .ds-py{font-size:11px;color:#2b7a78;background:#e8f3f2;padding:2px 6px;border-radius:6px;font-weight:600;letter-spacing:.5px}
 .drug-suggest-item .ds-sub{font-size:12px;color:#64748b;margin-top:2px}
+.hosp-suggest{display:none;position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid #e2e8f0;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.1);max-height:260px;overflow-y:auto;z-index:50;margin-top:4px}
+.hosp-suggest-item{padding:10px 14px;cursor:pointer;border-bottom:1px solid #f1f5f9}
+.hosp-suggest-item:last-child{border-bottom:none}
+.hosp-suggest-item:hover{background:#f1f8f7}
+.hosp-suggest-empty{color:#94a3b8;font-size:13px;font-style:normal;cursor:default}
+.hosp-suggest-empty:hover{background:#fff}
+.dept-suggest{display:none;position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid #e2e8f0;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.1);max-height:260px;overflow-y:auto;z-index:50;margin-top:4px}
+.dept-suggest-item{padding:10px 14px;cursor:pointer;border-bottom:1px solid #f1f5f9}
+.dept-suggest-item:last-child{border-bottom:none}
+.dept-suggest-item:hover{background:#f1f8f7}
+.dept-suggest-empty{color:#94a3b8;font-size:13px;font-style:normal;cursor:default}
+.dept-suggest-empty:hover{background:#fff}
 input:disabled,select:disabled,textarea:disabled{background:#f1f5f9;color:#64748b;opacity:.8;cursor:not-allowed}
 .login-page{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100%;padding:40px 24px}
 .login-logo{font-size:64px;color:#2b7a78;margin-bottom:16px}

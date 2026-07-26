@@ -381,14 +381,36 @@ async function _ensureColumns(p) {
       CREATE TABLE IF NOT EXISTS hospitals (
         id VARCHAR(36) PRIMARY KEY,
         name VARCHAR(200) NOT NULL,
+        pinyin_abbr VARCHAR(100) DEFAULT NULL,
         address VARCHAR(500) DEFAULT NULL,
         postcode VARCHAR(10) DEFAULT NULL,
         phone VARCHAR(200) DEFAULT NULL,
-        UNIQUE INDEX idx_name (name)
+        UNIQUE INDEX idx_name (name),
+        INDEX idx_pinyin (pinyin_abbr)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     `);
     console.log('已创建 hospitals 医院信息表');
   }
+
+  // 检查hospitals表是否缺少pinyin_abbr列
+  const [hospPyCols] = await p.query(`SHOW COLUMNS FROM hospitals LIKE 'pinyin_abbr'`);
+  if (hospPyCols.length === 0) {
+    await p.query(`ALTER TABLE hospitals ADD COLUMN pinyin_abbr VARCHAR(100) DEFAULT NULL AFTER name, ADD INDEX idx_pinyin (pinyin_abbr)`);
+    console.log('已补充 hospitals 表的 pinyin_abbr 列');
+  }
+
+  // 创建 departments 科室表
+  await p.query(`
+    CREATE TABLE IF NOT EXISTS departments (
+      id VARCHAR(36) PRIMARY KEY,
+      name VARCHAR(100) NOT NULL,
+      pinyin_abbr VARCHAR(50) DEFAULT NULL,
+      category VARCHAR(20) DEFAULT NULL,
+      UNIQUE INDEX idx_name (name),
+      INDEX idx_pinyin (pinyin_abbr),
+      INDEX idx_category (category)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
 
   // 检查records表是否缺少findings和conclusion列
   const [cols] = await p.query(`SHOW COLUMNS FROM records LIKE 'findings'`);
@@ -402,6 +424,19 @@ async function _ensureColumns(p) {
   if (doctorCols.length === 0) {
     await p.query(`ALTER TABLE records ADD COLUMN doctor VARCHAR(50) COMMENT '主治医生' AFTER orders`);
     console.log('已补充 records 表的 doctor 列');
+  }
+  // 检查medications表是否缺少specification/quantity列
+  const [medSpecCols] = await p.query(`SHOW COLUMNS FROM medications LIKE 'specification'`);
+  if (medSpecCols.length === 0) {
+    await p.query(`ALTER TABLE medications ADD COLUMN specification VARCHAR(100) COMMENT '规格' AFTER name`);
+    await p.query(`ALTER TABLE medications ADD COLUMN quantity INT DEFAULT 1 COMMENT '数量' AFTER dose`);
+    console.log('已补充 medications 表的 specification/quantity 列');
+  }
+  // 检查drug_inventory表是否缺少source_medication_id列
+  const [diSrcCols] = await p.query(`SHOW COLUMNS FROM drug_inventory LIKE 'source_medication_id'`);
+  if (diSrcCols.length === 0) {
+    await p.query(`ALTER TABLE drug_inventory ADD COLUMN source_medication_id VARCHAR(36) COMMENT '来源用药ID' AFTER source_prescription_id`);
+    console.log('已补充 drug_inventory 表的 source_medication_id 列');
   }
   // 检查elders表是否缺少relation列
   const [relCols] = await p.query(`SHOW COLUMNS FROM elders LIKE 'relation'`);

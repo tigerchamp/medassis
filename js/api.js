@@ -69,6 +69,7 @@ const Api = {
     drugs: {
         getAll: (status) => api(status ? `/drugs?status=${status}` : '/drugs'),
         get: (id) => api(`/drugs/${id}`),
+        getRecords: (id) => api(`/drugs/${id}/records`),
         add: (d) => api('/drugs', { method: 'POST', body: JSON.stringify(d) }),
         update: (id, d) => api(`/drugs/${id}`, { method: 'PUT', body: JSON.stringify(d) }),
         delete: (id) => api(`/drugs/${id}`, { method: 'DELETE' }),
@@ -76,6 +77,12 @@ const Api = {
     drugLibrary: {
         search: (q, limit = 20) => api(`/drug-library/search?q=${encodeURIComponent(q)}&limit=${limit}`),
         get: (code) => api(`/drug-library/${encodeURIComponent(code)}`),
+    },
+    hospitals: {
+        search: (q, limit = 20) => api(`/hospitals/search?q=${encodeURIComponent(q)}&limit=${limit}`),
+    },
+    departments: {
+        search: (q, limit = 20) => api(`/departments/search?q=${encodeURIComponent(q)}&limit=${limit}`),
     },
     search: (keyword) => api(`/search?keyword=${encodeURIComponent(keyword)}`),
     upload: async (files) => {

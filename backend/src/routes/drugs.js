@@ -7,6 +7,7 @@ router.use(authMiddleware);
 
 router.get('/', drugController.getDrugs);
 router.get('/:id', drugController.getDrug);
+router.get('/:id/records', drugController.getDrugRecords);
 router.post('/', drugController.addDrug);
 router.put('/:id', drugController.updateDrug);
 router.delete('/:id', drugController.deleteDrug);

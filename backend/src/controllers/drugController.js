@@ -35,6 +35,7 @@ function formatDrug(d) {
     expiryDate: d.expiry_date ? fmtDate(d.expiry_date) : null,
     status: d.status,
     sourcePrescriptionId: d.source_prescription_id,
+    sourceMedicationId: d.source_medication_id,
     note: d.note,
     createdAt: d.created_at
   };
@@ -275,5 +276,64 @@ module.exports = {
   getDrug,
   addDrug,
   updateDrug,
-  deleteDrug
+  deleteDrug,
+  getDrugRecords
 };
+
+// 获取药品库存的添加记录（来源于 medications 表的同 drug_code 记录）
+async function getDrugRecords(req, res) {
+  try {
+    const { id } = req.params;
+    const familyId = req.familyId;
+
+    // 先获取药品库存信息
+    const [drugs] = await getPool().query(
+      `SELECT di.*, d.spec_dosage, d.spec_dosage_unit, d.unit_capacity, d.unit_capacity_unit
+       FROM drug_inventory di LEFT JOIN drugs d ON di.drug_code COLLATE utf8mb4_unicode_ci = d.code
+       WHERE di.id = ? AND di.family_id = ?`,
+      [id, familyId]
+    );
+    if (drugs.length === 0) {
+      return res.status(404).json({ error: '药品不存在' });
+    }
+
+    const drug = drugs[0];
+    const drugCode = drug.drug_code;
+
+    // 查找所有关联的用药记录（处方来源）
+    let medicationRecords = [];
+    if (drugCode) {
+      const [meds] = await getPool().query(
+        `SELECT m.*, e.name as elder_name FROM medications m
+         LEFT JOIN elders e ON m.elder_id = e.id
+         WHERE m.family_id = ? AND m.drug_code = ?
+         ORDER BY m.created_at DESC`,
+        [familyId, drugCode]
+      );
+      medicationRecords = meds.map(m => ({
+        id: m.id,
+        elderId: m.elder_id,
+        elderName: m.elder_name || '',
+        name: m.name,
+        specification: m.specification || '',
+        dose: m.dose,
+        quantity: m.quantity != null ? Number(m.quantity) : 1,
+        frequency: m.frequency,
+        startDate: fmtDate(m.start_date),
+        endDate: fmtDate(m.end_date),
+        note: m.note,
+        status: m.status,
+        createdAt: m.created_at
+      }));
+    }
+
+    const images = await getEntityFiles('drug_inventory', id);
+    res.json({
+      drug: { ...formatDrug(drug), images },
+      medicationRecords
+    });
+  } catch (err) {
+    console.error('Get drug records error:', err);
+    res.status(500).json({ error: '获取药品记录失败' });
+  }
+}
