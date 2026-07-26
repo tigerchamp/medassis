@@ -432,6 +432,19 @@ async function _ensureColumns(p) {
     await p.query(`ALTER TABLE medications ADD COLUMN quantity INT DEFAULT 1 COMMENT '数量' AFTER dose`);
     console.log('已补充 medications 表的 specification/quantity 列');
   }
+  // 检查medications表是否缺少dose_amount/dose_unit列
+  const [medDoseCols] = await p.query(`SHOW COLUMNS FROM medications LIKE 'dose_amount'`);
+  if (medDoseCols.length === 0) {
+    await p.query(`ALTER TABLE medications ADD COLUMN dose_amount DECIMAL(10,3) DEFAULT NULL COMMENT '每次剂量数值' AFTER dose`);
+    await p.query(`ALTER TABLE medications ADD COLUMN dose_unit VARCHAR(20) DEFAULT NULL COMMENT '每次剂量单位' AFTER dose_amount`);
+    console.log('已补充 medications 表的 dose_amount/dose_unit 列');
+  }
+  // 检查medications表的frequency列是否为VARCHAR，需改为INT
+  const [freqCols] = await p.query(`SHOW COLUMNS FROM medications LIKE 'frequency'`);
+  if (freqCols.length > 0 && freqCols[0].Type === 'varchar(50)') {
+    await p.query(`ALTER TABLE medications MODIFY COLUMN frequency INT DEFAULT NULL COMMENT '每日次数'`);
+    console.log('已修改 medications 表的 frequency 列为 INT');
+  }
   // 检查drug_inventory表是否缺少source_medication_id列
   const [diSrcCols] = await p.query(`SHOW COLUMNS FROM drug_inventory LIKE 'source_medication_id'`);
   if (diSrcCols.length === 0) {

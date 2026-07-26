@@ -541,9 +541,9 @@ const PageAddMed = {
             <div class="form-group"><label>规格（每片/袋含量）</label><div style="display:flex;gap:8px"><input id="medSpecDosage" type="number" step="0.001" placeholder="如 0.25" style="flex:2"><select id="medSpecDosageUnit" style="flex:1"><option value="g">g</option><option value="mg">mg</option><option value="ml">ml</option><option value="μg">μg</option></select></div></div>
             <div class="form-group"><label>单位容量（每盒/瓶数量）</label><div style="display:flex;gap:8px"><input id="medUnitCap" type="number" placeholder="如 20" style="flex:2"><select id="medUnitCapUnit" style="flex:1"><option value="片">片</option><option value="粒">粒</option><option value="袋">袋</option><option value="支">支</option><option value="瓶">瓶</option><option value="贴">贴</option></select></div></div>
             <div class="form-group"><label>数量</label><input id="medQty" type="number" value="1" min="1"></div>
-            <div class="form-group"><label>剂量</label><input id="medDose" placeholder="如：5mg"></div>
-            <div class="form-group"><label>频次</label><select id="medFreq"><option>每日1次</option><option>每日2次</option><option>每日3次</option><option>每晚1次</option></select></div>
-            <div class="form-group"><label>服用时间（逗号分隔）</label><input id="medTimes" placeholder="如：08:00, 20:00"></div>
+            <div class="form-group"><label>每次剂量</label><div style="display:flex;gap:8px"><input id="medDoseAmount" type="number" step="0.001" placeholder="如 5" style="flex:2"><select id="medDoseUnit" style="flex:1"><option value="mg">mg</option><option value="g">g</option><option value="ml">ml</option><option value="μg">μg</option><option value="片">片</option><option value="粒">粒</option><option value="袋">袋</option><option value="支">支</option><option value="贴">贴</option></select></div></div>
+            <div class="form-group"><label>每日次数</label><input id="medFreq" type="number" min="1" max="4" value="1" oninput="MedTimesUI.render('med')"></div>
+            <div class="form-group"><label>服用时间段</label><div id="medTimeSlots"></div></div>
             <div class="form-group"><label>开始日期</label><input id="medStart" type="date"></div>
             <div class="form-group"><label>有效期 *</label><input id="medExpiryDate" type="date"></div>
             <div class="form-group"><label>备注</label><textarea id="medNote" placeholder="服用注意事项"></textarea></div>
@@ -554,6 +554,7 @@ const PageAddMed = {
 
     afterRender() {
         ImageUploader.init('medImages');
+        MedTimesUI.render('med');
     }
 };
 
@@ -600,8 +601,9 @@ const PageAddRecord = {
                     <div class="form-group"><label>单位容量（每盒/瓶数量）</label><div style="display:flex;gap:8px"><input id="recordMedUnitCap" type="number" placeholder="如 20" style="flex:2"><select id="recordMedUnitCapUnit" style="flex:1"><option value="片">片</option><option value="粒">粒</option><option value="袋">袋</option><option value="支">支</option><option value="瓶">瓶</option><option value="贴">贴</option></select></div></div>
                     <div class="form-group"><label>数量</label><input id="recordMedQty" type="number" value="1" min="1"></div>
                     <div class="form-group"><label>有效期 *</label><input id="recordMedExpiryDate" type="date"></div>
-                    <div class="form-group"><label>剂量</label><input id="recordMedDose" placeholder="如：5mg"></div>
-                    <div class="form-group"><label>频次</label><input id="recordMedFreq" placeholder="如：每日1次"></div>
+                    <div class="form-group"><label>每次剂量</label><div style="display:flex;gap:8px"><input id="recordMedDoseAmount" type="number" step="0.001" placeholder="如 5" style="flex:2"><select id="recordMedDoseUnit" style="flex:1"><option value="mg">mg</option><option value="g">g</option><option value="ml">ml</option><option value="μg">μg</option><option value="片">片</option><option value="粒">粒</option><option value="袋">袋</option><option value="支">支</option><option value="贴">贴</option></select></div></div>
+                    <div class="form-group"><label>每日次数</label><input id="recordMedFreq" type="number" min="1" max="4" value="1" oninput="MedTimesUI.render('recordMed')"></div>
+                    <div class="form-group"><label>服用时间段</label><div id="recordMedTimeSlots"></div></div>
                     <div class="form-group"><label>备注</label><input id="recordMedNote" placeholder="如：餐后服用"></div>
                 </div>
             </div>
@@ -622,6 +624,7 @@ const PageAddRecord = {
             medicalFields.style.display = 'none';
             reportFields.style.display = 'none';
             prescriptionFields.style.display = 'block';
+            MedTimesUI.render('recordMed');
         } else {
             medicalFields.style.display = 'block';
             reportFields.style.display = 'none';
@@ -631,6 +634,10 @@ const PageAddRecord = {
 
     afterRender() {
         ImageUploader.init('recordImages');
+        // 处方类型时初始化时间段
+        if (document.getElementById('recordType').value === '处方') {
+            MedTimesUI.render('recordMed');
+        }
     }
 };
 

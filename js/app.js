@@ -122,6 +122,87 @@ document.addEventListener('keydown', e => {
     else if (e.key === 'Escape') { ImageViewer.close(); }
 });
 
+// ========== 服药时间段选择组件 ==========
+// 根据频次渲染早中晚时间段勾选框
+const MedTimesUI = {
+  slots: [
+    { key: 'morning', label: '早上', time: '08:00', icon: '🌅' },
+    { key: 'noon',    label: '中午', time: '12:00', icon: '☀️' },
+    { key: 'evening', label: '晚上', time: '18:00', icon: '🌇' },
+    { key: 'night',   label: '睡前', time: '21:00', icon: '🌙' },
+  ],
+  _state: {},  // prefix -> Set of selected keys
+
+  render(prefix) {
+    const freqInput = document.getElementById(prefix + 'Freq');
+    const container = document.getElementById(prefix + 'TimeSlots');
+    if (!freqInput || !container) return;
+
+    const freq = Math.min(Math.max(parseInt(freqInput.value) || 1, 1), 4);
+    if (!this._state[prefix]) {
+      // 默认选中前 freq 个
+      this._state[prefix] = new Set(this.slots.slice(0, freq).map(s => s.key));
+    }
+
+    // 如果频次变小，移除多余的选中项
+    const selected = this._state[prefix];
+    const availableKeys = this.slots.slice(0, 4).map(s => s.key);
+    for (const k of selected) {
+      if (!availableKeys.includes(k)) selected.delete(k);
+    }
+    // 如果选中数超过频次，只保留前 freq 个
+    if (selected.size > freq) {
+      const keep = [...selected].slice(0, freq);
+      selected.clear();
+      keep.forEach(k => selected.add(k));
+    }
+
+    const html = this.slots.map(slot => {
+      const checked = selected.has(slot.key) ? 'checked' : '';
+      const disabled = '';
+      return `<label style="display:inline-flex;align-items:center;gap:6px;margin:4px 12px 4px 0;padding:6px 12px;border-radius:8px;background:${checked ? '#e8f5e9' : '#f5f5f5'};cursor:pointer;font-size:14px;transition:background 0.2s;border:2px solid ${checked ? '#4caf50' : '#ddd'};">
+        <input type="checkbox" ${checked} onchange="MedTimesUI._toggle('${prefix}','${slot.key}',this)" style="width:18px;height:18px;accent-color:#4caf50;cursor:pointer;">
+        <span>${slot.icon}</span>
+        <span>${slot.label}</span>
+        <input type="time" value="${slot.time}" id="${prefix}Time_${slot.key}" style="width:80px;padding:2px 4px;border:1px solid #ddd;border-radius:4px;font-size:12px" onclick="event.stopPropagation()">
+      </label>`;
+    }).join('');
+
+    container.innerHTML = `<div style="display:flex;flex-wrap:wrap;gap:4px;">${html}</div>
+      <div style="font-size:12px;color:#999;margin-top:4px;">勾选 ${freq} 个时间段</div>`;
+  },
+
+  _toggle(prefix, key, checkbox) {
+    const freq = Math.min(Math.max(parseInt(document.getElementById(prefix + 'Freq').value) || 1, 1), 4);
+    const selected = this._state[prefix] || new Set();
+    if (checkbox.checked) {
+      if (selected.size >= freq) {
+        checkbox.checked = false;
+        App.toast(`最多选择 ${freq} 个时间段`);
+        return;
+      }
+      selected.add(key);
+    } else {
+      selected.delete(key);
+    }
+    this._state[prefix] = selected;
+    this.render(prefix); // 重新渲染以更新样式
+  },
+
+  // 获取选中的时间段列表
+  getTimes(prefix) {
+    const selected = this._state[prefix] || new Set();
+    const times = [];
+    for (const slot of this.slots) {
+      if (selected.has(slot.key)) {
+        const timeInput = document.getElementById(`${prefix}Time_${slot.key}`);
+        times.push(timeInput ? timeInput.value : slot.time);
+      }
+    }
+    return times.length > 0 ? times : ['08:00'];
+  }
+};
+
 // ========== 药品库下拉建议组件 ==========
 // 用法：在药品名称输入框上 oninput="DrugSuggest.onInput(this, '隐藏code字段id')"
 // 选中后自动填充名称到当前输入框、code 到隐藏字段；未选中直接提交则后端按名匹配/入库
@@ -878,15 +959,17 @@ const App = {
         if (!expiryDate) { this.toast('请填写有效期'); return; }
         const specDosageVal = document.getElementById('medSpecDosage').value;
         try {
-            const timesStr = document.getElementById('medTimes').value.trim();
-            const times = timesStr ? timesStr.split(',').map(t => t.trim()) : ['08:00'];
+            const times = MedTimesUI.getTimes('med');
             const fileIds = ImageUploader.getFileIds('medImages');
+            const doseAmountVal = document.getElementById('medDoseAmount').value;
             await Api.medications.add({
                 elderId, name, drugCode: drugCode || undefined,
                 specification: specDosageVal ? `${specDosageVal}${document.getElementById('medSpecDosageUnit').value}` : undefined,
-                dose: document.getElementById('medDose').value,
+                dose: doseAmountVal ? `${doseAmountVal}${document.getElementById('medDoseUnit').value}` : undefined,
+                doseAmount: doseAmountVal ? parseFloat(doseAmountVal) : undefined,
+                doseUnit: doseAmountVal ? document.getElementById('medDoseUnit').value : undefined,
                 quantity: parseInt(document.getElementById('medQty').value) || 1,
-                frequency: document.getElementById('medFreq').value,
+                frequency: parseInt(document.getElementById('medFreq').value) || 1,
                 times,
                 startDate: document.getElementById('medStart').value || new Date().toISOString().slice(0, 10),
                 note: document.getElementById('medNote').value,
@@ -912,15 +995,20 @@ const App = {
             if (!medName) { this.toast('请输入药品名称'); return; }
             if (!medExpiryDate) { this.toast('请填写有效期'); return; }
             const specDosageVal = document.getElementById('recordMedSpecDosage').value;
+            const doseAmountVal = document.getElementById('recordMedDoseAmount').value;
             try {
+                const times = MedTimesUI.getTimes('recordMed');
                 await Api.medications.add({
                     elderId,
                     name: medName,
                     drugCode: medDrugCode || undefined,
                     specification: specDosageVal ? `${specDosageVal}${document.getElementById('recordMedSpecDosageUnit').value}` : undefined,
-                    dose: document.getElementById('recordMedDose').value,
+                    dose: doseAmountVal ? `${doseAmountVal}${document.getElementById('recordMedDoseUnit').value}` : undefined,
+                    doseAmount: doseAmountVal ? parseFloat(doseAmountVal) : undefined,
+                    doseUnit: doseAmountVal ? document.getElementById('recordMedDoseUnit').value : undefined,
                     quantity: parseInt(document.getElementById('recordMedQty').value) || 1,
-                    frequency: document.getElementById('recordMedFreq').value,
+                    frequency: parseInt(document.getElementById('recordMedFreq').value) || 1,
+                    times,
                     startDate: document.getElementById('recordDate3').value || new Date().toISOString().slice(0, 10),
                     note: document.getElementById('recordMedNote').value,
                     expiryDate: medExpiryDate,

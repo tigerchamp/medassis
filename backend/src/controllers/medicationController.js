@@ -13,8 +13,10 @@ function formatMedication(m) {
     name: m.name,
     specification: m.specification || '',
     dose: m.dose,
+    doseAmount: m.dose_amount != null ? Number(m.dose_amount) : null,
+    doseUnit: m.dose_unit || '',
     quantity: m.quantity != null ? Number(m.quantity) : 1,
-    frequency: m.frequency,
+    frequency: m.frequency != null ? Number(m.frequency) : null,
     times: typeof m.times === 'string' ? JSON.parse(m.times) : (m.times || []),
     startDate: fmtDate(m.start_date),
     endDate: fmtDate(m.end_date),
@@ -86,7 +88,7 @@ async function getMedication(req, res) {
 async function addMedication(req, res) {
   try {
     const familyId = req.familyId;
-    const { elderId, drugCode, name, specification, dose, quantity, frequency, times, startDate, endDate, note, reminder, status, fileIds } = req.body;
+    const { elderId, drugCode, name, specification, dose, doseAmount, doseUnit, quantity, frequency, times, startDate, endDate, note, reminder, status, fileIds, expiryDate } = req.body;
 
     if (!elderId) {
       return res.status(400).json({ error: '老人不能为空' });
@@ -111,9 +113,9 @@ async function addMedication(req, res) {
     const timesJson = JSON.stringify(times || ['08:00']);
 
     await getPool().query(
-      `INSERT INTO medications (id, elder_id, family_id, drug_code, name, specification, dose, quantity, frequency, times, start_date, end_date, note, reminder, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, elderId, familyId, finalCode, finalName, finalSpec || null, dose || null, quantity || 1, frequency || null, timesJson, startDate || null, endDate || null, note || null, reminder !== false, status || 'active']
+      `INSERT INTO medications (id, elder_id, family_id, drug_code, name, specification, dose, dose_amount, dose_unit, quantity, frequency, times, start_date, end_date, note, reminder, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, elderId, familyId, finalCode, finalName, finalSpec || null, dose || null, doseAmount || null, doseUnit || null, quantity || 1, frequency || null, timesJson, startDate || null, endDate || null, note || null, reminder !== false, status || 'active']
     );
 
     // 保存关联图片
