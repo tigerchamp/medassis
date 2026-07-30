@@ -544,7 +544,7 @@ const PageAddMed = {
             <div class="form-group"><label>每次剂量</label><div style="display:flex;gap:8px"><input id="medDoseAmount" type="number" step="0.001" placeholder="如 5" style="flex:2"><select id="medDoseUnit" style="flex:1"><option value="mg">mg</option><option value="g">g</option><option value="ml">ml</option><option value="μg">μg</option><option value="片">片</option><option value="粒">粒</option><option value="袋">袋</option><option value="支">支</option><option value="贴">贴</option></select></div></div>
             <div class="form-group"><label>每日次数</label><input id="medFreq" type="number" min="1" max="4" value="1" oninput="MedTimesUI.render('med')"></div>
             <div class="form-group"><label>服用时间段</label><div id="medTimeSlots"></div></div>
-            <div class="form-group"><label>开始日期</label><input id="medStart" type="date"></div>
+            <div class="form-group"><label>开始日期</label><input id="medStart" type="date" max="${new Date().toISOString().slice(0,10)}"></div>
             <div class="form-group"><label>有效期 *</label><input id="medExpiryDate" type="date"></div>
             <div class="form-group"><label>备注</label><textarea id="medNote" placeholder="服用注意事项"></textarea></div>
             <div class="form-group"><label>图片</label><div id="medImages"></div></div>
@@ -555,6 +555,9 @@ const PageAddMed = {
     afterRender() {
         ImageUploader.init('medImages');
         MedTimesUI.render('med');
+        const today = new Date().toISOString().slice(0,10);
+        const el = document.getElementById('medStart');
+        if (el && !el.value) el.value = today;
     }
 };
 
@@ -577,7 +580,7 @@ const PageAddRecord = {
             <div class="form-group"><label>关联成员 *</label><select id="recordElderId">${memberOptions}</select></div>
             <div class="form-group"><label>类型</label><select id="recordType" onchange="PageAddRecord.onTypeChange(this.value)"><option value="病历">病历</option><option value="检查报告">检查报告</option><option value="处方">处方</option></select></div>
             <div id="recordFieldsMedical">
-                <div class="form-group"><label id="recordDateLabel">就诊日期</label><input id="recordDate" type="date"></div>
+                <div class="form-group"><label id="recordDateLabel">就诊日期</label><input id="recordDate" type="date" max="${new Date().toISOString().slice(0,10)}"></div>
                 <div class="form-group"><label>医院</label><input id="recordHospital" placeholder="输入医院名称或拼音首字母" autocomplete="off" oninput="HospitalSuggest.onInput(this)"></div>
                 <div class="form-group"><label>科室</label><input id="recordDept" placeholder="输入科室名称或拼音首字母" autocomplete="off" oninput="DeptSuggest.onInput(this)"></div>
                 <div class="form-group"><label>主诉</label><textarea id="recordComplaint" placeholder="主要症状"></textarea></div>
@@ -586,7 +589,7 @@ const PageAddRecord = {
                 <div class="form-group"><label>医生</label><input id="recordDoctor" placeholder="主治医生"></div>
             </div>
             <div id="recordFieldsReport" style="display:none;">
-                <div class="form-group"><label>检查日期</label><input id="recordDate2" type="date"></div>
+                <div class="form-group"><label>检查日期</label><input id="recordDate2" type="date" max="${new Date().toISOString().slice(0,10)}"></div>
                 <div class="form-group"><label>医院</label><input id="recordHospital2" placeholder="输入医院名称或拼音首字母" autocomplete="off" oninput="HospitalSuggest.onInput(this)"></div>
                 <div class="form-group"><label>科室</label><input id="recordDept2" placeholder="输入科室名称或拼音首字母" autocomplete="off" oninput="DeptSuggest.onInput(this)"></div>
                 <div class="form-group"><label>检查项目 *</label><input id="recordExamName" placeholder="如：胸部CT平扫"></div>
@@ -594,7 +597,7 @@ const PageAddRecord = {
                 <div class="form-group"><label>报告结论</label><textarea id="recordConclusion" rows="3" placeholder="报告结论内容"></textarea></div>
             </div>
             <div id="recordFieldsPrescription" style="display:none;">
-                <div class="form-group"><label>开始日期</label><input id="recordDate3" type="date"></div>
+                <div class="form-group"><label>开始日期</label><input id="recordDate3" type="date" max="${new Date().toISOString().slice(0,10)}"></div>
                 <div style="background:#f8fafd;border-radius:12px;padding:12px;margin-bottom:8px;">
                     <div class="form-group"><label>药品名称 *</label><input id="recordMedName" placeholder="输入名称或拼音首字母" autocomplete="off" oninput="DrugSuggest.onInput(this,'recordMedCode')"><input type="hidden" id="recordMedCode"></div>
                     <div class="form-group"><label>规格（每片/袋含量）</label><div style="display:flex;gap:8px"><input id="recordMedSpecDosage" type="number" step="0.001" placeholder="如 0.25" style="flex:2"><select id="recordMedSpecDosageUnit" style="flex:1"><option value="g">g</option><option value="mg">mg</option><option value="ml">ml</option><option value="μg">μg</option></select></div></div>
@@ -634,6 +637,12 @@ const PageAddRecord = {
 
     afterRender() {
         ImageUploader.init('recordImages');
+        const today = new Date().toISOString().slice(0,10);
+        // 设置就诊/检查/开始日期缺省为当天
+        ['recordDate','recordDate2','recordDate3'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el && !el.value) el.value = today;
+        });
         // 处方类型时初始化时间段
         if (document.getElementById('recordType').value === '处方') {
             MedTimesUI.render('recordMed');

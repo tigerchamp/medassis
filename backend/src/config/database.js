@@ -442,6 +442,15 @@ async function _ensureColumns(p) {
   // 检查medications表的frequency列是否为VARCHAR，需改为INT
   const [freqCols] = await p.query(`SHOW COLUMNS FROM medications LIKE 'frequency'`);
   if (freqCols.length > 0 && freqCols[0].Type === 'varchar(50)') {
+    // 先把中文频次转为数字
+    await p.query(`UPDATE medications SET frequency = CASE
+      WHEN frequency LIKE '%1次%' THEN '1'
+      WHEN frequency LIKE '%2次%' THEN '2'
+      WHEN frequency LIKE '%3次%' THEN '3'
+      WHEN frequency LIKE '%4次%' THEN '4'
+      WHEN frequency LIKE '%每晚%' THEN '1'
+      WHEN frequency IS NOT NULL AND frequency != '' THEN '1'
+      ELSE NULL END`);
     await p.query(`ALTER TABLE medications MODIFY COLUMN frequency INT DEFAULT NULL COMMENT '每日次数'`);
     console.log('已修改 medications 表的 frequency 列为 INT');
   }
