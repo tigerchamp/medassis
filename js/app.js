@@ -709,6 +709,12 @@ const App = {
                 </div>
             </div>` : '';
         const today = new Date().toISOString().slice(0, 10);
+        // OCR 识别原文（参考用，便于手动核对/填写）
+        const ocrTextHtml = resp.text ? `
+            <div class="form-group">
+                <label>识别原文（可参考手动核对）</label>
+                <textarea readonly style="background:#f5f5f5;font-size:13px;min-height:50px;max-height:120px;white-space:pre-wrap;">${this._escAttr(resp.text)}</textarea>
+            </div>` : '';
 
         if (type === '病历') {
             this.closeModal();
@@ -718,6 +724,7 @@ const App = {
                     <button class="btn-outline" style="width:auto;padding:6px 12px;font-size:13px;" onclick="App.switchToScan('病历')"><i class="fas fa-camera"></i> 重新扫描</button>
                 </div>
                 ${thumbsHtml}
+                ${ocrTextHtml}
                 <div class="form-group"><label>关联成员</label><select id="ocr-record-elder">${this._memberOptions()}</select></div>
                 <div class="form-group"><label>类型</label><select id="ocr-record-type"><option selected>病历</option><option>检查报告</option></select></div>
                 <div class="form-group"><label>就诊日期</label><input id="ocr-record-date" type="date" value="${parsed.visitDate || today}"></div>
@@ -739,6 +746,7 @@ const App = {
                     <button class="btn-outline" style="width:auto;padding:6px 12px;font-size:13px;" onclick="App.switchToScan('报告')"><i class="fas fa-camera"></i> 重新扫描</button>
                 </div>
                 ${thumbsHtml}
+                ${ocrTextHtml}
                 <div class="form-group"><label>关联成员</label><select id="ocr-record-elder">${this._memberOptions()}</select></div>
                 <div class="form-group"><label>类型</label><select id="ocr-record-type"><option>病历</option><option selected>检查报告</option></select></div>
                 <div class="form-group"><label>检查日期</label><input id="ocr-record-date" type="date" value="${parsed.visitDate || today}"></div>
@@ -781,6 +789,7 @@ const App = {
                     <button class="btn-outline" style="width:auto;padding:6px 12px;font-size:13px;" onclick="App.switchToScan('处方')"><i class="fas fa-camera"></i> 重新扫描</button>
                 </div>
                 ${thumbsHtml}
+                ${ocrTextHtml}
                 <div class="form-group"><label>关联成员</label><select id="ocr-med-elder">${this._memberOptions()}</select></div>
                 ${medBlocks}
                 <button class="btn-primary" onclick="App.saveOcrMeds()">添加用药</button>
@@ -801,6 +810,7 @@ const App = {
                     <button class="btn-outline" style="width:auto;padding:6px 12px;font-size:13px;" onclick="App.switchToScan('药品')"><i class="fas fa-camera"></i> 重新扫描</button>
                 </div>
                 ${thumbsHtml}
+                ${ocrTextHtml}
                 <div class="form-group"><label>药品名称</label><input id="ocr-drug-name" value="${this._escAttr(parsed.name)}" oninput="DrugSuggest.onInput(this,'drugCodeHidden',{specification:'ocr-drug-spec',manufacturer:'ocr-drug-manufacturer'})"><input type="hidden" id="drugCodeHidden"></div>
                 <div class="form-group"><label>规格</label><input id="ocr-drug-spec" value="${this._escAttr(parsed.specification)}"></div>
                 <div class="form-group"><label>厂商</label><input id="ocr-drug-manufacturer" value="${this._escAttr(parsed.manufacturer)}" placeholder="如：扬子江药业"></div>
