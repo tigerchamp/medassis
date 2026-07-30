@@ -765,17 +765,21 @@ const App = {
             const capUnitOpts = ['片', '粒', '袋', '支', '瓶', '贴'];
             const doseUnitOpts = ['mg', 'g', 'ml', 'μg', '片', '粒', '袋', '支', '贴'];
             const opts = arr => arr.map(u => `<option value="${u}">${u}</option>`).join('');
+            const optsSel = (arr, sel) => arr.map(u => `<option value="${u}"${u === sel ? ' selected' : ''}>${u}</option>`).join('');
+            const normUnit = u => (u === 'ug' ? 'μg' : u) || '';
             const medBlocks = meds.map((m, i) => {
                 const p = `ocrMed${i}`;
                 const freqN = this._freqTextToCount(m.frequency).frequency;
+                const sdu = normUnit(m.specDosageUnit);
+                const du = normUnit(m.doseUnit);
                 return `
                 <div style="background:#f8fafd;border-radius:12px;padding:12px;margin-bottom:8px;">
                     <div class="form-group"><label>药品${i + 1}名称 *</label><input id="${p}Name" value="${this._escAttr(m.name)}" placeholder="输入名称或拼音首字母" autocomplete="off" oninput="DrugSuggest.onInput(this,'${p}Code')"><input type="hidden" id="${p}Code"></div>
-                    <div class="form-group"><label>规格（每片/袋含量）</label><div style="display:flex;gap:8px"><input id="${p}SpecDosage" type="number" step="0.001" placeholder="如 0.25" style="flex:2"><select id="${p}SpecDosageUnit" style="flex:1">${opts(specUnitOpts)}</select></div></div>
-                    <div class="form-group"><label>单位容量（每盒/瓶数量）</label><div style="display:flex;gap:8px"><input id="${p}UnitCap" type="number" placeholder="如 20" style="flex:2"><select id="${p}UnitCapUnit" style="flex:1">${opts(capUnitOpts)}</select></div></div>
+                    <div class="form-group"><label>规格（每片/袋含量）</label><div style="display:flex;gap:8px"><input id="${p}SpecDosage" type="number" step="0.001" value="${m.specDosage || ''}" placeholder="如 0.25" style="flex:2"><select id="${p}SpecDosageUnit" style="flex:1">${optsSel(specUnitOpts, sdu)}</select></div></div>
+                    <div class="form-group"><label>单位容量（每盒/瓶数量）</label><div style="display:flex;gap:8px"><input id="${p}UnitCap" type="number" value="${m.unitCap || ''}" placeholder="如 20" style="flex:2"><select id="${p}UnitCapUnit" style="flex:1">${opts(capUnitOpts)}</select></div></div>
                     <div class="form-group"><label>数量</label><input id="${p}Qty" type="number" value="1" min="1"></div>
                     <div class="form-group"><label>有效期 *</label><input id="${p}Expiry" type="date"></div>
-                    <div class="form-group"><label>每次剂量</label><div style="display:flex;gap:8px"><input id="${p}DoseAmount" type="number" step="0.001" placeholder="如 5" style="flex:2"><select id="${p}DoseUnit" style="flex:1">${opts(doseUnitOpts)}</select></div></div>
+                    <div class="form-group"><label>每次剂量</label><div style="display:flex;gap:8px"><input id="${p}DoseAmount" type="number" step="0.001" value="${m.doseAmount || ''}" placeholder="如 5" style="flex:2"><select id="${p}DoseUnit" style="flex:1">${optsSel(doseUnitOpts, du)}</select></div></div>
                     <div class="form-group"><label>每日次数</label><input id="${p}Freq" type="number" min="1" max="4" value="${freqN}" oninput="MedTimesUI.render('${p}')"></div>
                     <div class="form-group"><label>服用时间段</label><div id="${p}TimeSlots"></div></div>
                     <div class="form-group"><label>开始日期</label><input id="${p}Start" type="date" value="${today}"></div>
@@ -883,7 +887,9 @@ const App = {
     _freqTextToCount(text) {
         const t = (text || '').trim();
         let n = 1;
-        if (/每日3次|每天3次|tid/i.test(t)) n = 3;
+        const slashM = t.match(/(\d)\s*\/\s*日/);
+        if (slashM) n = parseInt(slashM[1]);
+        else if (/每日3次|每天3次|tid/i.test(t)) n = 3;
         else if (/每日2次|每天2次|bid/i.test(t)) n = 2;
         else if (/每日4次|每天4次|qid/i.test(t)) n = 4;
         else if (/每晚|qn/i.test(t)) n = 1;

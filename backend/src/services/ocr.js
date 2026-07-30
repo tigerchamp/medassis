@@ -212,26 +212,101 @@ function parseReport(text) {
 }
 
 function parsePrescription(text) {
-  // 按行扫描含剂量线索的药品行
   const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
   const meds = [];
   const seen = new Set();
-  const doseRe = /(\d+\.?\d*\s*(?:mg|g|ml|片|粒|袋|支|丸|ug|μg))/i;
-  const freqRe = /(每日\d次|每天\d次|qd|bid|tid|qid|qn|prn|必要时|每日一次|每日两次|每日三次|每晚一次|每周一次)/i;
-  for (const l of lines) {
-    if (l.length < 2 || l.length > 60) continue;
-    if (/^(Rp|处方|日期|医院|科室|姓名|性别|年龄|主诉|诊断|用法|用量|服法|签名|审核|调配|发药|药费|金额|费用|电话|地址)/.test(l)) continue;
-    if (!doseRe.test(l) && !/(片|粒|袋|胶囊|丸|注射液|口服液|喷|滴)/.test(l)) continue;
-    // 药名：行首到剂量/数字前
-    const nameMatch = l.match(/^(.*?)[\s\d]/);
-    let name = nameMatch ? nameMatch[1].replace(/[:：]/g, '').trim() : '';
-    name = name.replace(/[（(].*$/, '').trim();
-    if (!name || name.length > 24 || seen.has(name)) continue;
-    seen.add(name);
-    const doseM = l.match(doseRe);
-    const freqM = l.match(freqRe);
-    meds.push({ name, dose: doseM ? doseM[1] : '', frequency: freqM ? freqM[1] : '每日1次', note: '' });
+
+  // 规格行：6g*12, 0.6g*48, 30mg×14片
+  const specLineRe = /(\d+\.?\d*)\s*(mg|g|ml|ug|μg)\s*[*×x]\s*(\d+)/i;
+  // 单次剂量行（行首）：6g口服, 4.8g, 1片
+  const doseLineRe = /^(\d+\.?\d*)\s*(mg|g|ml|片|粒|袋|丸|支|ug|μg)/i;
+  // 频次：3/日, 2/日, 每日3次, bid, tid
+  const freqRe = /(\d\s*\/\s*日|每日\d次|每天\d次|qd|bid|tid|qid|qn|prn|必要时|每日[一二三四]次|每晚[一二]?次|每周[一二]?次)/i;
+  // 数量：2盒, 1瓶, 3袋
+  const qtyRe = /(\d+\s*(?:盒|瓶|袋|支|板|包))/i;
+  // 元数据行（不作为药名候选）
+  const metaRe = /^(R[pxp]?[:：]?|诊断|用法|用量|服法|口服|外用|科室|姓名|性别|年龄|身份|体重|费别|药房|病人|医保|医疗|机构|编号|NO|参考|过敏|取药|新门诊|微信|点单|防止|请扫|主[:：]|医师|签章|调配|审核|核对|发药|日期|底方)/i;
+
+  // 药名候选：含中文、无数字、长度2-20、非元数据、无分号逗号（诊断常含分号）
+  function isNameCandidate(l) {
+    return /[\u4e00-\u9fa5]/.test(l) && !/\d/.test(l) && l.length >= 2 && l.length <= 20
+      && !metaRe.test(l) && !/[；;，,]/.test(l);
   }
+
+  // 找到处方正文起点（R: / Rp:）
+  let startIdx = 0;
+  for (let i = 0; i < lines.length; i++) {
+    if (/^R[pxp]?[:：]?$/i.test(lines[i])) { startIdx = i + 1; break; }
+  }
+
+  let currentMed = null;
+  const flush = () => {
+    if (currentMed && currentMed.name && !seen.has(currentMed.name)) {
+      seen.add(currentMed.name);
+      meds.push(currentMed);
+    }
+    currentMed = null;
+  };
+
+  for (let i = startIdx; i < lines.length; i++) {
+    const l = lines[i];
+
+    // 1. 规格行 → 药名（同行或往前找）
+    const specM = l.match(specLineRe);
+    if (specM) {
+      let name = '';
+      const before = l.substring(0, specM.index).trim();
+      if (before && /[\u4e00-\u9fa5]/.test(before)) {
+        name = before.replace(/[（(【\[].*$/, '').trim();
+      }
+      if (!name) {
+        for (let j = i - 1; j >= Math.max(0, i - 5); j--) {
+          if (specLineRe.test(lines[j]) || doseLineRe.test(lines[j])) break;
+          if (isNameCandidate(lines[j])) { name = lines[j].replace(/[（(【\[].*$/, '').trim(); break; }
+        }
+      }
+      flush();
+      currentMed = {
+        name,
+        specDosage: specM[1], specDosageUnit: specM[2], unitCap: specM[3],
+        doseAmount: '', doseUnit: '',
+        frequency: '每日1次', note: ''
+      };
+      continue;
+    }
+
+    // 2. 单次剂量行且无当前药品 → 往前找药名（无规格的处方）
+    const doseM = l.match(doseLineRe);
+    if (doseM && !currentMed) {
+      let name = '';
+      for (let j = i - 1; j >= Math.max(0, i - 5); j--) {
+        if (specLineRe.test(lines[j]) || doseLineRe.test(lines[j])) break;
+        if (isNameCandidate(lines[j])) { name = lines[j].replace(/[（(【\[].*$/, '').trim(); break; }
+      }
+      if (name) {
+        flush();
+        currentMed = { name, specDosage: '', specDosageUnit: '', unitCap: '', doseAmount: doseM[1], doseUnit: doseM[2], frequency: '每日1次', note: '' };
+        continue;
+      }
+    }
+
+    if (!currentMed) continue;
+
+    // 3. 频次
+    const freqM = l.match(freqRe);
+    if (freqM) { currentMed.frequency = freqM[1]; continue; }
+
+    // 4. 数量
+    const qtyM = l.match(qtyRe);
+    if (qtyM) { currentMed.note = (currentMed.note ? currentMed.note + ' ' : '') + qtyM[1]; continue; }
+
+    // 5. 单次剂量（独立行，如 6g口服 / 4.8g）
+    if (doseM && !currentMed.doseAmount) {
+      currentMed.doseAmount = doseM[1];
+      currentMed.doseUnit = doseM[2];
+    }
+  }
+  flush();
   return { medications: meds };
 }
 
