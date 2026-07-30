@@ -442,29 +442,6 @@ const DeptSuggest = {
     }
 };
 
-// ========== OCR 模拟数据 ==========
-const OCR_TEMPLATES = {
-    record: [
-        { diagnosis: '高血压3级', hospital: '市中心医院', department: '心内科', chiefComplaint: '头晕、头痛伴乏力1周', metrics: [{ name: '收缩压', value: '155', unit: 'mmHg', ref: '90-140', abnormal: true }, { name: '舒张压', value: '95', unit: 'mmHg', ref: '60-90', abnormal: true }, { name: '空腹血糖', value: '7.8', unit: 'mmol/L', ref: '3.9-6.1', abnormal: true }], orders: '低盐低脂饮食，规律服药，监测血压血糖，1周后复诊。' },
-        { diagnosis: '2型糖尿病', hospital: '人民医院', department: '内分泌科', chiefComplaint: '多饮多尿伴体重下降2月', metrics: [{ name: '空腹血糖', value: '9.1', unit: 'mmol/L', ref: '3.9-6.1', abnormal: true }, { name: '糖化血红蛋白', value: '8.2', unit: '%', ref: '4.0-6.0', abnormal: true }], orders: '糖尿病饮食，规律降糖药物治疗，每周监测血糖2-3次。' },
-    ],
-    report: [
-        { diagnosis: '胸部CT平扫', hospital: '市中心医院', department: '影像科', findings: '双肺纹理清晰，右肺中叶见小斑片状磨玻璃影，边界模糊，约8mm×6mm，余肺野未见明显实变及结节。纵隔居中，心影大小形态未见明显异常。双侧胸腔未见积液征象。', conclusion: '右肺中叶磨玻璃结节，建议6个月后CT复查随访。' },
-        { diagnosis: '腹部超声检查', hospital: '人民医院', department: '超声科', findings: '肝脏形态正常，实质回声均匀，未见明显占位性病变。胆囊大小正常，壁光滑，腔内未见异常回声。胰腺显示清晰，未见异常。双肾形态正常，皮髓质分界清，未见明显积水及占位。', conclusion: '腹部超声未见明显异常。' },
-        { diagnosis: '头颅MRI平扫', hospital: '省立医院', department: '影像科', findings: '双侧大脑半球对称，脑灰白质分界清。双侧基底节区可见小点状长T2信号影，FLAIR呈高信号，最大径约3mm。脑室系统无扩张，中线结构居中。小脑及脑干未见明显异常信号。', conclusion: '双侧基底节区腔隙性脑梗塞，建议结合临床定期随访。' },
-    ],
-    medication: [
-        { name: '苯磺酸氨氯地平片', dose: '5mg', frequency: '每日1次', times: ['08:00'], note: '晨起服用' },
-        { name: '二甲双胍缓释片', dose: '0.5g', frequency: '每日2次', times: ['08:00', '20:00'], note: '餐中或餐后服用' },
-        { name: '阿托伐他汀钙片', dose: '20mg', frequency: '每晚1次', times: ['21:30'], note: '睡前服用' },
-    ],
-    drug: [
-        { name: '阿莫西林胶囊', specification: '20粒/盒', manufacturer: '联邦制药', quantity: 2, expiryDate: '2028-03-14' },
-        { name: '硝苯地平缓释片', specification: '30片/盒', manufacturer: '拜耳医药', quantity: 1, expiryDate: '2027-12-01' },
-    ],
-};
-function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
-
 // ========== 应用主体 ==========
 const App = {
     state: {
@@ -656,95 +633,185 @@ const App = {
         this.startScan(type);
     },
 
+    // 中文扫描类型 → 后端 OCR 类型
+    _ocrTypeMap: { '病历': 'record', '报告': 'report', '处方': 'prescription', '药品': 'drug' },
+
+    // 给图片 url 拼上 token，供 <img> 鉴权访问
+    _authImgUrl(url) {
+        const token = localStorage.getItem(TOKEN_KEY);
+        if (!token || !url) return url;
+        const sep = url.includes('?') ? '&' : '?';
+        return url + sep + 'token=' + encodeURIComponent(token);
+    },
+
+    // 调起相机/相册选择图片
+    _pickImages() {
+        return new Promise((resolve) => {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = 'image/*';
+            input.capture = 'environment';
+            input.multiple = true;
+            input.style.display = 'none';
+            document.body.appendChild(input);
+            input.addEventListener('change', () => {
+                const files = Array.from(input.files || []);
+                document.body.removeChild(input);
+                resolve(files);
+            }, { once: true });
+            // 用户取消时 change 不触发，无法可靠监听取消，保留 input 由 change 清理
+            input.click();
+        });
+    },
+
     async startScan(type) {
         document.getElementById('scanOverlay').classList.remove('show');
         const memberId = this.state.currentMemberId;
         if (!memberId) { this.toast('请先选择一位成员'); return; }
 
-        this.openModal(`<div class="ocr-loading"><div class="spinner"></div><h3>正在识别...</h3><p class="text-muted">图像预处理 + OCR识别</p></div>`);
-        await new Promise(r => setTimeout(r, 1500));
+        const files = await this._pickImages();
+        if (!files.length) return;
+
+        const ocrType = this._ocrTypeMap[type] || 'record';
+        this.openModal(`<div class="ocr-loading"><div class="spinner"></div><h3>正在识别...</h3><p class="text-muted">上传图片并 OCR 识别中</p></div>`);
+
+        let resp;
+        try {
+            resp = await Api.ocr.recognize(files, ocrType);
+        } catch (err) {
+            this.closeModal();
+            this.toast(err.message || 'OCR识别失败');
+            return;
+        }
+
+        const parsed = resp.parsed || {};
+        // 保留 File 对象，确认保存时才上传到 MinIO（符合"先识别后保存"流程）
+        App._ocrFiles = files;
+        App._ocrImageUrls = files.map(f => URL.createObjectURL(f));
+        App._ocrConfidence = 0.9;
+
+        // 已拍图片缩略图（本地预览，保存时才上传为附件）
+        const thumbUrls = App._ocrImageUrls;
+        const thumbsHtml = thumbUrls.length ? `
+            <div class="form-group">
+                <label>拍摄图片（保存时上传为附件）</label>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                    ${thumbUrls.map((u, idx) => {
+                        const urlsJson = JSON.stringify(thumbUrls).replace(/"/g, '&quot;');
+                        return `<div style="width:72px;height:72px;border-radius:8px;overflow:hidden;flex-shrink:0;">
+                            <img src="${u}" style="width:100%;height:100%;object-fit:cover;cursor:pointer;" onclick="ImageViewer.show(${urlsJson},${idx})">
+                        </div>`;
+                    }).join('')}
+                </div>
+            </div>` : '';
         const today = new Date().toISOString().slice(0, 10);
 
         if (type === '病历') {
-            const result = pick(OCR_TEMPLATES.record);
             this.closeModal();
             this.openModal(`
                 <div style="display:flex;align-items:center;margin-bottom:16px;">
                     <h3 style="flex:1;margin:0;">识别结果 - 病历</h3>
                     <button class="btn-outline" style="width:auto;padding:6px 12px;font-size:13px;" onclick="App.switchToScan('病历')"><i class="fas fa-camera"></i> 重新扫描</button>
                 </div>
+                ${thumbsHtml}
                 <div class="form-group"><label>关联成员</label><select id="ocr-record-elder">${this._memberOptions()}</select></div>
                 <div class="form-group"><label>类型</label><select id="ocr-record-type"><option selected>病历</option><option>检查报告</option></select></div>
-                <div class="form-group"><label>就诊日期</label><input id="ocr-record-date" type="date" value="${today}"></div>
-                <div class="form-group"><label>医院</label><input id="ocr-hospital" value="${result.hospital}"></div>
-                <div class="form-group"><label>科室</label><input id="ocr-department" value="${result.department}"></div>
-                <div class="form-group"><label>主诉</label><input id="ocr-complaint" value="${result.chiefComplaint}"></div>
-                <div class="form-group"><label>诊断</label><input id="ocr-diagnosis" value="${result.diagnosis}"></div>
-                <div class="form-group"><label>医嘱</label><textarea id="ocr-orders">${result.orders}</textarea></div>
+                <div class="form-group"><label>就诊日期</label><input id="ocr-record-date" type="date" value="${parsed.visitDate || today}"></div>
+                <div class="form-group"><label>医院</label><input id="ocr-hospital" value="${this._escAttr(parsed.hospital)}" placeholder="输入医院名称或拼音首字母" autocomplete="off" oninput="HospitalSuggest.onInput(this)"></div>
+                <div class="form-group"><label>科室</label><input id="ocr-department" value="${this._escAttr(parsed.department)}" placeholder="输入科室名称或拼音首字母" autocomplete="off" oninput="DeptSuggest.onInput(this)"></div>
+                <div class="form-group"><label>主诉</label><textarea id="ocr-complaint" placeholder="主要症状">${this._escAttr(parsed.chiefComplaint)}</textarea></div>
+                <div class="form-group"><label>诊断 *</label><input id="ocr-diagnosis" value="${this._escAttr(parsed.diagnosis)}" placeholder="诊断结果"></div>
+                <div class="form-group"><label>医嘱</label><textarea id="ocr-orders" placeholder="医嘱内容">${this._escAttr(parsed.orders)}</textarea></div>
+                <div class="form-group"><label>医生</label><input id="ocr-doctor" value="${this._escAttr(parsed.doctor)}" placeholder="主治医生"></div>
                 <button class="btn-primary" onclick="App.saveOcrRecord()">保存病历</button>
                 <button class="btn-outline" style="margin-top:8px;" onclick="App.closeModal()">取消</button>
             `);
-            App._ocrMetrics = result.metrics;
+            App._ocrMetrics = parsed.metrics || [];
         } else if (type === '报告') {
-            const result = pick(OCR_TEMPLATES.report);
             this.closeModal();
             this.openModal(`
                 <div style="display:flex;align-items:center;margin-bottom:16px;">
                     <h3 style="flex:1;margin:0;">识别结果 - 检查报告</h3>
                     <button class="btn-outline" style="width:auto;padding:6px 12px;font-size:13px;" onclick="App.switchToScan('报告')"><i class="fas fa-camera"></i> 重新扫描</button>
                 </div>
+                ${thumbsHtml}
                 <div class="form-group"><label>关联成员</label><select id="ocr-record-elder">${this._memberOptions()}</select></div>
                 <div class="form-group"><label>类型</label><select id="ocr-record-type"><option>病历</option><option selected>检查报告</option></select></div>
-                <div class="form-group"><label>检查日期</label><input id="ocr-record-date" type="date" value="${today}"></div>
-                <div class="form-group"><label>医院</label><input id="ocr-hospital" value="${result.hospital}"></div>
-                <div class="form-group"><label>科室</label><input id="ocr-department" value="${result.department}"></div>
-                <div class="form-group"><label>检查项目</label><input id="ocr-diagnosis" value="${result.diagnosis}"></div>
-                <div class="form-group"><label>检查所见</label><textarea id="ocr-findings" rows="4">${result.findings}</textarea></div>
-                <div class="form-group"><label>报告结论</label><textarea id="ocr-conclusion" rows="3">${result.conclusion}</textarea></div>
+                <div class="form-group"><label>检查日期</label><input id="ocr-record-date" type="date" value="${parsed.visitDate || today}"></div>
+                <div class="form-group"><label>医院</label><input id="ocr-hospital" value="${this._escAttr(parsed.hospital)}" placeholder="如：市中心医院" oninput="HospitalSuggest.onInput(this)"></div>
+                <div class="form-group"><label>科室</label><input id="ocr-department" value="${this._escAttr(parsed.department)}" placeholder="如：影像科" oninput="DeptSuggest.onInput(this)"></div>
+                <div class="form-group"><label>检查项目</label><input id="ocr-diagnosis" value="${this._escAttr(parsed.examName)}"></div>
+                <div class="form-group"><label>检查所见</label><textarea id="ocr-findings" rows="4">${this._escAttr(parsed.findings)}</textarea></div>
+                <div class="form-group"><label>报告结论</label><textarea id="ocr-conclusion" rows="3">${this._escAttr(parsed.conclusion)}</textarea></div>
                 <button class="btn-primary" onclick="App.saveOcrRecord()">保存报告</button>
                 <button class="btn-outline" style="margin-top:8px;" onclick="App.closeModal()">取消</button>
             `);
             App._ocrMetrics = [];
         } else if (type === '处方') {
-            const meds = [pick(OCR_TEMPLATES.medication), pick(OCR_TEMPLATES.medication)];
+            const meds = (parsed.medications && parsed.medications.length) ? parsed.medications : [{ name: '', dose: '', frequency: '每日1次', note: '' }];
+            const specUnitOpts = ['g', 'mg', 'ml', 'μg'];
+            const capUnitOpts = ['片', '粒', '袋', '支', '瓶', '贴'];
+            const doseUnitOpts = ['mg', 'g', 'ml', 'μg', '片', '粒', '袋', '支', '贴'];
+            const opts = arr => arr.map(u => `<option value="${u}">${u}</option>`).join('');
+            const medBlocks = meds.map((m, i) => {
+                const p = `ocrMed${i}`;
+                const freqN = this._freqTextToCount(m.frequency).frequency;
+                return `
+                <div style="background:#f8fafd;border-radius:12px;padding:12px;margin-bottom:8px;">
+                    <div class="form-group"><label>药品${i + 1}名称 *</label><input id="${p}Name" value="${this._escAttr(m.name)}" placeholder="输入名称或拼音首字母" autocomplete="off" oninput="DrugSuggest.onInput(this,'${p}Code')"><input type="hidden" id="${p}Code"></div>
+                    <div class="form-group"><label>规格（每片/袋含量）</label><div style="display:flex;gap:8px"><input id="${p}SpecDosage" type="number" step="0.001" placeholder="如 0.25" style="flex:2"><select id="${p}SpecDosageUnit" style="flex:1">${opts(specUnitOpts)}</select></div></div>
+                    <div class="form-group"><label>单位容量（每盒/瓶数量）</label><div style="display:flex;gap:8px"><input id="${p}UnitCap" type="number" placeholder="如 20" style="flex:2"><select id="${p}UnitCapUnit" style="flex:1">${opts(capUnitOpts)}</select></div></div>
+                    <div class="form-group"><label>数量</label><input id="${p}Qty" type="number" value="1" min="1"></div>
+                    <div class="form-group"><label>有效期 *</label><input id="${p}Expiry" type="date"></div>
+                    <div class="form-group"><label>每次剂量</label><div style="display:flex;gap:8px"><input id="${p}DoseAmount" type="number" step="0.001" placeholder="如 5" style="flex:2"><select id="${p}DoseUnit" style="flex:1">${opts(doseUnitOpts)}</select></div></div>
+                    <div class="form-group"><label>每日次数</label><input id="${p}Freq" type="number" min="1" max="4" value="${freqN}" oninput="MedTimesUI.render('${p}')"></div>
+                    <div class="form-group"><label>服用时间段</label><div id="${p}TimeSlots"></div></div>
+                    <div class="form-group"><label>开始日期</label><input id="${p}Start" type="date" value="${today}"></div>
+                    <div class="form-group"><label>备注</label><input id="${p}Note" value="${this._escAttr(m.note)}" placeholder="如：餐后服用"></div>
+                </div>`;
+            }).join('');
             this.closeModal();
             this.openModal(`
                 <div style="display:flex;align-items:center;margin-bottom:16px;">
                     <h3 style="flex:1;margin:0;">识别结果 - 处方</h3>
                     <button class="btn-outline" style="width:auto;padding:6px 12px;font-size:13px;" onclick="App.switchToScan('处方')"><i class="fas fa-camera"></i> 重新扫描</button>
                 </div>
+                ${thumbsHtml}
                 <div class="form-group"><label>关联成员</label><select id="ocr-med-elder">${this._memberOptions()}</select></div>
-                ${meds.map((m, i) => `
-                    <div style="background:#f8fafd;border-radius:12px;padding:12px;margin-bottom:8px;">
-                        <div class="form-group"><label>药品${i + 1}名称</label><input id="ocr-med-name-${i}" value="${m.name}"></div>
-                        <div class="form-group"><label>剂量</label><input id="ocr-med-dose-${i}" value="${m.dose}"></div>
-                        <div class="form-group"><label>频次</label><input id="ocr-med-freq-${i}" value="${m.frequency}"></div>
-                        <div class="form-group"><label>开始日期</label><input id="ocr-med-start-${i}" type="date" value="${today}"></div>
-                        <div class="form-group"><label>备注</label><input id="ocr-med-note-${i}" value="${m.note || ''}"></div>
-                    </div>
-                `).join('')}
+                ${medBlocks}
                 <button class="btn-primary" onclick="App.saveOcrMeds()">添加用药</button>
                 <button class="btn-outline" style="margin-top:8px;" onclick="App.closeModal()">取消</button>
             `);
+            // 初始化每个药品的服用时间段
+            for (let i = 0; i < meds.length; i++) {
+                const p = `ocrMed${i}`;
+                delete MedTimesUI._state[p];
+                MedTimesUI.render(p);
+            }
             App._ocrMeds = meds;
         } else if (type === '药品') {
-            const drug = pick(OCR_TEMPLATES.drug);
             this.closeModal();
             this.openModal(`
                 <div style="display:flex;align-items:center;margin-bottom:16px;">
                     <h3 style="flex:1;margin:0;">识别结果 - 药品</h3>
                     <button class="btn-outline" style="width:auto;padding:6px 12px;font-size:13px;" onclick="App.switchToScan('药品')"><i class="fas fa-camera"></i> 重新扫描</button>
                 </div>
-                <div class="form-group"><label>药品名称</label><input id="ocr-drug-name" value="${drug.name}"></div>
-                <div class="form-group"><label>规格</label><input id="ocr-drug-spec" value="${drug.specification}"></div>
-                <div class="form-group"><label>厂商</label><input id="ocr-drug-manufacturer" value="${drug.manufacturer || ''}" placeholder="如：扬子江药业"></div>
-                <div class="form-group"><label>数量</label><input id="ocr-drug-qty" type="number" value="${drug.quantity}"></div>
-                <div class="form-group"><label>有效期</label><input id="ocr-drug-exp" type="date" value="${drug.expiryDate}"></div>
+                ${thumbsHtml}
+                <div class="form-group"><label>药品名称</label><input id="ocr-drug-name" value="${this._escAttr(parsed.name)}" oninput="DrugSuggest.onInput(this,'drugCodeHidden',{specification:'ocr-drug-spec',manufacturer:'ocr-drug-manufacturer'})"><input type="hidden" id="drugCodeHidden"></div>
+                <div class="form-group"><label>规格</label><input id="ocr-drug-spec" value="${this._escAttr(parsed.specification)}"></div>
+                <div class="form-group"><label>厂商</label><input id="ocr-drug-manufacturer" value="${this._escAttr(parsed.manufacturer)}" placeholder="如：扬子江药业"></div>
+                <div class="form-group"><label>数量</label><input id="ocr-drug-qty" type="number" value="1"></div>
+                <div class="form-group"><label>有效期</label><input id="ocr-drug-exp" type="date"></div>
                 <div class="form-group"><label>备注</label><input id="ocr-drug-note" placeholder="备注信息"></div>
                 <button class="btn-primary" onclick="App.saveOcrDrug()">录入药箱</button>
                 <button class="btn-outline" style="margin-top:8px;" onclick="App.closeModal()">取消</button>
             `);
         }
+    },
+
+    // 转义属性/文本，避免 OCR 文本含引号破坏 HTML
+    _escAttr(s) {
+        return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     },
 
     // 生成成员下拉选项html
@@ -756,9 +823,26 @@ const App = {
         }).join('');
     },
 
+    // 确认保存时上传 OCR 拍摄的图片到 MinIO，返回 fileIds（失败时提示但不阻断保存）
+    async _uploadOcrFiles() {
+        if (!App._ocrFiles || !App._ocrFiles.length) return undefined;
+        const filesToUpload = App._ocrFiles;
+        App._ocrFiles = null; // 防止重复上传
+        try {
+            const uploaded = await Api.upload.files(filesToUpload);
+            const ids = uploaded.map(f => f.id);
+            return ids.length ? ids : undefined;
+        } catch (err) {
+            console.error('上传OCR图片失败:', err.message);
+            this.toast('图片上传失败：' + err.message);
+            return undefined;
+        }
+    },
+
     async saveOcrRecord() {
         const elderId = document.getElementById('ocr-record-elder')?.value || this.state.currentMemberId;
         try {
+            const fileIds = await this._uploadOcrFiles();
             await Api.records.add({
                 elderId,
                 type: document.getElementById('ocr-record-type')?.value || '病历',
@@ -770,8 +854,10 @@ const App = {
                 findings: document.getElementById('ocr-findings')?.value || '',
                 conclusion: document.getElementById('ocr-conclusion')?.value || '',
                 orders: document.getElementById('ocr-orders')?.value || '',
+                doctor: document.getElementById('ocr-doctor')?.value || '',
                 metrics: App._ocrMetrics || [],
-                confidence: 0.85,
+                confidence: App._ocrConfidence || 0.9,
+                fileIds,
             });
             this.closeModal();
             this.toast('保存成功');
@@ -779,25 +865,49 @@ const App = {
         } catch (err) { this.toast(err.message); }
     },
 
+    // 将频次文本（每日X次/qd/bid/tid）映射为 { frequency:number, times:[...] }
+    _freqTextToCount(text) {
+        const t = (text || '').trim();
+        let n = 1;
+        if (/每日3次|每天3次|tid/i.test(t)) n = 3;
+        else if (/每日2次|每天2次|bid/i.test(t)) n = 2;
+        else if (/每日4次|每天4次|qid/i.test(t)) n = 4;
+        else if (/每晚|qn/i.test(t)) n = 1;
+        const slots = ['08:00', '12:00', '18:00', '21:00'];
+        return { frequency: n, times: slots.slice(0, n) };
+    },
+
     async saveOcrMeds() {
         if (this._ocrMedsSaving) return;
         this._ocrMedsSaving = true;
         try {
+            const fileIds = await this._uploadOcrFiles();
             const medCount = App._ocrMeds ? App._ocrMeds.length : 0;
             for (let i = 0; i < medCount; i++) {
-                const name = document.getElementById(`ocr-med-name-${i}`);
-                if (!name || !name.value.trim()) continue;
-                const dose = document.getElementById(`ocr-med-dose-${i}`);
-                const freq = document.getElementById(`ocr-med-freq-${i}`);
-                const start = document.getElementById(`ocr-med-start-${i}`);
-                const note = document.getElementById(`ocr-med-note-${i}`);
+                const p = `ocrMed${i}`;
+                const nameEl = document.getElementById(`${p}Name`);
+                if (!nameEl || !nameEl.value.trim()) continue;
+                const expiryDate = document.getElementById(`${p}Expiry`).value;
+                if (!expiryDate) { this.toast(`请填写药品${i + 1}的有效期`); return; }
+                const specDosageVal = document.getElementById(`${p}SpecDosage`).value;
+                const doseAmountVal = document.getElementById(`${p}DoseAmount`).value;
+                const times = MedTimesUI.getTimes(p);
                 await Api.medications.add({
                     elderId: document.getElementById('ocr-med-elder')?.value || this.state.currentMemberId,
-                    name: name.value, dose: dose?.value || '', frequency: freq?.value || '',
-                    times: App._ocrMeds[i].times || ['08:00'],
-                    note: note?.value || App._ocrMeds[i].note || '',
-                    startDate: start?.value || new Date().toISOString().slice(0, 10),
-                    status: 'active'
+                    name: nameEl.value,
+                    drugCode: (document.getElementById(`${p}Code`) || {}).value || undefined,
+                    specification: specDosageVal ? `${specDosageVal}${document.getElementById(`${p}SpecDosageUnit`).value}` : undefined,
+                    dose: doseAmountVal ? `${doseAmountVal}${document.getElementById(`${p}DoseUnit`).value}` : undefined,
+                    doseAmount: doseAmountVal ? parseFloat(doseAmountVal) : undefined,
+                    doseUnit: doseAmountVal ? document.getElementById(`${p}DoseUnit`).value : undefined,
+                    quantity: parseInt(document.getElementById(`${p}Qty`).value) || 1,
+                    frequency: parseInt(document.getElementById(`${p}Freq`).value) || 1,
+                    times,
+                    startDate: document.getElementById(`${p}Start`).value || new Date().toISOString().slice(0, 10),
+                    note: document.getElementById(`${p}Note`)?.value || '',
+                    expiryDate,
+                    status: 'active',
+                    fileIds,
                 });
             }
             this.closeModal();
@@ -809,14 +919,17 @@ const App = {
 
     async saveOcrDrug() {
         try {
+            const fileIds = await this._uploadOcrFiles();
             await Api.drugs.add({
                 elderId: this.state.currentMemberId,
                 name: document.getElementById('ocr-drug-name').value,
+                drugCode: (document.getElementById('drugCodeHidden') || {}).value || undefined,
                 specification: document.getElementById('ocr-drug-spec').value,
                 manufacturer: document.getElementById('ocr-drug-manufacturer')?.value || '',
                 quantity: parseInt(document.getElementById('ocr-drug-qty').value) || 1,
                 expiryDate: document.getElementById('ocr-drug-exp').value,
                 note: document.getElementById('ocr-drug-note')?.value || '',
+                fileIds,
             });
             this.closeModal();
             this.toast('药品已录入药箱');
