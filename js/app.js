@@ -670,15 +670,19 @@ const App = {
         if (!memberId) { this.toast('请先选择一位成员'); return; }
 
         const files = await this._pickImages();
-        if (!files.length) return;
+        if (!files.length) { console.log('[扫描] 用户未选择图片'); return; }
+        console.log(`[扫描] 选了 ${files.length} 张图片:`, files.map(f => `${f.name}(${f.type},${f.size}bytes)`));
 
         const ocrType = this._ocrTypeMap[type] || 'record';
+        console.log(`[扫描] 开始OCR识别, type=${type} → ocrType=${ocrType}`);
         this.openModal(`<div class="ocr-loading"><div class="spinner"></div><h3>正在识别...</h3><p class="text-muted">上传图片并 OCR 识别中</p></div>`);
 
         let resp;
         try {
             resp = await Api.ocr.recognize(files, ocrType);
+            console.log('[扫描] OCR响应:', { text: resp.text, parsed: resp.parsed });
         } catch (err) {
+            console.error('[扫描] OCR失败:', err);
             this.closeModal();
             this.toast(err.message || 'OCR识别失败');
             return;

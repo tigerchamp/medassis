@@ -105,11 +105,13 @@ const Api = {
             files.forEach(f => formData.append('files', f));
             formData.append('type', type);
             const token = localStorage.getItem(TOKEN_KEY);
+            console.log(`[API] POST /api/ocr/recognize, type=${type}, files=${files.length}`);
             const res = await fetch(`${API_BASE}/api/ocr/recognize`, {
                 method: 'POST',
                 headers: { 'Authorization': `Bearer ${token}` },
                 body: formData
             });
+            console.log(`[API] OCR响应状态: ${res.status} ${res.statusText}`);
             const data = await res.json();
             if (!res.ok) throw new Error(data.error || 'OCR识别失败');
             return data;

@@ -24,11 +24,18 @@ router.post('/recognize', upload.array('files', 9), async (req, res) => {
     const files = req.files;
     const type = req.body.type || 'record';
 
+    console.log(`[OCR] 收到请求: type=${type}, 文件数=${files ? files.length : 0}`);
+    if (files && files.length) {
+      files.forEach((f, i) => console.log(`[OCR]   文件${i}: ${f.originalname}, size=${f.size}, mime=${f.mimetype}`));
+    }
+
     if (!files || files.length === 0) {
+      console.log('[OCR] 拒绝: 没有上传图片');
       return res.status(400).json({ error: '没有上传图片' });
     }
 
     if (!isConfigured()) {
+      console.log('[OCR] 拒绝: 未配置百度OCR密钥');
       return res.status(500).json({ error: '未配置百度OCR密钥，请在 .env 设置 BAIDU_OCR_API_KEY / BAIDU_OCR_SECRET_KEY' });
     }
 
@@ -37,26 +44,32 @@ router.post('/recognize', upload.array('files', 9), async (req, res) => {
     let lastOcrError = null;
     for (const file of files) {
       try {
-        const { text } = await recognizeText(file.buffer);
+        console.log(`[OCR] 开始识别: ${file.originalname} (${file.size} bytes)`);
+        const { text, wordsCount } = await recognizeText(file.buffer);
+        console.log(`[OCR] 识别完成: ${wordsCount} 行文字\n[OCR] 识别内容:\n${text}`);
         if (text) textParts.push(text);
       } catch (err) {
         if (err.code === 'OCR_NOT_CONFIGURED' || err.code === 'OCR_TOKEN_ERROR') throw err;
         lastOcrError = err;
-        console.error('OCR recognize single error:', err.message);
+        console.error(`[OCR] 识别失败: ${file.originalname} -> ${err.message}`);
       }
     }
     const text = textParts.join('\n');
+    console.log(`[OCR] 拼接后文本长度=${text.length}`);
     // 所有图片都识别失败时，向前端返回明确错误
     if (!text && lastOcrError) {
+      console.log('[OCR] 所有图片识别失败，返回错误');
       return res.status(500).json({ error: lastOcrError.message });
     }
 
     // 按类型结构化解析
     const parsed = parse(type, text);
+    console.log(`[OCR] 解析结果(type=${type}):`, JSON.stringify(parsed));
 
     res.json({ text, parsed });
+    console.log('[OCR] 响应已返回前端');
   } catch (err) {
-    console.error('OCR recognize error:', err);
+    console.error('[OCR] 路由异常:', err);
     if (err.code === 'OCR_NOT_CONFIGURED') {
       return res.status(500).json({ error: '未配置百度OCR密钥' });
     }

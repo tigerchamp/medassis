@@ -57,14 +57,17 @@ async function preprocessImage(imageBuffer) {
   try {
     const meta = await sharp(imageBuffer).metadata();
     const longest = Math.max(meta.width || 0, meta.height || 0);
+    console.log(`[OCR] 预处理: 原图 ${meta.width}x${meta.height} 格式=${meta.format} 大小=${imageBuffer.length} bytes`);
     let pipeline = sharp(imageBuffer).rotate(); // 自动按 EXIF 方向校正
     if (longest > 1024) {
       pipeline = pipeline.resize({ width: 1024, height: 1024, fit: 'inside', withoutEnlargement: true });
     }
-    return await pipeline.jpeg({ quality: 85 }).toBuffer();
+    const out = await pipeline.jpeg({ quality: 85 }).toBuffer();
+    console.log(`[OCR] 预处理后: ${out.length} bytes (JPEG)`);
+    return out;
   } catch (err) {
     // sharp 无法处理时退回原图（让百度自行报错）
-    console.error('OCR preprocessImage fallback:', err.message);
+    console.error('[OCR] 预处理失败，退回原图:', err.message);
     return imageBuffer;
   }
 }
@@ -81,6 +84,7 @@ async function recognizeText(imageBuffer) {
   // 百度要求：标准 base64 编码（保留 + / =，不做 URL-safe 转换），再 urlencode 上传
   const b64 = processed.toString('base64');
   const body = `image=${encodeURIComponent(b64)}`;
+  console.log(`[OCR] 调用百度API: ${OCR_API}, base64长度=${b64.length}`);
 
   // fetch 偶发失败(大图/网络抖动)时重试一次
   let data, lastErr;
@@ -92,12 +96,13 @@ async function recognizeText(imageBuffer) {
         body
       });
       data = await resp.json();
+      console.log(`[OCR] 百度响应: error_code=${data.error_code || '无'}, words_result_num=${data.words_result_num || 0}, log_id=${data.log_id || ''}`);
       lastErr = null;
       break;
     } catch (err) {
       lastErr = err;
       // 记录 fetch 失败的具体原因（undici 把细节放在 err.cause）
-      console.error(`OCR fetch failed (attempt ${attempt + 1}):`, err.message, err.cause ? `cause: ${err.cause.message || err.cause.code}` : '');
+      console.error(`[OCR] fetch failed (attempt ${attempt + 1}):`, err.message, err.cause ? `cause: ${err.cause.message || err.cause.code}` : '');
       if (attempt === 0) await new Promise(r => setTimeout(r, 500));
     }
   }
