@@ -80,9 +80,13 @@ const Api = {
     },
     hospitals: {
         search: (q, limit = 20) => api(`/hospitals/search?q=${encodeURIComponent(q)}&limit=${limit}`),
+        check: (name) => api(`/hospitals/check?name=${encodeURIComponent(name)}`),
+        add: (name, abbreviation, alias) => api('/hospitals/add', { method: 'POST', body: JSON.stringify({ name, abbreviation, alias }) }),
     },
     departments: {
         search: (q, limit = 20) => api(`/departments/search?q=${encodeURIComponent(q)}&limit=${limit}`),
+        check: (name) => api(`/departments/check?name=${encodeURIComponent(name)}`),
+        add: (name, abbreviation, alias) => api('/departments/add', { method: 'POST', body: JSON.stringify({ name, abbreviation, alias }) }),
     },
     search: (keyword) => api(`/search?keyword=${encodeURIComponent(keyword)}`),
     upload: async (files) => {

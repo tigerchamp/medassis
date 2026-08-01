@@ -175,3 +175,6 @@ input:disabled,select:disabled,textarea:disabled{background:#f1f5f9;color:#64748
 .cal-btn:active{background:#e2e8f0}
 .cal-btn-primary{background:#2b7a78;color:#fff}
 .cal-btn-primary:active{background:#1e6b68}
+
+.hosp-suggest-add,.dept-suggest-add{color:#2b7a78;font-weight:600;border-top:2px dashed #e2e8f0}
+.hosp-suggest-add:hover,.dept-suggest-add:hover{background:#e8f5e9}

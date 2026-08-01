@@ -398,6 +398,13 @@ async function _ensureColumns(p) {
     await p.query(`ALTER TABLE hospitals ADD COLUMN pinyin_abbr VARCHAR(100) DEFAULT NULL AFTER name, ADD INDEX idx_pinyin (pinyin_abbr)`);
     console.log('已补充 hospitals 表的 pinyin_abbr 列');
   }
+  // 检查hospitals表是否缺少abbreviation(简称)/alias(别名)列
+  const [hospAbbrCols] = await p.query(`SHOW COLUMNS FROM hospitals LIKE 'abbreviation'`);
+  if (hospAbbrCols.length === 0) {
+    await p.query(`ALTER TABLE hospitals ADD COLUMN abbreviation VARCHAR(100) DEFAULT NULL COMMENT '简称' AFTER pinyin_abbr`);
+    await p.query(`ALTER TABLE hospitals ADD COLUMN alias VARCHAR(200) DEFAULT NULL COMMENT '别名' AFTER abbreviation`);
+    console.log('已补充 hospitals 表的 abbreviation/alias 列');
+  }
 
   // 创建 departments 科室表
   await p.query(`
@@ -411,6 +418,14 @@ async function _ensureColumns(p) {
       INDEX idx_category (category)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
+
+  // 检查departments表是否缺少abbreviation(简称)/alias(别名)列
+  const [deptAbbrCols] = await p.query(`SHOW COLUMNS FROM departments LIKE 'abbreviation'`);
+  if (deptAbbrCols.length === 0) {
+    await p.query(`ALTER TABLE departments ADD COLUMN abbreviation VARCHAR(50) DEFAULT NULL COMMENT '简称' AFTER pinyin_abbr`);
+    await p.query(`ALTER TABLE departments ADD COLUMN alias VARCHAR(200) DEFAULT NULL COMMENT '别名' AFTER abbreviation`);
+    console.log('已补充 departments 表的 abbreviation/alias 列');
+  }
 
   // 检查records表是否缺少findings和conclusion列
   const [cols] = await p.query(`SHOW COLUMNS FROM records LIKE 'findings'`);

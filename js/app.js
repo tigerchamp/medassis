@@ -356,15 +356,15 @@ const HospitalSuggest = {
             inputEl.parentNode.style.position = 'relative';
             inputEl.parentNode.appendChild(box);
         }
-        if (hospitals.length === 0) {
-            box.innerHTML = '<div class="hosp-suggest-item hosp-suggest-empty">未找到匹配医院</div>';
-        } else {
-            this._lastHospitals = hospitals;
-            box.innerHTML = hospitals.map((h, i) => {
-                const name = this._esc(h.name);
-                return `<div class="hosp-suggest-item" onclick="HospitalSuggest._pick(${i})">${name}</div>`;
-            }).join('');
-        }
+        this._lastHospitals = hospitals;
+        const q = inputEl.value.trim();
+        const listHtml = hospitals.map((h, i) => {
+            const name = this._esc(h.name);
+            const sub = [h.abbreviation, h.alias].filter(x => x).map(x => this._esc(x)).join(' / ');
+            return `<div class="hosp-suggest-item" onclick="HospitalSuggest._pick(${i})">${name}${sub ? `<span style="color:#94a3b8;font-size:12px;margin-left:6px;">${sub}</span>` : ''}</div>`;
+        }).join('');
+        const addBtn = q ? `<div class="hosp-suggest-item hosp-suggest-add" onclick="HospitalSuggest._addNewFromInput()"><i class="fas fa-plus"></i> 添加新医院"${this._esc(q)}"</div>` : '';
+        box.innerHTML = (listHtml || '<div class="hosp-suggest-item hosp-suggest-empty">未找到匹配医院</div>') + addBtn;
         box.style.display = 'block';
     },
 
@@ -373,6 +373,69 @@ const HospitalSuggest = {
         if (!hosp || !this._currentInput) return;
         this._currentInput.value = hosp.name;
         this._hide();
+    },
+
+    // 从输入框当前值直接添加新医院
+    _addNewFromInput() {
+        const name = (this._currentInput?.value || '').trim();
+        if (!name) { App.toast('请先输入医院名称'); return; }
+        Api.hospitals.add(name).then(r => {
+            if (this._currentInput) this._currentInput.value = r.hospital.name;
+            this._hide();
+            App.toast(`已添加医院：${r.hospital.name}（拼音缩写 ${r.hospital.pinyinAbbr || '-'}）`);
+        }).catch(e => App.toast('添加失败：' + e.message));
+    },
+
+    // 保存前校验：不存在则提示相似项 + 添加按钮。返回 false 表示用户取消保存
+    ensure(inputEl) {
+        return new Promise(async (resolve) => {
+            const name = (inputEl?.value || '').trim();
+            if (!name) { resolve(true); return; }
+            try {
+                const r = await Api.hospitals.check(name);
+                if (r.exists) { resolve(true); return; }
+                this._ensureResolve = resolve;
+                this._ensureInput = inputEl;
+                this._lastSimilar = r.similar || [];
+                const simHtml = (r.similar || []).map((s, i) =>
+                    `<div class="hosp-suggest-item" onclick="HospitalSuggest._pickSimilar(${i})">${this._esc(s.name)}${s.alias ? `<span style="color:#94a3b8;font-size:12px;margin-left:6px;">${this._esc(s.alias)}</span>` : ''}</div>`
+                ).join('') || '<div style="color:#94a3b8;padding:12px;text-align:center;">无相似医院</div>';
+                App.openModal(`
+                    <h3 style="margin:0 0 8px;">医院"${this._esc(name)}"未找到</h3>
+                    <p style="color:#64748b;font-size:13px;margin:0 0 12px;">请选择已有医院，或添加为新医院：</p>
+                    <div style="max-height:240px;overflow:auto;border:1px solid #e2e8f0;border-radius:8px;margin-bottom:12px;">${simHtml}</div>
+                    <button class="btn-primary" style="width:100%;margin-bottom:8px;" onclick="HospitalSuggest._confirmAdd()"><i class="fas fa-plus"></i> 添加为新医院</button>
+                    <button class="btn-outline" style="width:100%;margin-bottom:8px;" onclick="HospitalSuggest._confirmKeep()">仍使用"${this._esc(name)}"</button>
+                    <button class="btn-outline" style="width:100%;color:#64748b;" onclick="HospitalSuggest._cancelEnsure()">取消</button>`);
+            } catch (e) { resolve(true); }
+        });
+    },
+    _pickSimilar(i) {
+        const s = (this._lastSimilar || [])[i];
+        if (s && this._ensureInput) this._ensureInput.value = s.name;
+        App.closeModal();
+        const r = this._ensureResolve; this._ensureResolve = null; this._ensureInput = null;
+        if (r) r(true);
+    },
+    _confirmAdd() {
+        const name = (this._ensureInput?.value || '').trim();
+        Api.hospitals.add(name).then(r => {
+            if (this._ensureInput) this._ensureInput.value = r.hospital.name;
+            App.closeModal();
+            App.toast(`已添加医院：${r.hospital.name}（${r.hospital.pinyinAbbr || '-'}）`);
+            const resolve = this._ensureResolve; this._ensureResolve = null; this._ensureInput = null;
+            if (resolve) resolve(true);
+        }).catch(e => App.toast('添加失败：' + e.message));
+    },
+    _confirmKeep() {
+        App.closeModal();
+        const r = this._ensureResolve; this._ensureResolve = null; this._ensureInput = null;
+        if (r) r(true);
+    },
+    _cancelEnsure() {
+        App.closeModal();
+        const r = this._ensureResolve; this._ensureResolve = null; this._ensureInput = null;
+        if (r) r(false);
     },
 
     _hide() {
@@ -415,14 +478,15 @@ const DeptSuggest = {
             inputEl.parentNode.style.position = 'relative';
             inputEl.parentNode.appendChild(box);
         }
-        if (depts.length === 0) {
-            box.innerHTML = '<div class="dept-suggest-item dept-suggest-empty">未找到匹配科室</div>';
-        } else {
-            this._lastDepts = depts;
-            box.innerHTML = depts.map((d, i) =>
-                `<div class="dept-suggest-item" onclick="DeptSuggest._pick(${i})">${this._esc(d.name)}</div>`
-            ).join('');
-        }
+        this._lastDepts = depts;
+        const q = inputEl.value.trim();
+        const listHtml = depts.map((d, i) => {
+            const name = this._esc(d.name);
+            const sub = [d.abbreviation, d.alias].filter(x => x).map(x => this._esc(x)).join(' / ');
+            return `<div class="dept-suggest-item" onclick="DeptSuggest._pick(${i})">${name}${sub ? `<span style="color:#94a3b8;font-size:12px;margin-left:6px;">${sub}</span>` : ''}</div>`;
+        }).join('');
+        const addBtn = q ? `<div class="dept-suggest-item dept-suggest-add" onclick="DeptSuggest._addNewFromInput()"><i class="fas fa-plus"></i> 添加新科室"${this._esc(q)}"</div>` : '';
+        box.innerHTML = (listHtml || '<div class="dept-suggest-item dept-suggest-empty">未找到匹配科室</div>') + addBtn;
         box.style.display = 'block';
     },
 
@@ -431,6 +495,69 @@ const DeptSuggest = {
         if (!dept || !this._currentInput) return;
         this._currentInput.value = dept.name;
         this._hide();
+    },
+
+    // 从输入框当前值直接添加新科室
+    _addNewFromInput() {
+        const name = (this._currentInput?.value || '').trim();
+        if (!name) { App.toast('请先输入科室名称'); return; }
+        Api.departments.add(name).then(r => {
+            if (this._currentInput) this._currentInput.value = r.department.name;
+            this._hide();
+            App.toast(`已添加科室：${r.department.name}（拼音缩写 ${r.department.pinyinAbbr || '-'}）`);
+        }).catch(e => App.toast('添加失败：' + e.message));
+    },
+
+    // 保存前校验：不存在则提示相似项 + 添加按钮。返回 false 表示用户取消保存
+    ensure(inputEl) {
+        return new Promise(async (resolve) => {
+            const name = (inputEl?.value || '').trim();
+            if (!name) { resolve(true); return; }
+            try {
+                const r = await Api.departments.check(name);
+                if (r.exists) { resolve(true); return; }
+                this._ensureResolve = resolve;
+                this._ensureInput = inputEl;
+                this._lastSimilar = r.similar || [];
+                const simHtml = (r.similar || []).map((s, i) =>
+                    `<div class="dept-suggest-item" onclick="DeptSuggest._pickSimilar(${i})">${this._esc(s.name)}${s.alias ? `<span style="color:#94a3b8;font-size:12px;margin-left:6px;">${this._esc(s.alias)}</span>` : ''}</div>`
+                ).join('') || '<div style="color:#94a3b8;padding:12px;text-align:center;">无相似科室</div>';
+                App.openModal(`
+                    <h3 style="margin:0 0 8px;">科室"${this._esc(name)}"未找到</h3>
+                    <p style="color:#64748b;font-size:13px;margin:0 0 12px;">请选择已有科室，或添加为新科室：</p>
+                    <div style="max-height:240px;overflow:auto;border:1px solid #e2e8f0;border-radius:8px;margin-bottom:12px;">${simHtml}</div>
+                    <button class="btn-primary" style="width:100%;margin-bottom:8px;" onclick="DeptSuggest._confirmAdd()"><i class="fas fa-plus"></i> 添加为新科室</button>
+                    <button class="btn-outline" style="width:100%;margin-bottom:8px;" onclick="DeptSuggest._confirmKeep()">仍使用"${this._esc(name)}"</button>
+                    <button class="btn-outline" style="width:100%;color:#64748b;" onclick="DeptSuggest._cancelEnsure()">取消</button>`);
+            } catch (e) { resolve(true); }
+        });
+    },
+    _pickSimilar(i) {
+        const s = (this._lastSimilar || [])[i];
+        if (s && this._ensureInput) this._ensureInput.value = s.name;
+        App.closeModal();
+        const r = this._ensureResolve; this._ensureResolve = null; this._ensureInput = null;
+        if (r) r(true);
+    },
+    _confirmAdd() {
+        const name = (this._ensureInput?.value || '').trim();
+        Api.departments.add(name).then(r => {
+            if (this._ensureInput) this._ensureInput.value = r.department.name;
+            App.closeModal();
+            App.toast(`已添加科室：${r.department.name}（${r.department.pinyinAbbr || '-'}）`);
+            const resolve = this._ensureResolve; this._ensureResolve = null; this._ensureInput = null;
+            if (resolve) resolve(true);
+        }).catch(e => App.toast('添加失败：' + e.message));
+    },
+    _confirmKeep() {
+        App.closeModal();
+        const r = this._ensureResolve; this._ensureResolve = null; this._ensureInput = null;
+        if (r) r(true);
+    },
+    _cancelEnsure() {
+        App.closeModal();
+        const r = this._ensureResolve; this._ensureResolve = null; this._ensureInput = null;
+        if (r) r(false);
     },
 
     _hide() {
@@ -1085,6 +1212,9 @@ const App = {
 
     async saveOcrRecord() {
         const elderId = document.getElementById('ocr-record-elder')?.value || this.state.currentMemberId;
+        // 保存前校验医院/科室是否存在，不存在提示选择或添加
+        if (false === await HospitalSuggest.ensure(document.getElementById('ocr-hospital'))) return;
+        if (false === await DeptSuggest.ensure(document.getElementById('ocr-department'))) return;
         try {
             const fileIds = await this._uploadOcrFiles();
             await Api.records.add({
@@ -1141,6 +1271,9 @@ const App = {
 
     async saveOcrMeds() {
         if (this._ocrMedsSaving) return;
+        // 保存前校验医院/科室是否存在，不存在提示选择或添加
+        if (false === await HospitalSuggest.ensure(document.getElementById('ocr-med-hospital'))) return;
+        if (false === await DeptSuggest.ensure(document.getElementById('ocr-med-dept'))) return;
         this._ocrMedsSaving = true;
         try {
             const fileIds = await this._uploadOcrFiles();
@@ -1382,6 +1515,11 @@ const App = {
         const type = document.getElementById('recordType').value;
         const isReport = type === '检查报告';
         const isPrescription = type === '处方';
+        // 保存前校验医院/科室是否存在，不存在提示选择或添加
+        const hospId = isPrescription ? 'recordMedHospital' : (isReport ? 'recordHospital2' : 'recordHospital');
+        const deptId = isPrescription ? 'recordMedDept' : (isReport ? 'recordDept2' : 'recordDept');
+        if (false === await HospitalSuggest.ensure(document.getElementById(hospId))) return;
+        if (false === await DeptSuggest.ensure(document.getElementById(deptId))) return;
         const fileIds = ImageUploader.getFileIds('recordImages');
 
         if (isPrescription) {

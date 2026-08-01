@@ -5,7 +5,11 @@ const { authMiddleware } = require('../middleware/auth');
 
 router.use(authMiddleware);
 
-// 搜索医院库（支持拼音首字母缩写与名称）
+// 搜索医院库（支持名称/简称/别名/拼音首字母）
 router.get('/search', hospitalController.search);
+// 校验医院是否存在（不存在返回相似项）
+router.get('/check', hospitalController.check);
+// 添加新医院（自动生成拼音首字母）
+router.post('/add', hospitalController.add);
 
 module.exports = router;
