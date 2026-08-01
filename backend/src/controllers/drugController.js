@@ -32,6 +32,7 @@ function formatDrug(d) {
     unitCapacityUnit: d.unit_capacity_unit || '',
     manufacturer: d.manufacturer,
     quantity: d.quantity,
+    quantityUnit: d.quantity_unit || '',
     expiryDate: d.expiry_date ? fmtDate(d.expiry_date) : null,
     status: d.status,
     sourcePrescriptionId: d.source_prescription_id,
@@ -109,7 +110,7 @@ async function getDrug(req, res) {
 async function addDrug(req, res) {
   try {
     const familyId = req.familyId;
-    const { elderId, drugCode, name, specification, specDosage, specDosageUnit, unitCapacity, unitCapacityUnit, manufacturer, quantity, expiryDate, note, fileIds } = req.body;
+    const { elderId, drugCode, name, specification, specDosage, specDosageUnit, unitCapacity, unitCapacityUnit, manufacturer, quantity, quantityUnit, expiryDate, note, fileIds } = req.body;
 
     if (!drugCode && !name) {
       return res.status(400).json({ error: '请选择或输入药品名称' });
@@ -146,8 +147,8 @@ async function addDrug(req, res) {
       const existingDrug = existing[0];
       const newQuantity = (existingDrug.quantity || 1) + (quantity || 1);
       await getPool().query(
-        'UPDATE drug_inventory SET quantity = ? WHERE id = ?',
-        [newQuantity, existingDrug.id]
+        'UPDATE drug_inventory SET quantity = ?, quantity_unit = ? WHERE id = ?',
+        [newQuantity, quantityUnit || existingDrug.quantity_unit || null, existingDrug.id]
       );
       const [updated] = await getPool().query(
         `SELECT di.*, d.spec_dosage, d.spec_dosage_unit, d.unit_capacity, d.unit_capacity_unit
@@ -159,9 +160,9 @@ async function addDrug(req, res) {
 
     const id = uuidv4();
     await getPool().query(
-      `INSERT INTO drug_inventory (id, family_id, elder_id, drug_code, name, specification, manufacturer, quantity, expiry_date, status, note)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, familyId, elderId || null, finalCode, finalName, finalSpec || null, finalManu || null, quantity || 1, expiryDate || null, status, note || null]
+      `INSERT INTO drug_inventory (id, family_id, elder_id, drug_code, name, specification, manufacturer, quantity, quantity_unit, expiry_date, status, note)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, familyId, elderId || null, finalCode, finalName, finalSpec || null, finalManu || null, quantity || 1, quantityUnit || null, expiryDate || null, status, note || null]
     );
 
     // 保存关联图片
@@ -187,7 +188,7 @@ async function updateDrug(req, res) {
   try {
     const { id } = req.params;
     const familyId = req.familyId;
-    const { elderId, drugCode, name, specification, quantity, expiryDate, note, fileIds } = req.body;
+    const { elderId, drugCode, name, specification, quantity, quantityUnit, expiryDate, note, fileIds } = req.body;
 
     const [drugs] = await getPool().query('SELECT * FROM drug_inventory WHERE id = ? AND family_id = ?', [id, familyId]);
     if (drugs.length === 0) {
@@ -224,6 +225,7 @@ async function updateDrug(req, res) {
 
     if (elderId !== undefined) { updates.push('elder_id = ?'); values.push(elderId || null); }
     if (quantity !== undefined) { updates.push('quantity = ?'); values.push(quantity); }
+    if (quantityUnit !== undefined) { updates.push('quantity_unit = ?'); values.push(quantityUnit || null); }
     if (expiryDate !== undefined) { updates.push('expiry_date = ?'); values.push(expiryDate || null); }
     if (note !== undefined) { updates.push('note = ?'); values.push(note); }
 

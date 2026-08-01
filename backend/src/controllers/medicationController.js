@@ -16,6 +16,7 @@ function formatMedication(m) {
     doseAmount: m.dose_amount != null ? Number(m.dose_amount) : null,
     doseUnit: m.dose_unit || '',
     quantity: m.quantity != null ? Number(m.quantity) : 1,
+    quantityUnit: m.quantity_unit || '',
     frequency: m.frequency != null ? Number(m.frequency) : null,
     times: typeof m.times === 'string' ? JSON.parse(m.times) : (m.times || []),
     startDate: fmtDate(m.start_date),
@@ -88,7 +89,7 @@ async function getMedication(req, res) {
 async function addMedication(req, res) {
   try {
     const familyId = req.familyId;
-    const { elderId, drugCode, name, specification, dose, doseAmount, doseUnit, quantity, frequency, times, startDate, endDate, note, reminder, status, fileIds, expiryDate, sourcePrescriptionId } = req.body;
+    const { elderId, drugCode, name, specification, dose, doseAmount, doseUnit, quantity, quantityUnit, frequency, times, startDate, endDate, note, reminder, status, fileIds, expiryDate, sourcePrescriptionId } = req.body;
 
     if (!elderId) {
       return res.status(400).json({ error: '老人不能为空' });
@@ -113,9 +114,9 @@ async function addMedication(req, res) {
     const timesJson = JSON.stringify(times || ['08:00']);
 
     await getPool().query(
-      `INSERT INTO medications (id, elder_id, family_id, drug_code, name, specification, dose, dose_amount, dose_unit, quantity, frequency, times, start_date, end_date, note, reminder, status, source_prescription_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, elderId, familyId, finalCode, finalName, finalSpec || null, dose || null, doseAmount || null, doseUnit || null, quantity || 1, frequency || null, timesJson, startDate || null, endDate || null, note || null, reminder !== false, status || 'active', sourcePrescriptionId || null]
+      `INSERT INTO medications (id, elder_id, family_id, drug_code, name, specification, dose, dose_amount, dose_unit, quantity, quantity_unit, frequency, times, start_date, end_date, note, reminder, status, source_prescription_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, elderId, familyId, finalCode, finalName, finalSpec || null, dose || null, doseAmount || null, doseUnit || null, quantity || 1, quantityUnit || null, frequency || null, timesJson, startDate || null, endDate || null, note || null, reminder !== false, status || 'active', sourcePrescriptionId || null]
     );
 
     // 保存关联图片
@@ -124,7 +125,7 @@ async function addMedication(req, res) {
     }
 
     // 同步到药箱：为该药品创建/合并一条库存记录
-    await _syncToDrugInventory(familyId, elderId, finalCode, finalName, finalSpec, quantity || 1, req.body.expiryDate, id);
+    await _syncToDrugInventory(familyId, elderId, finalCode, finalName, finalSpec, quantity || 1, quantityUnit || null, req.body.expiryDate, id);
 
     const [medications] = await getPool().query('SELECT * FROM medications WHERE id = ?', [id]);
     const images = await getEntityFiles('medication', id);
@@ -136,7 +137,7 @@ async function addMedication(req, res) {
 }
 
 // 同步用药记录到药箱
-async function _syncToDrugInventory(familyId, elderId, drugCode, name, specification, quantity, expiryDate, medicationId) {
+async function _syncToDrugInventory(familyId, elderId, drugCode, name, specification, quantity, quantityUnit, expiryDate, medicationId) {
   if (!drugCode) return;
   try {
     const status = computeStatus(expiryDate, 'valid');
@@ -157,16 +158,16 @@ async function _syncToDrugInventory(familyId, elderId, drugCode, name, specifica
       }
       const newStatus = computeStatus(effectiveExpiry, existing[0].status);
       await getPool().query(
-        'UPDATE drug_inventory SET quantity = ?, elder_id = ?, expiry_date = ?, status = ? WHERE id = ?',
-        [newQty, elderId || existing[0].elder_id, effectiveExpiry || null, newStatus, existing[0].id]
+        'UPDATE drug_inventory SET quantity = ?, quantity_unit = ?, elder_id = ?, expiry_date = ?, status = ? WHERE id = ?',
+        [newQty, quantityUnit || existing[0].quantity_unit || null, elderId || existing[0].elder_id, effectiveExpiry || null, newStatus, existing[0].id]
       );
     } else {
       // 新增库存记录
       const invId = uuidv4();
       await getPool().query(
-        `INSERT INTO drug_inventory (id, family_id, elder_id, drug_code, name, specification, quantity, expiry_date, status, source_medication_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [invId, familyId, elderId || null, drugCode, name, specification || null, quantity || 1, expiryDate || null, status, medicationId]
+        `INSERT INTO drug_inventory (id, family_id, elder_id, drug_code, name, specification, quantity, quantity_unit, expiry_date, status, source_medication_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [invId, familyId, elderId || null, drugCode, name, specification || null, quantity || 1, quantityUnit || null, expiryDate || null, status, medicationId]
       );
     }
   } catch (err) {

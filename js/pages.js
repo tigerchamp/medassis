@@ -248,7 +248,7 @@ const PageRecordDetail = {
                             ${m.specification ? `<div style="font-size:0.85em;color:#64748b;margin-top:2px;">规格: ${m.specification}</div>` : ''}
                             <div style="font-size:0.9em;color:#64748b;margin-top:4px;">
                                 ${m.dose ? `剂量: ${m.dose}` : ''}${m.dose && m.frequency ? ' · ' : ''}${m.frequency ? `频次: ${m.frequency}次/日` : ''}
-                                ${m.quantity ? ` · 数量: ${m.quantity}` : ''}
+                                ${m.quantity ? ` · 数量: ${m.quantity}${m.quantityUnit || ''}` : ''}
                             </div>
                             ${m.note ? `<div style="font-size:0.85em;color:#94a3b8;margin-top:2px;">备注: ${m.note}</div>` : ''}
                         </div>`).join('');
@@ -337,7 +337,7 @@ const PagePharmacy = {
                         <div class="drug-info">
                             <div class="dname" style="color:#2b7a78;" onclick="event.stopPropagation();App.viewDrugInfo('${d.name.replace(/'/g, "\\'")}','${(d.specification || '').replace(/'/g, "\\'")}','${(d.manufacturer || '').replace(/'/g, "\\'")}','${(d.drugCode || '').replace(/'/g, "\\'")}')">${d.name}</div>
                             <div class="dexp">📅 过期: ${d.expiryDate || '未设置'} ${statusHtml}</div>
-                            ${specLine || d.manufacturer ? `<div class="qty">${d.quantity || 1}${d.unitCapacityUnit || '盒'}${specLine ? ' · ' + specLine : ''}${d.manufacturer ? ' · ' + d.manufacturer : ''}</div>` : `<div class="qty">数量: ${d.quantity || 1}</div>`}
+                            ${specLine || d.manufacturer ? `<div class="qty">${d.quantity || 1}${d.quantityUnit || '盒'}${specLine ? ' · ' + specLine : ''}${d.manufacturer ? ' · ' + d.manufacturer : ''}</div>` : `<div class="qty">数量: ${d.quantity || 1}${d.quantityUnit || ''}</div>`}
                         </div>
                         <button style="background:none;border:none;color:#b91c1c;cursor:pointer;padding:8px;" onclick="event.stopPropagation();App.deleteDrug('${d.id}')"><i class="fas fa-trash"></i></button>
                     </div>`;
@@ -598,7 +598,7 @@ const PageAddMed = {
             <div class="form-group"><label>药品名称 *</label><input id="medName" placeholder="输入名称或拼音首字母（如 SHP）" autocomplete="off" oninput="DrugSuggest.onInput(this,'medDrugCode')"><input type="hidden" id="medDrugCode"></div>
             <div class="form-group"><label>规格（每片/袋含量）</label><div style="display:flex;gap:8px"><input id="medSpecDosage" type="number" step="0.001" placeholder="如 0.25" style="flex:2"><select id="medSpecDosageUnit" style="flex:1"><option value="g">g</option><option value="mg">mg</option><option value="ml">ml</option><option value="μg">μg</option></select></div></div>
             <div class="form-group"><label>单位容量（每盒/瓶数量）</label><div style="display:flex;gap:8px"><input id="medUnitCap" type="number" placeholder="如 20" style="flex:2"><select id="medUnitCapUnit" style="flex:1"><option value="片">片</option><option value="粒">粒</option><option value="袋">袋</option><option value="支">支</option><option value="瓶">瓶</option><option value="贴">贴</option></select></div></div>
-            <div class="form-group"><label>数量</label><input id="medQty" type="number" value="1" min="1"></div>
+            <div class="form-group"><label>数量</label><div style="display:flex;gap:8px"><input id="medQty" type="number" value="1" min="1" style="flex:2"><select id="medQtyUnit" style="flex:1"><option value="盒">盒</option><option value="瓶">瓶</option><option value="袋">袋</option><option value="支">支</option><option value="包">包</option><option value="板">板</option></select></div></div>
             <div class="form-group"><label>每次剂量</label><div style="display:flex;gap:8px"><input id="medDoseAmount" type="number" step="0.001" placeholder="如 5" style="flex:2"><select id="medDoseUnit" style="flex:1"><option value="mg">mg</option><option value="g">g</option><option value="ml">ml</option><option value="μg">μg</option><option value="片">片</option><option value="粒">粒</option><option value="袋">袋</option><option value="支">支</option><option value="贴">贴</option></select></div></div>
             <div class="form-group"><label>每日次数</label><input id="medFreq" type="number" min="1" max="4" value="1" oninput="MedTimesUI.render('med')"></div>
             <div class="form-group"><label>服用时间段</label><div id="medTimeSlots"></div></div>
@@ -665,7 +665,7 @@ const PageAddRecord = {
                     <div class="form-group"><label>药品名称 *</label><input id="recordMedName" placeholder="输入名称或拼音首字母" autocomplete="off" oninput="DrugSuggest.onInput(this,'recordMedCode')"><input type="hidden" id="recordMedCode"></div>
                     <div class="form-group"><label>规格（每片/袋含量）</label><div style="display:flex;gap:8px"><input id="recordMedSpecDosage" type="number" step="0.001" placeholder="如 0.25" style="flex:2"><select id="recordMedSpecDosageUnit" style="flex:1"><option value="g">g</option><option value="mg">mg</option><option value="ml">ml</option><option value="μg">μg</option></select></div></div>
                     <div class="form-group"><label>单位容量（每盒/瓶数量）</label><div style="display:flex;gap:8px"><input id="recordMedUnitCap" type="number" placeholder="如 20" style="flex:2"><select id="recordMedUnitCapUnit" style="flex:1"><option value="片">片</option><option value="粒">粒</option><option value="袋">袋</option><option value="支">支</option><option value="瓶">瓶</option><option value="贴">贴</option></select></div></div>
-                    <div class="form-group"><label>数量</label><input id="recordMedQty" type="number" value="1" min="1"></div>
+                    <div class="form-group"><label>数量</label><div style="display:flex;gap:8px"><input id="recordMedQty" type="number" value="1" min="1" style="flex:2"><select id="recordMedQtyUnit" style="flex:1"><option value="盒">盒</option><option value="瓶">瓶</option><option value="袋">袋</option><option value="支">支</option><option value="包">包</option><option value="板">板</option></select></div></div>
                     <div class="form-group"><label>有效期 *</label><input id="recordMedExpiryDate" type="text" readonly onclick="CalendarPicker.attach(this)" placeholder="点击选择日期" style="background:#fff;"></div>
                     <div class="form-group"><label>每次剂量</label><div style="display:flex;gap:8px"><input id="recordMedDoseAmount" type="number" step="0.001" placeholder="如 5" style="flex:2"><select id="recordMedDoseUnit" style="flex:1"><option value="mg">mg</option><option value="g">g</option><option value="ml">ml</option><option value="μg">μg</option><option value="片">片</option><option value="粒">粒</option><option value="袋">袋</option><option value="支">支</option><option value="贴">贴</option></select></div></div>
                     <div class="form-group"><label>每日次数</label><input id="recordMedFreq" type="number" min="1" max="4" value="1" oninput="MedTimesUI.render('recordMed')"></div>
@@ -740,7 +740,7 @@ const PageAddDrug = {
             <div class="form-group"><label>规格（每片/袋含量）</label><div style="display:flex;gap:8px"><input id="specDosage" type="number" step="0.001" placeholder="如 0.25" style="flex:2"><select id="specDosageUnit" style="flex:1"><option value="g">g</option><option value="mg">mg</option><option value="ml">ml</option><option value="μg">μg</option></select></div></div>
             <div class="form-group"><label>单位容量（每盒/瓶数量）</label><div style="display:flex;gap:8px"><input id="unitCap" type="number" placeholder="如 20" style="flex:2"><select id="unitCapUnit" style="flex:1"><option value="片">片</option><option value="粒">粒</option><option value="袋">袋</option><option value="支">支</option><option value="瓶">瓶</option><option value="贴">贴</option></select></div></div>
             <div class="form-group"><label>生产厂商</label><input id="drugManu" placeholder="生产单位"></div>
-            <div class="form-group"><label>数量</label><input id="drugQty" type="number" value="1" min="1"></div>
+            <div class="form-group"><label>数量</label><div style="display:flex;gap:8px"><input id="drugQty" type="number" value="1" min="1" style="flex:2"><select id="drugQtyUnit" style="flex:1"><option value="盒">盒</option><option value="瓶">瓶</option><option value="袋">袋</option><option value="支">支</option><option value="包">包</option><option value="板">板</option></select></div></div>
             <div class="form-group"><label>有效期 *</label><input id="drugExp" type="text" readonly onclick="CalendarPicker.attach(this)" placeholder="点击选择日期" style="background:#fff;"></div>
             <div class="form-group"><label>备注</label><textarea id="drugNote" placeholder="备注信息"></textarea></div>
             <div class="form-group"><label>图片</label><div id="drugImages"></div></div>
@@ -824,7 +824,7 @@ const PageDrugDetail = {
                         </div>
                         <div style="font-size:0.9em;color:#64748b;margin-top:4px;">
                             ${r.dose ? `剂量: ${r.dose}` : ''}${r.dose && r.frequency ? ' · ' : ''}${r.frequency ? `频次: ${r.frequency}` : ''}
-                            ${r.quantity ? ` · 数量: ${r.quantity}` : ''}
+                            ${r.quantity ? ` · 数量: ${r.quantity}${r.quantityUnit || ''}` : ''}
                         </div>
                         ${r.note ? `<div style="font-size:0.85em;color:#94a3b8;margin-top:2px;">${r.note}</div>` : ''}
                         <div style="font-size:0.8em;color:#94a3b8;margin-top:2px;">${r.status === 'active' ? '用药中' : '已结束'}</div>

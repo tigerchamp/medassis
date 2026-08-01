@@ -296,6 +296,7 @@ function parsePrescription(text) {
         name,
         specDosage: specM[1], specDosageUnit: specM[2], unitCap: specM[3],
         doseAmount: '', doseUnit: '',
+        quantity: 1, quantityUnit: '',
         frequency: '每日1次', note: ''
       };
       continue;
@@ -311,7 +312,7 @@ function parsePrescription(text) {
       }
       if (name) {
         flush();
-        currentMed = { name, specDosage: '', specDosageUnit: '', unitCap: '', doseAmount: doseM[1], doseUnit: doseM[2], frequency: '每日1次', note: '' };
+        currentMed = { name, specDosage: '', specDosageUnit: '', unitCap: '', doseAmount: doseM[1], doseUnit: doseM[2], quantity: 1, quantityUnit: '', frequency: '每日1次', note: '' };
         continue;
       }
     }
@@ -322,9 +323,13 @@ function parsePrescription(text) {
     const freqM = l.match(freqRe);
     if (freqM) { currentMed.frequency = freqM[1]; continue; }
 
-    // 4. 数量
+    // 4. 数量（如 2盒、1瓶、3袋）→ 拆分为数值和单位
     const qtyM = l.match(qtyRe);
-    if (qtyM) { currentMed.note = (currentMed.note ? currentMed.note + ' ' : '') + qtyM[1]; continue; }
+    if (qtyM) {
+      const qm = qtyM[1].match(/^(\d+)\s*(盒|瓶|袋|支|板|包)$/);
+      if (qm) { currentMed.quantity = parseInt(qm[1]); currentMed.quantityUnit = qm[2]; }
+      continue;
+    }
 
     // 5. 单次剂量（独立行，如 6g口服 / 4.8g）
     if (doseM && !currentMed.doseAmount) {

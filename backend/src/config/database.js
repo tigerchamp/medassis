@@ -445,6 +445,12 @@ async function _ensureColumns(p) {
     await p.query(`ALTER TABLE medications ADD COLUMN dose_unit VARCHAR(20) DEFAULT NULL COMMENT '每次剂量单位' AFTER dose_amount`);
     console.log('已补充 medications 表的 dose_amount/dose_unit 列');
   }
+  // 检查medications表是否缺少quantity_unit列（数量单位：盒/瓶/袋等）
+  const [medQtyUnitCols] = await p.query(`SHOW COLUMNS FROM medications LIKE 'quantity_unit'`);
+  if (medQtyUnitCols.length === 0) {
+    await p.query(`ALTER TABLE medications ADD COLUMN quantity_unit VARCHAR(10) DEFAULT NULL COMMENT '数量单位（盒/瓶/袋等）' AFTER quantity`);
+    console.log('已补充 medications 表的 quantity_unit 列');
+  }
   // 检查medications表的frequency列是否为VARCHAR，需改为INT
   const [freqCols] = await p.query(`SHOW COLUMNS FROM medications LIKE 'frequency'`);
   if (freqCols.length > 0 && freqCols[0].Type === 'varchar(50)') {
@@ -465,6 +471,12 @@ async function _ensureColumns(p) {
   if (diSrcCols.length === 0) {
     await p.query(`ALTER TABLE drug_inventory ADD COLUMN source_medication_id VARCHAR(36) COMMENT '来源用药ID' AFTER source_prescription_id`);
     console.log('已补充 drug_inventory 表的 source_medication_id 列');
+  }
+  // 检查drug_inventory表是否缺少quantity_unit列（数量单位：盒/瓶/袋等）
+  const [diQtyUnitCols] = await p.query(`SHOW COLUMNS FROM drug_inventory LIKE 'quantity_unit'`);
+  if (diQtyUnitCols.length === 0) {
+    await p.query(`ALTER TABLE drug_inventory ADD COLUMN quantity_unit VARCHAR(10) DEFAULT NULL COMMENT '数量单位（盒/瓶/袋等）' AFTER quantity`);
+    console.log('已补充 drug_inventory 表的 quantity_unit 列');
   }
   // 检查elders表是否缺少relation列
   const [relCols] = await p.query(`SHOW COLUMNS FROM elders LIKE 'relation'`);

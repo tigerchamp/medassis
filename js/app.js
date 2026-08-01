@@ -982,6 +982,7 @@ const App = {
             const specUnitOpts = ['g', 'mg', 'ml', 'μg'];
             const capUnitOpts = ['片', '粒', '袋', '支', '瓶', '贴'];
             const doseUnitOpts = ['mg', 'g', 'ml', 'μg', '片', '粒', '袋', '支', '贴'];
+            const qtyUnitOpts = ['盒', '瓶', '袋', '支', '包', '板'];
             const opts = arr => arr.map(u => `<option value="${u}">${u}</option>`).join('');
             const optsSel = (arr, sel) => arr.map(u => `<option value="${u}"${u === sel ? ' selected' : ''}>${u}</option>`).join('');
             const normUnit = u => (u === 'ug' ? 'μg' : u) || '';
@@ -995,7 +996,7 @@ const App = {
                     <div class="form-group"><label>药品${i + 1}名称 *</label><input id="${p}Name" value="${this._escAttr(m.name)}" placeholder="输入名称或拼音首字母" autocomplete="off" oninput="DrugSuggest.onInput(this,'${p}Code')"><input type="hidden" id="${p}Code"></div>
                     <div class="form-group"><label>规格（每片/袋含量）</label><div style="display:flex;gap:8px"><input id="${p}SpecDosage" type="number" step="0.001" value="${m.specDosage || ''}" placeholder="如 0.25" style="flex:2"><select id="${p}SpecDosageUnit" style="flex:1">${optsSel(specUnitOpts, sdu)}</select></div></div>
                     <div class="form-group"><label>单位容量（每盒/瓶数量）</label><div style="display:flex;gap:8px"><input id="${p}UnitCap" type="number" value="${m.unitCap || ''}" placeholder="如 20" style="flex:2"><select id="${p}UnitCapUnit" style="flex:1">${opts(capUnitOpts)}</select></div></div>
-                    <div class="form-group"><label>数量</label><input id="${p}Qty" type="number" value="1" min="1"></div>
+                    <div class="form-group"><label>数量</label><div style="display:flex;gap:8px"><input id="${p}Qty" type="number" value="${m.quantity || 1}" min="1" style="flex:2"><select id="${p}QtyUnit" style="flex:1">${optsSel(qtyUnitOpts, m.quantityUnit)}</select></div></div>
                     <div class="form-group"><label>有效期 *</label><input id="${p}Expiry" type="text" readonly onclick="CalendarPicker.attach(this)" placeholder="点击选择日期" style="background:#fff;"></div>
                     <div class="form-group"><label>每次剂量</label><div style="display:flex;gap:8px"><input id="${p}DoseAmount" type="number" step="0.001" value="${m.doseAmount || ''}" placeholder="如 5" style="flex:2"><select id="${p}DoseUnit" style="flex:1">${optsSel(doseUnitOpts, du)}</select></div></div>
                     <div class="form-group"><label>每日次数</label><input id="${p}Freq" type="number" min="1" max="4" value="${freqN}" oninput="MedTimesUI.render('${p}')"></div>
@@ -1044,7 +1045,7 @@ const App = {
                 <div class="form-group"><label>药品名称</label><input id="ocr-drug-name" value="${this._escAttr(parsed.name)}" oninput="DrugSuggest.onInput(this,'drugCodeHidden',{specification:'ocr-drug-spec',manufacturer:'ocr-drug-manufacturer'})"><input type="hidden" id="drugCodeHidden"></div>
                 <div class="form-group"><label>规格</label><input id="ocr-drug-spec" value="${this._escAttr(parsed.specification)}"></div>
                 <div class="form-group"><label>厂商</label><input id="ocr-drug-manufacturer" value="${this._escAttr(parsed.manufacturer)}" placeholder="如：扬子江药业"></div>
-                <div class="form-group"><label>数量</label><input id="ocr-drug-qty" type="number" value="1"></div>
+                <div class="form-group"><label>数量</label><div style="display:flex;gap:8px"><input id="ocr-drug-qty" type="number" value="1" min="1" style="flex:2"><select id="ocr-drug-qty-unit" style="flex:1"><option value="盒">盒</option><option value="瓶">瓶</option><option value="袋">袋</option><option value="支">支</option><option value="包">包</option><option value="板">板</option></select></div></div>
                 <div class="form-group"><label>有效期</label><input id="ocr-drug-exp" type="text" readonly onclick="CalendarPicker.attach(this)" placeholder="点击选择日期" style="background:#fff;"></div>
                 <div class="form-group"><label>备注</label><input id="ocr-drug-note" placeholder="备注信息"></div>
                 <button class="btn-primary" onclick="App.saveOcrDrug()">录入药箱</button>
@@ -1069,17 +1070,16 @@ const App = {
 
     // 确认保存时上传 OCR 拍摄的图片到 MinIO，返回 fileIds（失败时提示但不阻断保存）
     async _uploadOcrFiles() {
-        if (!App._ocrFiles || !App._ocrFiles.length) return undefined;
+        if (!App._ocrFiles || !App._ocrFiles.length) return [];
         const filesToUpload = App._ocrFiles;
         App._ocrFiles = null; // 防止重复上传
         try {
             const uploaded = await Api.upload.files(filesToUpload);
-            const ids = uploaded.map(f => f.id);
-            return ids.length ? ids : undefined;
+            return uploaded.map(f => f.id);
         } catch (err) {
             console.error('上传OCR图片失败:', err.message);
             this.toast('图片上传失败：' + err.message);
-            return undefined;
+            return [];
         }
     },
 
@@ -1181,6 +1181,7 @@ const App = {
                     doseAmount: doseAmountVal ? parseFloat(doseAmountVal) : undefined,
                     doseUnit: doseAmountVal ? document.getElementById(`${p}DoseUnit`).value : undefined,
                     quantity: parseInt(document.getElementById(`${p}Qty`).value) || 1,
+                    quantityUnit: document.getElementById(`${p}QtyUnit`)?.value || undefined,
                     frequency: parseInt(document.getElementById(`${p}Freq`).value) || 1,
                     times,
                     startDate: document.getElementById(`${p}Start`).value || new Date().toISOString().slice(0, 10),
@@ -1207,6 +1208,7 @@ const App = {
                 specification: document.getElementById('ocr-drug-spec').value,
                 manufacturer: document.getElementById('ocr-drug-manufacturer')?.value || '',
                 quantity: parseInt(document.getElementById('ocr-drug-qty').value) || 1,
+                quantityUnit: document.getElementById('ocr-drug-qty-unit')?.value || undefined,
                 expiryDate: document.getElementById('ocr-drug-exp').value,
                 note: document.getElementById('ocr-drug-note')?.value || '',
                 fileIds,
@@ -1362,6 +1364,7 @@ const App = {
                 doseAmount: doseAmountVal ? parseFloat(doseAmountVal) : undefined,
                 doseUnit: doseAmountVal ? document.getElementById('medDoseUnit').value : undefined,
                 quantity: parseInt(document.getElementById('medQty').value) || 1,
+                quantityUnit: document.getElementById('medQtyUnit')?.value || undefined,
                 frequency: parseInt(document.getElementById('medFreq').value) || 1,
                 times,
                 startDate: document.getElementById('medStart').value || new Date().toISOString().slice(0, 10),
@@ -1413,6 +1416,7 @@ const App = {
                     doseAmount: doseAmountVal ? parseFloat(doseAmountVal) : undefined,
                     doseUnit: doseAmountVal ? document.getElementById('recordMedDoseUnit').value : undefined,
                     quantity: parseInt(document.getElementById('recordMedQty').value) || 1,
+                    quantityUnit: document.getElementById('recordMedQtyUnit')?.value || undefined,
                     frequency: parseInt(document.getElementById('recordMedFreq').value) || 1,
                     times,
                     startDate: document.getElementById('recordDate3').value || new Date().toISOString().slice(0, 10),
@@ -1484,6 +1488,7 @@ const App = {
                 unitCapacityUnit: document.getElementById('unitCapUnit').value.trim() || undefined,
                 manufacturer: document.getElementById('drugManu').value.trim() || undefined,
                 quantity: parseInt(document.getElementById('drugQty').value) || 1,
+                quantityUnit: document.getElementById('drugQtyUnit')?.value || undefined,
                 expiryDate: document.getElementById('drugExp').value,
                 note: document.getElementById('drugNote').value,
                 fileIds: fileIds.length > 0 ? fileIds : undefined,
