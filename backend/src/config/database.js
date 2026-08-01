@@ -425,6 +425,12 @@ async function _ensureColumns(p) {
     await p.query(`ALTER TABLE records ADD COLUMN doctor VARCHAR(50) COMMENT '主治医生' AFTER orders`);
     console.log('已补充 records 表的 doctor 列');
   }
+  // 检查records表是否缺少related_record_id列（关联病历）
+  const [relatedCols] = await p.query(`SHOW COLUMNS FROM records LIKE 'related_record_id'`);
+  if (relatedCols.length === 0) {
+    await p.query(`ALTER TABLE records ADD COLUMN related_record_id VARCHAR(36) DEFAULT NULL COMMENT '关联病历ID' AFTER notes`);
+    console.log('已补充 records 表的 related_record_id 列');
+  }
   // 检查medications表是否缺少specification/quantity列
   const [medSpecCols] = await p.query(`SHOW COLUMNS FROM medications LIKE 'specification'`);
   if (medSpecCols.length === 0) {

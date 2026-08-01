@@ -121,6 +121,10 @@ const PageRecords = {
         <div class="card">
             <div class="card-title"><i class="fas fa-file-medical-alt"></i> 报告记录</div>
             <div id="reportsList"><p class="text-muted" style="text-align:center;padding:20px;">加载中...</p></div>
+        </div>
+        <div class="card">
+            <div class="card-title"><i class="fas fa-prescription-bottle-medical"></i> 处方记录</div>
+            <div id="prescriptionsList"><p class="text-muted" style="text-align:center;padding:20px;">加载中...</p></div>
         </div>`;
     },
 
@@ -128,12 +132,14 @@ const PageRecords = {
         try {
             const res = await Api.records.getAll(memberId);
             const records = res.records || [];
-            const medicalRecords = records.filter(r => r.type !== '检查报告');
+            const medicalRecords = records.filter(r => r.type === '病历');
             const reports = records.filter(r => r.type === '检查报告');
+            const prescriptions = records.filter(r => r.type === '药方');
 
             const recordsEl = document.getElementById('recordsList');
             const reportsEl = document.getElementById('reportsList');
-            if (!recordsEl || !reportsEl) return;
+            const prescriptionsEl = document.getElementById('prescriptionsList');
+            if (!recordsEl || !reportsEl || !prescriptionsEl) return;
 
             if (medicalRecords.length === 0) {
                 recordsEl.innerHTML = '<p class="text-muted" style="text-align:center;padding:20px;">暂无病历记录</p>';
@@ -141,7 +147,7 @@ const PageRecords = {
                 recordsEl.innerHTML = medicalRecords.map(r => `
                     <div class="record-item" onclick="App.viewRecord('${r.id}')">
                         <span class="date">${r.visitDate || ''}</span>
-                        <div class="title">${r.type || '病历'} · ${r.diagnosis || '未填写'}</div>
+                        <div class="title">病历 · ${r.diagnosis || '未填写'}</div>
                         <div class="sub">${r.hospital || ''} ${r.department ? '· ' + r.department : ''}</div>
                     </div>`).join('');
             }
@@ -157,11 +163,24 @@ const PageRecords = {
                         ${r.conclusion ? `<div class="sub" style="color:#2b7a78;">结论：${r.conclusion.substring(0, 40)}${r.conclusion.length > 40 ? '...' : ''}</div>` : ''}
                     </div>`).join('');
             }
+
+            if (prescriptions.length === 0) {
+                prescriptionsEl.innerHTML = '<p class="text-muted" style="text-align:center;padding:20px;">暂无处方记录</p>';
+            } else {
+                prescriptionsEl.innerHTML = prescriptions.map(r => `
+                    <div class="record-item" onclick="App.viewRecord('${r.id}')">
+                        <span class="date">${r.visitDate || ''}</span>
+                        <div class="title">处方 · ${r.diagnosis || '未填写'}</div>
+                        <div class="sub">${r.hospital || ''} ${r.department ? '· ' + r.department : ''}${r.doctor ? ' · ' + r.doctor : ''}</div>
+                    </div>`).join('');
+            }
         } catch (err) {
             const recordsEl = document.getElementById('recordsList');
             const reportsEl = document.getElementById('reportsList');
+            const prescriptionsEl = document.getElementById('prescriptionsList');
             if (recordsEl) recordsEl.innerHTML = '<p class="text-muted" style="text-align:center;padding:20px;">加载失败</p>';
             if (reportsEl) reportsEl.innerHTML = '';
+            if (prescriptionsEl) prescriptionsEl.innerHTML = '';
         }
     }
 };
@@ -200,11 +219,10 @@ const PageRecordDetail = {
         try {
             const res = await Api.records.get(id);
             const r = res.record;
-            const isReport = r.type === '检查报告';
             const el = document.getElementById('recordDetailContent');
             if (!el) return;
 
-            if (isReport) {
+            if (r.type === '检查报告') {
                 // 报告类型：显示检查所见、报告结论
                 el.innerHTML = `
                 <div class="card">
@@ -216,14 +234,53 @@ const PageRecordDetail = {
                 ${r.conclusion ? `<div class="card"><div class="card-title"><i class="fas fa-clipboard-check"></i> 报告结论</div><p style="white-space:pre-wrap;line-height:1.8;">${r.conclusion}</p></div>` : ''}
                 ${renderImageGallery(r.images)}
                 <button class="btn-danger" style="margin-top:8px;" onclick="App.deleteRecord('${r.id}')">删除此报告</button>`;
+            } else if (r.type === '药方') {
+                // 处方类型：显示诊断、医院、医生、用药明细
+                const meds = r.medications || [];
+                const medsHtml = meds.length === 0
+                    ? '<p class="text-muted" style="text-align:center;padding:10px;">暂无用药明细</p>'
+                    : meds.map(m => `
+                        <div style="padding:10px 0;border-bottom:1px solid #f1f5f9;">
+                            <div style="display:flex;justify-content:space-between;align-items:center;">
+                                <span style="font-weight:600;color:#2b7a78;">${m.name || '未命名'}</span>
+                                <span style="font-size:0.85em;color:#94a3b8;">${m.startDate || ''}</span>
+                            </div>
+                            ${m.specification ? `<div style="font-size:0.85em;color:#64748b;margin-top:2px;">规格: ${m.specification}</div>` : ''}
+                            <div style="font-size:0.9em;color:#64748b;margin-top:4px;">
+                                ${m.dose ? `剂量: ${m.dose}` : ''}${m.dose && m.frequency ? ' · ' : ''}${m.frequency ? `频次: ${m.frequency}次/日` : ''}
+                                ${m.quantity ? ` · 数量: ${m.quantity}` : ''}
+                            </div>
+                            ${m.note ? `<div style="font-size:0.85em;color:#94a3b8;margin-top:2px;">备注: ${m.note}</div>` : ''}
+                        </div>`).join('');
+                el.innerHTML = `
+                <div class="card">
+                    <div style="font-size:18px;font-weight:700;margin-bottom:8px;">${r.diagnosis || '未填写'}</div>
+                    <div class="text-muted">处方 · ${r.visitDate || ''}</div>
+                    <div class="text-muted" style="margin-top:4px;">${r.hospital || ''} ${r.department ? '· ' + r.department : ''}${r.doctor ? ' · ' + r.doctor : ''}</div>
+                </div>
+                <div class="card">
+                    <div class="card-title"><i class="fas fa-prescription-bottle-medical"></i> 用药明细</div>
+                    ${medsHtml}
+                </div>
+                ${renderImageGallery(r.images)}
+                <button class="btn-danger" style="margin-top:8px;" onclick="App.deleteRecord('${r.id}')">删除此处方</button>`;
             } else {
-                // 病历类型：显示主诉、检查指标、医嘱
-                const metricsHtml = (r.metrics || []).map(m => `
-                    <div class="metric-row">
-                        <span class="metric-name">${m.name}</span>
-                        <span class="metric-value ${m.abnormal ? 'abnormal' : ''}">${m.value} ${m.unit || ''} ${m.abnormal ? '↑' : ''}</span>
-                        <span class="text-muted" style="font-size:12px;">${m.ref || ''}</span>
-                    </div>`).join('');
+                // 病历类型：显示主诉、医嘱，及关联的处方/报告
+                const related = r.relatedRecords || [];
+                const relatedHtml = related.length === 0 ? '' : `
+                <div class="card">
+                    <div class="card-title"><i class="fas fa-link"></i> 关联记录</div>
+                    ${related.map(rr => `
+                        <div class="record-item" onclick="App.viewRecord('${rr.id}')">
+                            <span class="date">${rr.visitDate || ''}</span>
+                            <div class="title">${rr.type === '药方' ? '处方' : '检查报告'} · ${rr.diagnosis || '未填写'}</div>
+                            <div class="sub">${rr.hospital || ''} ${rr.department ? '· ' + rr.department : ''}</div>
+                            ${rr.type === '药方' && rr.medications && rr.medications.length > 0
+                                ? `<div class="sub" style="color:#2b7a78;">药品: ${rr.medications.map(m => m.name).filter(Boolean).join('、')}</div>` : ''}
+                            ${rr.type === '检查报告' && rr.conclusion
+                                ? `<div class="sub" style="color:#2b7a78;">结论：${rr.conclusion.substring(0, 40)}${rr.conclusion.length > 40 ? '...' : ''}</div>` : ''}
+                        </div>`).join('')}
+                </div>`;
                 el.innerHTML = `
                 <div class="card">
                     <div style="font-size:18px;font-weight:700;margin-bottom:8px;">${r.diagnosis || '未填写'}</div>
@@ -232,6 +289,7 @@ const PageRecordDetail = {
                     ${r.chiefComplaint ? `<div style="margin-top:12px;"><strong>主诉：</strong>${r.chiefComplaint}</div>` : ''}
                 </div>
                 ${r.orders ? `<div class="card"><div class="card-title"><i class="fas fa-stethoscope"></i> 医嘱</div><p>${r.orders}</p></div>` : ''}
+                ${relatedHtml}
                 ${renderImageGallery(r.images)}
                 <button class="btn-danger" style="margin-top:8px;" onclick="App.deleteRecord('${r.id}')">删除此病历</button>`;
             }
@@ -577,7 +635,7 @@ const PageAddRecord = {
             <button style="background:none;border:none;cursor:pointer;font-size:20px;color:#2b7a78;margin-left:auto;padding:8px;" onclick="App.startScan('病历')" title="拍照识别"><i class="fas fa-camera"></i></button>
         </div>
         <div class="card">
-            <div class="form-group"><label>关联成员 *</label><select id="recordElderId">${memberOptions}</select></div>
+            <div class="form-group"><label>关联成员 *</label><select id="recordElderId" onchange="PageAddRecord.onElderChange(this.value)">${memberOptions}</select></div>
             <div class="form-group"><label>类型</label><select id="recordType" onchange="PageAddRecord.onTypeChange(this.value)"><option value="病历">病历</option><option value="检查报告">检查报告</option><option value="处方">处方</option></select></div>
             <div id="recordFieldsMedical">
                 <div class="form-group"><label id="recordDateLabel">就诊日期</label><input id="recordDate" type="date" max="${new Date().toISOString().slice(0,10)}"></div>
@@ -595,9 +653,14 @@ const PageAddRecord = {
                 <div class="form-group"><label>检查项目 *</label><input id="recordExamName" placeholder="如：胸部CT平扫"></div>
                 <div class="form-group"><label>检查所见</label><textarea id="recordFindings" rows="4" placeholder="检查所见内容"></textarea></div>
                 <div class="form-group"><label>报告结论</label><textarea id="recordConclusion" rows="3" placeholder="报告结论内容"></textarea></div>
+                <div class="form-group"><label>关联病历</label><select id="recordRelatedRecord2"><option value="">不关联</option></select></div>
             </div>
             <div id="recordFieldsPrescription" style="display:none;">
                 <div class="form-group"><label>开始日期</label><input id="recordDate3" type="date" max="${new Date().toISOString().slice(0,10)}"></div>
+                <div class="form-group"><label>医院</label><input id="recordMedHospital" placeholder="输入医院名称或拼音首字母" autocomplete="off" oninput="HospitalSuggest.onInput(this)"></div>
+                <div class="form-group"><label>科室</label><input id="recordMedDept" placeholder="输入科室名称或拼音首字母" autocomplete="off" oninput="DeptSuggest.onInput(this)"></div>
+                <div class="form-group"><label>诊断</label><input id="recordMedDiagnosis" placeholder="诊断结果"></div>
+                <div class="form-group"><label>医生</label><input id="recordMedDoctor" placeholder="主治医生"></div>
                 <div style="background:#f8fafd;border-radius:12px;padding:12px;margin-bottom:8px;">
                     <div class="form-group"><label>药品名称 *</label><input id="recordMedName" placeholder="输入名称或拼音首字母" autocomplete="off" oninput="DrugSuggest.onInput(this,'recordMedCode')"><input type="hidden" id="recordMedCode"></div>
                     <div class="form-group"><label>规格（每片/袋含量）</label><div style="display:flex;gap:8px"><input id="recordMedSpecDosage" type="number" step="0.001" placeholder="如 0.25" style="flex:2"><select id="recordMedSpecDosageUnit" style="flex:1"><option value="g">g</option><option value="mg">mg</option><option value="ml">ml</option><option value="μg">μg</option></select></div></div>
@@ -609,6 +672,7 @@ const PageAddRecord = {
                     <div class="form-group"><label>服用时间段</label><div id="recordMedTimeSlots"></div></div>
                     <div class="form-group"><label>备注</label><input id="recordMedNote" placeholder="如：餐后服用"></div>
                 </div>
+                <div class="form-group"><label>关联病历</label><select id="recordMedRelated"><option value="">不关联</option></select></div>
             </div>
             <div class="form-group"><label>图片</label><div id="recordImages"></div></div>
             <button class="btn-primary" onclick="App.saveRecord()">保存</button>
@@ -647,6 +711,18 @@ const PageAddRecord = {
         if (document.getElementById('recordType').value === '处方') {
             MedTimesUI.render('recordMed');
         }
+        // 加载关联病历下拉数据（处方/报告用）
+        const elderId = document.getElementById('recordElderId')?.value;
+        if (elderId) this.onElderChange(elderId);
+    },
+
+    // 成员切换时刷新关联病历下拉
+    async onElderChange(elderId) {
+        if (!elderId) return;
+        await Promise.all([
+            App._loadRelatedRecords(elderId, 'recordMedRelated'),
+            App._loadRelatedRecords(elderId, 'recordRelatedRecord2')
+        ]);
     }
 };
 

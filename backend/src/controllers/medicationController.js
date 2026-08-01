@@ -88,7 +88,7 @@ async function getMedication(req, res) {
 async function addMedication(req, res) {
   try {
     const familyId = req.familyId;
-    const { elderId, drugCode, name, specification, dose, doseAmount, doseUnit, quantity, frequency, times, startDate, endDate, note, reminder, status, fileIds, expiryDate } = req.body;
+    const { elderId, drugCode, name, specification, dose, doseAmount, doseUnit, quantity, frequency, times, startDate, endDate, note, reminder, status, fileIds, expiryDate, sourcePrescriptionId } = req.body;
 
     if (!elderId) {
       return res.status(400).json({ error: '老人不能为空' });
@@ -113,9 +113,9 @@ async function addMedication(req, res) {
     const timesJson = JSON.stringify(times || ['08:00']);
 
     await getPool().query(
-      `INSERT INTO medications (id, elder_id, family_id, drug_code, name, specification, dose, dose_amount, dose_unit, quantity, frequency, times, start_date, end_date, note, reminder, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, elderId, familyId, finalCode, finalName, finalSpec || null, dose || null, doseAmount || null, doseUnit || null, quantity || 1, frequency || null, timesJson, startDate || null, endDate || null, note || null, reminder !== false, status || 'active']
+      `INSERT INTO medications (id, elder_id, family_id, drug_code, name, specification, dose, dose_amount, dose_unit, quantity, frequency, times, start_date, end_date, note, reminder, status, source_prescription_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, elderId, familyId, finalCode, finalName, finalSpec || null, dose || null, doseAmount || null, doseUnit || null, quantity || 1, frequency || null, timesJson, startDate || null, endDate || null, note || null, reminder !== false, status || 'active', sourcePrescriptionId || null]
     );
 
     // 保存关联图片

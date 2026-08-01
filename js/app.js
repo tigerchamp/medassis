@@ -747,7 +747,7 @@ const App = {
                 </div>
                 ${thumbsHtml}
                 ${ocrTextHtml}
-                <div class="form-group"><label>关联成员</label><select id="ocr-record-elder">${this._memberOptions()}</select></div>
+                <div class="form-group"><label>关联成员</label><select id="ocr-record-elder" onchange="App._loadRelatedRecords(this.value,'ocr-record-related')">${this._memberOptions()}</select></div>
                 <div class="form-group"><label>类型</label><select id="ocr-record-type"><option>病历</option><option selected>检查报告</option></select></div>
                 <div class="form-group"><label>检查日期</label><input id="ocr-record-date" type="date" value="${parsed.visitDate || today}"></div>
                 <div class="form-group"><label>医院</label><input id="ocr-hospital" value="${this._escAttr(parsed.hospital)}" placeholder="如：市中心医院" oninput="HospitalSuggest.onInput(this)"></div>
@@ -755,10 +755,13 @@ const App = {
                 <div class="form-group"><label>检查项目</label><input id="ocr-diagnosis" value="${this._escAttr(parsed.examName)}"></div>
                 <div class="form-group"><label>检查所见</label><textarea id="ocr-findings" rows="4">${this._escAttr(parsed.findings)}</textarea></div>
                 <div class="form-group"><label>报告结论</label><textarea id="ocr-conclusion" rows="3">${this._escAttr(parsed.conclusion)}</textarea></div>
+                <div class="form-group"><label>关联病历</label><select id="ocr-record-related"><option value="">不关联</option></select></div>
                 <button class="btn-primary" onclick="App.saveOcrRecord()">保存报告</button>
                 <button class="btn-outline" style="margin-top:8px;" onclick="App.closeModal()">取消</button>
             `);
             App._ocrMetrics = [];
+            const initElder2 = document.getElementById('ocr-record-elder')?.value;
+            if (initElder2) this._loadRelatedRecords(initElder2, 'ocr-record-related');
         } else if (type === '处方') {
             const meds = (parsed.medications && parsed.medications.length) ? parsed.medications : [{ name: '', dose: '', frequency: '每日1次', note: '' }];
             const specUnitOpts = ['g', 'mg', 'ml', 'μg'];
@@ -794,7 +797,12 @@ const App = {
                 </div>
                 ${thumbsHtml}
                 ${ocrTextHtml}
-                <div class="form-group"><label>关联成员</label><select id="ocr-med-elder">${this._memberOptions()}</select></div>
+                <div class="form-group"><label>关联成员</label><select id="ocr-med-elder" onchange="App._loadRelatedRecords(this.value,'ocr-med-related')">${this._memberOptions()}</select></div>
+                <div class="form-group"><label>医院</label><input id="ocr-med-hospital" placeholder="医院名称" autocomplete="off" oninput="HospitalSuggest.onInput(this)"></div>
+                <div class="form-group"><label>科室</label><input id="ocr-med-dept" placeholder="科室" autocomplete="off" oninput="DeptSuggest.onInput(this)"></div>
+                <div class="form-group"><label>诊断</label><input id="ocr-med-diagnosis" placeholder="诊断"></div>
+                <div class="form-group"><label>医生</label><input id="ocr-med-doctor" placeholder="主治医生"></div>
+                <div class="form-group"><label>关联病历</label><select id="ocr-med-related"><option value="">不关联</option></select></div>
                 ${medBlocks}
                 <button class="btn-primary" onclick="App.saveOcrMeds()">添加用药</button>
                 <button class="btn-outline" style="margin-top:8px;" onclick="App.closeModal()">取消</button>
@@ -806,6 +814,9 @@ const App = {
                 MedTimesUI.render(p);
             }
             App._ocrMeds = meds;
+            // 加载关联病历选项
+            const initElder = document.getElementById('ocr-med-elder')?.value;
+            if (initElder) this._loadRelatedRecords(initElder, 'ocr-med-related');
         } else if (type === '药品') {
             this.closeModal();
             this.openModal(`
@@ -875,6 +886,7 @@ const App = {
                 doctor: document.getElementById('ocr-doctor')?.value || '',
                 metrics: App._ocrMetrics || [],
                 confidence: App._ocrConfidence || 0.9,
+                relatedRecordId: document.getElementById('ocr-record-related')?.value || undefined,
                 fileIds,
             });
             this.closeModal();
@@ -897,11 +909,44 @@ const App = {
         return { frequency: n, times: slots.slice(0, n) };
     },
 
+    // 加载某成员的病历列表，填充到关联病历下拉框
+    async _loadRelatedRecords(elderId, selectId) {
+        if (!elderId) return;
+        try {
+            const res = await Api.records.getAll(elderId);
+            const records = (res.records || []).filter(r => r.type === '病历');
+            const select = document.getElementById(selectId);
+            if (!select) return;
+            const curVal = select.value;
+            select.innerHTML = '<option value="">不关联</option>' +
+                records.map(r => `<option value="${r.id}">${r.visitDate || ''} ${r.diagnosis || '未填写'}</option>`).join('');
+            if (curVal) select.value = curVal;
+        } catch (e) { /* 静默失败 */ }
+    },
+
     async saveOcrMeds() {
         if (this._ocrMedsSaving) return;
         this._ocrMedsSaving = true;
         try {
             const fileIds = await this._uploadOcrFiles();
+            const elderId = document.getElementById('ocr-med-elder')?.value || this.state.currentMemberId;
+
+            // 1. 创建处方记录（type='药方'）
+            const visitDate = document.getElementById('ocrMed0Start')?.value || new Date().toISOString().slice(0, 10);
+            const recResp = await Api.records.add({
+                elderId,
+                type: '药方',
+                visitDate,
+                hospital: document.getElementById('ocr-med-hospital')?.value || undefined,
+                department: document.getElementById('ocr-med-dept')?.value || undefined,
+                diagnosis: document.getElementById('ocr-med-diagnosis')?.value || undefined,
+                doctor: document.getElementById('ocr-med-doctor')?.value || undefined,
+                relatedRecordId: document.getElementById('ocr-med-related')?.value || undefined,
+                fileIds: fileIds.length > 0 ? fileIds : undefined,
+            });
+            const prescriptionId = recResp.record.id;
+
+            // 2. 创建用药明细，关联到处方记录
             const medCount = App._ocrMeds ? App._ocrMeds.length : 0;
             for (let i = 0; i < medCount; i++) {
                 const p = `ocrMed${i}`;
@@ -913,7 +958,7 @@ const App = {
                 const doseAmountVal = document.getElementById(`${p}DoseAmount`).value;
                 const times = MedTimesUI.getTimes(p);
                 await Api.medications.add({
-                    elderId: document.getElementById('ocr-med-elder')?.value || this.state.currentMemberId,
+                    elderId,
                     name: nameEl.value,
                     drugCode: (document.getElementById(`${p}Code`) || {}).value || undefined,
                     specification: specDosageVal ? `${specDosageVal}${document.getElementById(`${p}SpecDosageUnit`).value}` : undefined,
@@ -927,11 +972,11 @@ const App = {
                     note: document.getElementById(`${p}Note`)?.value || '',
                     expiryDate,
                     status: 'active',
-                    fileIds,
+                    sourcePrescriptionId: prescriptionId,
                 });
             }
             this.closeModal();
-            this.toast('用药已添加');
+            this.toast('处方已保存');
             if (this.state.currentPage === 'home') this.switchPage('home');
         } catch (err) { this.toast(err.message); }
         finally { this._ocrMedsSaving = false; }
@@ -1131,6 +1176,19 @@ const App = {
             const doseAmountVal = document.getElementById('recordMedDoseAmount').value;
             try {
                 const times = MedTimesUI.getTimes('recordMed');
+                // 1. 创建处方记录
+                const recResp = await Api.records.add({
+                    elderId,
+                    type: '药方',
+                    visitDate: document.getElementById('recordDate3').value || new Date().toISOString().slice(0, 10),
+                    hospital: document.getElementById('recordMedHospital')?.value || undefined,
+                    department: document.getElementById('recordMedDept')?.value || undefined,
+                    diagnosis: document.getElementById('recordMedDiagnosis')?.value || undefined,
+                    doctor: document.getElementById('recordMedDoctor')?.value || undefined,
+                    relatedRecordId: document.getElementById('recordMedRelated')?.value || undefined,
+                    fileIds: fileIds.length > 0 ? fileIds : undefined,
+                });
+                // 2. 创建用药明细
                 await Api.medications.add({
                     elderId,
                     name: medName,
@@ -1145,7 +1203,7 @@ const App = {
                     startDate: document.getElementById('recordDate3').value || new Date().toISOString().slice(0, 10),
                     note: document.getElementById('recordMedNote').value,
                     expiryDate: medExpiryDate,
-                    fileIds: fileIds.length > 0 ? fileIds : undefined,
+                    sourcePrescriptionId: recResp.record.id,
                 });
                 this.toast('处方添加成功');
                 this.goBack();
@@ -1163,6 +1221,7 @@ const App = {
                     department: document.getElementById('recordDept2').value,
                     findings: document.getElementById('recordFindings').value,
                     conclusion: document.getElementById('recordConclusion').value,
+                    relatedRecordId: document.getElementById('recordRelatedRecord2')?.value || undefined,
                     fileIds: fileIds.length > 0 ? fileIds : undefined,
                 });
                 this.toast('报告添加成功');

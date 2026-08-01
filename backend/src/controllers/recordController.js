@@ -40,6 +40,7 @@ async function getRecords(req, res) {
       imageUrl: r.image_url,
       confidence: r.confidence,
       notes: typeof r.notes === 'string' ? JSON.parse(r.notes) : (r.notes || []),
+      relatedRecordId: r.related_record_id || null,
       createdAt: r.created_at
     }));
 
@@ -85,9 +86,63 @@ async function getRecord(req, res) {
       imageUrl: r.image_url,
       confidence: r.confidence,
       notes: typeof r.notes === 'string' ? JSON.parse(r.notes) : (r.notes || []),
+      relatedRecordId: r.related_record_id || null,
       images,
       createdAt: r.created_at
     };
+
+    // 若为病历，查询关联的处方/报告
+    if (r.type === '病历') {
+      const [related] = await getPool().query(
+        'SELECT * FROM records WHERE related_record_id = ? AND family_id = ? ORDER BY visit_date DESC, created_at DESC',
+        [r.id, familyId]
+      );
+      const relatedRecords = [];
+      for (const rr of related) {
+        const relImages = await getEntityFiles('record', rr.id);
+        const item = {
+          id: rr.id,
+          type: rr.type,
+          visitDate: fmtDate(rr.visit_date),
+          hospital: rr.hospital,
+          department: rr.department,
+          diagnosis: rr.diagnosis,
+          findings: rr.findings,
+          conclusion: rr.conclusion,
+          doctor: rr.doctor,
+          images: relImages
+        };
+        // 若关联的是处方，查用药明细
+        if (rr.type === '药方') {
+          const [meds] = await getPool().query(
+            'SELECT * FROM medications WHERE source_prescription_id = ? ORDER BY created_at',
+            [rr.id]
+          );
+          item.medications = meds.map(m => ({
+            name: m.name, specification: m.specification, dose: m.dose,
+            frequency: m.frequency, quantity: m.quantity, note: m.note,
+            startDate: fmtDate(m.start_date), status: m.status
+          }));
+        }
+        relatedRecords.push(item);
+      }
+      record.relatedRecords = relatedRecords;
+    }
+
+    // 若为处方，查询关联的用药明细
+    if (r.type === '药方') {
+      const [meds] = await getPool().query(
+        'SELECT * FROM medications WHERE source_prescription_id = ? ORDER BY created_at',
+        [r.id]
+      );
+      record.medications = meds.map(m => ({
+        id: m.id, name: m.name, specification: m.specification, dose: m.dose,
+        doseAmount: m.dose_amount, doseUnit: m.dose_unit,
+        frequency: m.frequency, times: typeof m.times === 'string' ? JSON.parse(m.times) : (m.times || []),
+        quantity: m.quantity, note: m.note,
+        startDate: fmtDate(m.start_date), status: m.status
+      }));
+    }
 
     res.json({ record });
   } catch (err) {
@@ -100,9 +155,9 @@ async function getRecord(req, res) {
 async function addRecord(req, res) {
   try {
     const familyId = req.familyId;
-    const { elderId, type, visitDate, hospital, department, diagnosis, chiefComplaint, findings, conclusion, metrics, orders, doctor, imageUrl, confidence, fileIds } = req.body;
+  const { elderId, type, visitDate, hospital, department, diagnosis, chiefComplaint, findings, conclusion, metrics, orders, doctor, imageUrl, confidence, fileIds, relatedRecordId } = req.body;
 
-    if (!elderId) {
+  if (!elderId) {
       return res.status(400).json({ error: '必须关联老人' });
     }
 
@@ -117,9 +172,9 @@ async function addRecord(req, res) {
     const notesJson = JSON.stringify([]);
 
     await getPool().query(
-      `INSERT INTO records (id, elder_id, family_id, type, visit_date, hospital, department, diagnosis, chief_complaint, findings, conclusion, metrics, orders, doctor, image_url, confidence, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, elderId, familyId, type || '病历', visitDate || null, hospital || null, department || null, diagnosis || null, chiefComplaint || null, findings || null, conclusion || null, metricsJson, orders || null, doctor || null, imageUrl || null, confidence || null, notesJson]
+      `INSERT INTO records (id, elder_id, family_id, type, visit_date, hospital, department, diagnosis, chief_complaint, findings, conclusion, metrics, orders, doctor, image_url, confidence, notes, related_record_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, elderId, familyId, type || '病历', visitDate || null, hospital || null, department || null, diagnosis || null, chiefComplaint || null, findings || null, conclusion || null, metricsJson, orders || null, doctor || null, imageUrl || null, confidence || null, notesJson, relatedRecordId || null]
     );
 
     // 保存关联图片
@@ -147,9 +202,10 @@ async function addRecord(req, res) {
         imageUrl: r.image_url,
         confidence: r.confidence,
         notes: [],
-        images,
-        createdAt: r.created_at
-      }
+      relatedRecordId: r.related_record_id || null,
+      images,
+      createdAt: r.created_at
+    }
     });
   } catch (err) {
     console.error('Add record error:', err);
@@ -162,7 +218,7 @@ async function updateRecord(req, res) {
   try {
     const { id } = req.params;
     const familyId = req.familyId;
-    const { elderId, type, visitDate, hospital, department, diagnosis, chiefComplaint, findings, conclusion, metrics, orders, doctor, imageUrl, confidence, fileIds } = req.body;
+    const { elderId, type, visitDate, hospital, department, diagnosis, chiefComplaint, findings, conclusion, metrics, orders, doctor, imageUrl, confidence, fileIds, relatedRecordId } = req.body;
 
     const [records] = await getPool().query('SELECT * FROM records WHERE id = ? AND family_id = ?', [id, familyId]);
     if (records.length === 0) {
@@ -186,6 +242,7 @@ async function updateRecord(req, res) {
     if (doctor !== undefined) { updates.push('doctor = ?'); values.push(doctor); }
     if (imageUrl !== undefined) { updates.push('image_url = ?'); values.push(imageUrl); }
     if (confidence !== undefined) { updates.push('confidence = ?'); values.push(confidence); }
+    if (relatedRecordId !== undefined) { updates.push('related_record_id = ?'); values.push(relatedRecordId || null); }
 
     if (updates.length > 0) {
       values.push(id, familyId);
