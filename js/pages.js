@@ -602,8 +602,8 @@ const PageAddMed = {
             <div class="form-group"><label>每次剂量</label><div style="display:flex;gap:8px"><input id="medDoseAmount" type="number" step="0.001" placeholder="如 5" style="flex:2"><select id="medDoseUnit" style="flex:1"><option value="mg">mg</option><option value="g">g</option><option value="ml">ml</option><option value="μg">μg</option><option value="片">片</option><option value="粒">粒</option><option value="袋">袋</option><option value="支">支</option><option value="贴">贴</option></select></div></div>
             <div class="form-group"><label>每日次数</label><input id="medFreq" type="number" min="1" max="4" value="1" oninput="MedTimesUI.render('med')"></div>
             <div class="form-group"><label>服用时间段</label><div id="medTimeSlots"></div></div>
-            <div class="form-group"><label>开始日期</label><input id="medStart" type="date" max="${new Date().toISOString().slice(0,10)}"></div>
-            <div class="form-group"><label>有效期 *</label><input id="medExpiryDate" type="date"></div>
+            <div class="form-group"><label>开始日期</label><input id="medStart" type="text" readonly onclick="CalendarPicker.attach(this,{max:'today'})" placeholder="点击选择日期" style="background:#fff;"></div>
+            <div class="form-group"><label>有效期 *</label><input id="medExpiryDate" type="text" readonly onclick="CalendarPicker.attach(this)" placeholder="点击选择日期" style="background:#fff;"></div>
             <div class="form-group"><label>备注</label><textarea id="medNote" placeholder="服用注意事项"></textarea></div>
             <div class="form-group"><label>图片</label><div id="medImages"></div></div>
             <button class="btn-primary" onclick="App.saveMed()">保存</button>
@@ -638,7 +638,7 @@ const PageAddRecord = {
             <div class="form-group"><label>关联成员 *</label><select id="recordElderId" onchange="PageAddRecord.onElderChange(this.value)">${memberOptions}</select></div>
             <div class="form-group"><label>类型</label><select id="recordType" onchange="PageAddRecord.onTypeChange(this.value)"><option value="病历">病历</option><option value="检查报告">检查报告</option><option value="处方">处方</option></select></div>
             <div id="recordFieldsMedical">
-                <div class="form-group"><label id="recordDateLabel">就诊日期</label><input id="recordDate" type="date" max="${new Date().toISOString().slice(0,10)}"></div>
+                <div class="form-group"><label id="recordDateLabel">就诊日期</label><input id="recordDate" type="text" readonly onclick="CalendarPicker.attach(this,{max:'today'})" placeholder="点击选择日期" style="background:#fff;"></div>
                 <div class="form-group"><label>医院</label><input id="recordHospital" placeholder="输入医院名称或拼音首字母" autocomplete="off" oninput="HospitalSuggest.onInput(this)"></div>
                 <div class="form-group"><label>科室</label><input id="recordDept" placeholder="输入科室名称或拼音首字母" autocomplete="off" oninput="DeptSuggest.onInput(this)"></div>
                 <div class="form-group"><label>主诉</label><textarea id="recordComplaint" placeholder="主要症状"></textarea></div>
@@ -647,7 +647,7 @@ const PageAddRecord = {
                 <div class="form-group"><label>医生</label><input id="recordDoctor" placeholder="主治医生"></div>
             </div>
             <div id="recordFieldsReport" style="display:none;">
-                <div class="form-group"><label>检查日期</label><input id="recordDate2" type="date" max="${new Date().toISOString().slice(0,10)}"></div>
+                <div class="form-group"><label>检查日期</label><input id="recordDate2" type="text" readonly onclick="CalendarPicker.attach(this,{max:'today'})" placeholder="点击选择日期" style="background:#fff;"></div>
                 <div class="form-group"><label>医院</label><input id="recordHospital2" placeholder="输入医院名称或拼音首字母" autocomplete="off" oninput="HospitalSuggest.onInput(this)"></div>
                 <div class="form-group"><label>科室</label><input id="recordDept2" placeholder="输入科室名称或拼音首字母" autocomplete="off" oninput="DeptSuggest.onInput(this)"></div>
                 <div class="form-group"><label>检查项目 *</label><input id="recordExamName" placeholder="如：胸部CT平扫"></div>
@@ -656,7 +656,7 @@ const PageAddRecord = {
                 <div class="form-group"><label>关联病历</label><select id="recordRelatedRecord2"><option value="">不关联</option></select></div>
             </div>
             <div id="recordFieldsPrescription" style="display:none;">
-                <div class="form-group"><label>开始日期</label><input id="recordDate3" type="date" max="${new Date().toISOString().slice(0,10)}"></div>
+                <div class="form-group"><label>开始日期</label><input id="recordDate3" type="text" readonly onclick="CalendarPicker.attach(this,{max:'today'})" placeholder="点击选择日期" style="background:#fff;"></div>
                 <div class="form-group"><label>医院</label><input id="recordMedHospital" placeholder="输入医院名称或拼音首字母" autocomplete="off" oninput="HospitalSuggest.onInput(this)"></div>
                 <div class="form-group"><label>科室</label><input id="recordMedDept" placeholder="输入科室名称或拼音首字母" autocomplete="off" oninput="DeptSuggest.onInput(this)"></div>
                 <div class="form-group"><label>诊断</label><input id="recordMedDiagnosis" placeholder="诊断结果"></div>
@@ -666,7 +666,7 @@ const PageAddRecord = {
                     <div class="form-group"><label>规格（每片/袋含量）</label><div style="display:flex;gap:8px"><input id="recordMedSpecDosage" type="number" step="0.001" placeholder="如 0.25" style="flex:2"><select id="recordMedSpecDosageUnit" style="flex:1"><option value="g">g</option><option value="mg">mg</option><option value="ml">ml</option><option value="μg">μg</option></select></div></div>
                     <div class="form-group"><label>单位容量（每盒/瓶数量）</label><div style="display:flex;gap:8px"><input id="recordMedUnitCap" type="number" placeholder="如 20" style="flex:2"><select id="recordMedUnitCapUnit" style="flex:1"><option value="片">片</option><option value="粒">粒</option><option value="袋">袋</option><option value="支">支</option><option value="瓶">瓶</option><option value="贴">贴</option></select></div></div>
                     <div class="form-group"><label>数量</label><input id="recordMedQty" type="number" value="1" min="1"></div>
-                    <div class="form-group"><label>有效期 *</label><input id="recordMedExpiryDate" type="date"></div>
+                    <div class="form-group"><label>有效期 *</label><input id="recordMedExpiryDate" type="text" readonly onclick="CalendarPicker.attach(this)" placeholder="点击选择日期" style="background:#fff;"></div>
                     <div class="form-group"><label>每次剂量</label><div style="display:flex;gap:8px"><input id="recordMedDoseAmount" type="number" step="0.001" placeholder="如 5" style="flex:2"><select id="recordMedDoseUnit" style="flex:1"><option value="mg">mg</option><option value="g">g</option><option value="ml">ml</option><option value="μg">μg</option><option value="片">片</option><option value="粒">粒</option><option value="袋">袋</option><option value="支">支</option><option value="贴">贴</option></select></div></div>
                     <div class="form-group"><label>每日次数</label><input id="recordMedFreq" type="number" min="1" max="4" value="1" oninput="MedTimesUI.render('recordMed')"></div>
                     <div class="form-group"><label>服用时间段</label><div id="recordMedTimeSlots"></div></div>
@@ -741,7 +741,7 @@ const PageAddDrug = {
             <div class="form-group"><label>单位容量（每盒/瓶数量）</label><div style="display:flex;gap:8px"><input id="unitCap" type="number" placeholder="如 20" style="flex:2"><select id="unitCapUnit" style="flex:1"><option value="片">片</option><option value="粒">粒</option><option value="袋">袋</option><option value="支">支</option><option value="瓶">瓶</option><option value="贴">贴</option></select></div></div>
             <div class="form-group"><label>生产厂商</label><input id="drugManu" placeholder="生产单位"></div>
             <div class="form-group"><label>数量</label><input id="drugQty" type="number" value="1" min="1"></div>
-            <div class="form-group"><label>有效期 *</label><input id="drugExp" type="date"></div>
+            <div class="form-group"><label>有效期 *</label><input id="drugExp" type="text" readonly onclick="CalendarPicker.attach(this)" placeholder="点击选择日期" style="background:#fff;"></div>
             <div class="form-group"><label>备注</label><textarea id="drugNote" placeholder="备注信息"></textarea></div>
             <div class="form-group"><label>图片</label><div id="drugImages"></div></div>
             <button class="btn-primary" onclick="App.saveDrug()">保存</button>

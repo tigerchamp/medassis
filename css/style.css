@@ -149,3 +149,29 @@ input:disabled,select:disabled,textarea:disabled{background:#f1f5f9;color:#64748
 .ocr-loading .spinner{width:48px;height:48px;border:4px solid #e2e8f0;border-top-color:#2b7a78;border-radius:50%;margin:0 auto 16px;animation:spin 1s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 @media(max-width:440px){.phone-frame{height:100vh;border-radius:0}body{padding:0}.scan-overlay,.modal-overlay{border-radius:0}}
+
+.cal-mask{position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,0.5);display:flex;align-items:flex-end;justify-content:center}
+.cal-panel{background:#fff;width:100%;max-width:500px;border-radius:16px 16px 0 0;padding:16px;max-height:92vh;overflow:auto;animation:calSlideUp .2s ease}
+@keyframes calSlideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
+.cal-header{display:flex;align-items:center;justify-content:space-between;gap:4px;margin-bottom:12px}
+.cal-nav{background:#f1f5f9;border:none;border-radius:8px;width:38px;height:38px;font-size:18px;color:#2b7a78;cursor:pointer;font-weight:700;line-height:1}
+.cal-nav:active{background:#e2e8f0}
+.cal-title{flex:1;text-align:center;font-size:16px;font-weight:600;color:#1a2639;cursor:pointer;padding:8px 4px;border-radius:8px}
+.cal-title:active{background:#f1f5f9}
+.cal-body{margin-bottom:12px}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px}
+.cal-grid-4{grid-template-columns:repeat(4,1fr);gap:6px}
+.cal-dow{text-align:center;font-size:12px;color:#94a3b8;padding:6px 0;font-weight:500}
+.cal-cell{text-align:center;padding:10px 0;font-size:14px;color:#1a2639;border-radius:8px;cursor:pointer;line-height:1.4}
+.cal-cell:active{background:#e8f5e9}
+.cal-empty{cursor:default;color:transparent}
+.cal-empty:active{background:transparent}
+.cal-sel{background:#2b7a78;color:#fff;font-weight:600}
+.cal-dis{color:#cbd5e1;cursor:not-allowed}
+.cal-dis:active{background:transparent}
+.cal-grid-4 .cal-cell{padding:14px 0;font-size:15px}
+.cal-footer{display:flex;gap:8px;border-top:1px solid #f1f5f9;padding-top:12px}
+.cal-btn{flex:1;background:#f1f5f9;border:none;border-radius:10px;padding:10px;font-size:14px;color:#475569;cursor:pointer}
+.cal-btn:active{background:#e2e8f0}
+.cal-btn-primary{background:#2b7a78;color:#fff}
+.cal-btn-primary:active{background:#1e6b68}

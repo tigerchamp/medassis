@@ -442,6 +442,140 @@ const DeptSuggest = {
     }
 };
 
+// ========== 日历选择器组件 ==========
+// 用法：<input type="text" readonly onclick="CalendarPicker.attach(this)" placeholder="点击选择日期">
+// 限制范围：CalendarPicker.attach(this, {max:'today'}) 或 {max:'2030-12-31', min:'2020-01-01'}
+// 支持点击标题"2026年 8月"切换到月份/年份选择视图，可快速跳年跳月
+const CalendarPicker = {
+    _view: 'days',   // days | months | years
+    _year: 0,
+    _month: 0,       // 0-11
+    _target: null,
+    _max: null,
+    _min: null,
+
+    _pad(n) { return String(n).padStart(2, '0'); },
+    _toStr(y, m, d) { return `${y}-${this._pad(m + 1)}-${this._pad(d)}`; },
+    _parse(s) { if (!s || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return null; const p = s.split('-').map(Number); return new Date(p[0], p[1] - 1, p[2]); },
+
+    attach(inputEl, opts) {
+        opts = opts || {};
+        this._target = inputEl;
+        this._max = opts.max === 'today' ? new Date() : (opts.max ? this._parse(opts.max) : null);
+        this._min = opts.min === 'today' ? new Date() : (opts.min ? this._parse(opts.min) : null);
+        const cur = this._parse(inputEl.value);
+        const today = new Date();
+        this._year = cur ? cur.getFullYear() : today.getFullYear();
+        this._month = cur ? cur.getMonth() : today.getMonth();
+        this._view = 'days';
+        this._render();
+    },
+
+    close() { const el = document.getElementById('calendarOverlay'); if (el) el.innerHTML = ''; this._target = null; },
+
+    _toggleView() {
+        this._view = this._view === 'days' ? 'months' : (this._view === 'months' ? 'years' : 'days');
+        this._render();
+    },
+    _prevYear() { this._year--; this._render(); },
+    _nextYear() { this._year++; this._render(); },
+    _prevMonth() { this._month--; if (this._month < 0) { this._month = 11; this._year--; } this._render(); },
+    _nextMonth() { this._month++; if (this._month > 11) { this._month = 0; this._year++; } this._render(); },
+    _prevYearGroup() { this._year -= 12; this._render(); },
+    _nextYearGroup() { this._year += 12; this._render(); },
+
+    _pickYear(y) { this._year = y; this._view = 'months'; this._render(); },
+    _pickMonth(m) { this._month = m; this._view = 'days'; this._render(); },
+    _pickDay(d) {
+        const val = this._toStr(this._year, this._month, d);
+        if (this._target) { this._target.value = val; if (typeof this._target.onchange === 'function') this._target.onchange(); }
+        this.close();
+    },
+    _today() { const t = new Date(); this._year = t.getFullYear(); this._month = t.getMonth(); this._pickDay(t.getDate()); },
+    _clear() { if (this._target) this._target.value = ''; this.close(); },
+
+    _isDisabled(y, m, d) {
+        const date = new Date(y, m, d);
+        if (this._max && date > this._max) return true;
+        if (this._min && date < this._min) return true;
+        return false;
+    },
+
+    _daysHtml(sel) {
+        const weekdays = ['一', '二', '三', '四', '五', '六', '日'];
+        const firstDow = new Date(this._year, this._month, 1).getDay(); // 0=周日
+        const startOffset = firstDow === 0 ? 6 : firstDow - 1;          // 周一为首
+        const daysInMonth = new Date(this._year, this._month + 1, 0).getDate();
+        const cells = [];
+        for (let i = 0; i < startOffset; i++) cells.push('<div class="cal-cell cal-empty"></div>');
+        for (let d = 1; d <= daysInMonth; d++) {
+            const val = this._toStr(this._year, this._month, d);
+            const isSel = val === sel;
+            const dis = this._isDisabled(this._year, this._month, d);
+            cells.push(`<div class="cal-cell${isSel ? ' cal-sel' : ''}${dis ? ' cal-dis' : ''}"${dis ? '' : ` onclick="CalendarPicker._pickDay(${d})"`}>${d}</div>`);
+        }
+        return `<div class="cal-grid">${weekdays.map(w => `<div class="cal-dow">${w}</div>`).join('')}${cells.join('')}</div>`;
+    },
+
+    _monthsHtml(sel) {
+        const cells = [];
+        for (let m = 0; m < 12; m++) {
+            const isSel = sel && parseInt(sel.slice(5, 7)) === m + 1 && parseInt(sel.slice(0, 4)) === this._year;
+            cells.push(`<div class="cal-cell${isSel ? ' cal-sel' : ''}" onclick="CalendarPicker._pickMonth(${m})">${m + 1}月</div>`);
+        }
+        return `<div class="cal-grid cal-grid-4">${cells.join('')}</div>`;
+    },
+
+    _yearsHtml(sel) {
+        const start = this._year - (this._year % 12);
+        const cells = [];
+        for (let i = 0; i < 12; i++) {
+            const y = start + i;
+            const isSel = sel && parseInt(sel.slice(0, 4)) === y;
+            cells.push(`<div class="cal-cell${isSel ? ' cal-sel' : ''}" onclick="CalendarPicker._pickYear(${y})">${y}</div>`);
+        }
+        return `<div class="cal-grid cal-grid-4">${cells.join('')}</div>`;
+    },
+
+    _render() {
+        let overlay = document.getElementById('calendarOverlay');
+        if (!overlay) { overlay = document.createElement('div'); overlay.id = 'calendarOverlay'; document.body.appendChild(overlay); }
+        const sel = this._target ? this._target.value : '';
+        const title = this._view === 'days' ? `${this._year}年 ${this._month + 1}月`
+            : this._view === 'months' ? `${this._year}年`
+            : `${this._year - (this._year % 12)} - ${this._year - (this._year % 12) + 11}`;
+        let navHtml;
+        if (this._view === 'days') {
+            navHtml = `<button type="button" class="cal-nav" onclick="CalendarPicker._prevYear()" title="上一年">‹‹</button>
+                <button type="button" class="cal-nav" onclick="CalendarPicker._prevMonth()" title="上月">‹</button>
+                <div class="cal-title" onclick="CalendarPicker._toggleView()">${title}</div>
+                <button type="button" class="cal-nav" onclick="CalendarPicker._nextMonth()" title="下月">›</button>
+                <button type="button" class="cal-nav" onclick="CalendarPicker._nextYear()" title="下一年">››</button>`;
+        } else if (this._view === 'months') {
+            navHtml = `<button type="button" class="cal-nav" onclick="CalendarPicker._prevYear()" title="上一年">‹</button>
+                <div class="cal-title" onclick="CalendarPicker._toggleView()">${title}</div>
+                <button type="button" class="cal-nav" onclick="CalendarPicker._nextYear()" title="下一年">›</button>`;
+        } else {
+            navHtml = `<button type="button" class="cal-nav" onclick="CalendarPicker._prevYearGroup()" title="上一组">‹</button>
+                <div class="cal-title" onclick="CalendarPicker._toggleView()">${title}</div>
+                <button type="button" class="cal-nav" onclick="CalendarPicker._nextYearGroup()" title="下一组">›</button>`;
+        }
+        const body = this._view === 'days' ? this._daysHtml(sel) : (this._view === 'months' ? this._monthsHtml(sel) : this._yearsHtml(sel));
+        overlay.innerHTML = `
+            <div class="cal-mask" onclick="if(event.target===this)CalendarPicker.close()">
+                <div class="cal-panel" onclick="event.stopPropagation()">
+                    <div class="cal-header">${navHtml}</div>
+                    <div class="cal-body">${body}</div>
+                    <div class="cal-footer">
+                        <button type="button" class="cal-btn" onclick="CalendarPicker._today()">今天</button>
+                        <button type="button" class="cal-btn" onclick="CalendarPicker._clear()">清除</button>
+                        <button type="button" class="cal-btn cal-btn-primary" onclick="CalendarPicker.close()">完成</button>
+                    </div>
+                </div>
+            </div>`;
+    }
+};
+
 // ========== 应用主体 ==========
 const App = {
     state: {
@@ -602,7 +736,7 @@ const App = {
         }
         overlay.innerHTML = `
             <div style="position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;padding:16px;" onclick="if(event.target===this)App.closeOcrTextFullscreen()">
-                <div style="background:#fff;border-radius:12px;width:100%;max-width:800px;max-height:90vh;display:flex;flex-direction:column;overflow:hidden;">
+                <div style="background:#fff;border-radius:12px;width:100%;max-width:820px;height:92vh;display:flex;flex-direction:column;overflow:hidden;">
                     <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid #eee;">
                         <span style="font-weight:600;">识别原文</span>
                         <div>
@@ -694,18 +828,19 @@ const App = {
     },
 
     // 调起相机/相册选择图片
-    _pickImages() {
+    // source: 'camera' 直接拍照；'album' 从相册选择；默认让系统选择
+    _pickImages(source) {
         return new Promise((resolve) => {
             const input = document.createElement('input');
             input.type = 'file';
             input.accept = 'image/*';
-            input.capture = 'environment';
+            if (source === 'camera') input.capture = 'environment';
             input.multiple = true;
             input.style.display = 'none';
             document.body.appendChild(input);
             input.addEventListener('change', () => {
                 const files = Array.from(input.files || []);
-                document.body.removeChild(input);
+                if (input.parentNode) document.body.removeChild(input);
                 resolve(files);
             }, { once: true });
             // 用户取消时 change 不触发，无法可靠监听取消，保留 input 由 change 清理
@@ -713,12 +848,41 @@ const App = {
         });
     },
 
+    // 弹出图片来源选择（拍照 / 从相册选择）
+    _pickScanSource() {
+        return new Promise((resolve) => {
+            this._scanSourceResolve = resolve;
+            this.openModal(`
+                <div style="text-align:center;padding:8px 0 4px;">
+                    <h3 style="margin:0 0 16px;">选择图片来源</h3>
+                    <button class="btn-primary" style="width:100%;margin-bottom:10px;" onclick="App._confirmScanSource('camera')"><i class="fas fa-camera"></i> 拍照</button>
+                    <button class="btn-outline" style="width:100%;margin-bottom:10px;" onclick="App._confirmScanSource('album')"><i class="fas fa-images"></i> 从相册选择</button>
+                    <button class="btn-outline" style="width:100%;color:#666;" onclick="App._cancelScanSource()">取消</button>
+                </div>`);
+        });
+    },
+    _confirmScanSource(source) {
+        this.closeModal();
+        const resolve = this._scanSourceResolve;
+        this._scanSourceResolve = null;
+        if (resolve) resolve(source);
+    },
+    _cancelScanSource() {
+        this.closeModal();
+        const resolve = this._scanSourceResolve;
+        this._scanSourceResolve = null;
+        if (resolve) resolve(null);
+    },
+
     async startScan(type) {
         document.getElementById('scanOverlay').classList.remove('show');
         const memberId = this.state.currentMemberId;
         if (!memberId) { this.toast('请先选择一位成员'); return; }
 
-        const files = await this._pickImages();
+        // 选择图片来源：拍照 / 从相册
+        const source = await this._pickScanSource();
+        if (!source) { console.log('[扫描] 用户取消选择来源'); return; }
+        const files = await this._pickImages(source);
         if (!files.length) { console.log('[扫描] 用户未选择图片'); return; }
         console.log(`[扫描] 选了 ${files.length} 张图片:`, files.map(f => `${f.name}(${f.type},${f.size}bytes)`));
 
@@ -778,7 +942,7 @@ const App = {
                 ${ocrTextHtml}
                 <div class="form-group"><label>关联成员</label><select id="ocr-record-elder">${this._memberOptions()}</select></div>
                 <div class="form-group"><label>类型</label><select id="ocr-record-type"><option selected>病历</option><option>检查报告</option></select></div>
-                <div class="form-group"><label>就诊日期</label><input id="ocr-record-date" type="date" value="${parsed.visitDate || today}"></div>
+                <div class="form-group"><label>就诊日期</label><input id="ocr-record-date" type="text" readonly value="${parsed.visitDate || today}" onclick="CalendarPicker.attach(this,{max:'today'})" placeholder="点击选择日期" style="background:#fff;"></div>
                 <div class="form-group"><label>医院</label><input id="ocr-hospital" value="${this._escAttr(parsed.hospital)}" placeholder="输入医院名称或拼音首字母" autocomplete="off" oninput="HospitalSuggest.onInput(this)"></div>
                 <div class="form-group"><label>科室</label><input id="ocr-department" value="${this._escAttr(parsed.department)}" placeholder="输入科室名称或拼音首字母" autocomplete="off" oninput="DeptSuggest.onInput(this)"></div>
                 <div class="form-group"><label>主诉</label><textarea id="ocr-complaint" placeholder="主要症状">${this._escAttr(parsed.chiefComplaint)}</textarea></div>
@@ -800,7 +964,7 @@ const App = {
                 ${ocrTextHtml}
                 <div class="form-group"><label>关联成员</label><select id="ocr-record-elder" onchange="App._loadRelatedRecords(this.value,'ocr-record-related')">${this._memberOptions()}</select></div>
                 <div class="form-group"><label>类型</label><select id="ocr-record-type"><option>病历</option><option selected>检查报告</option></select></div>
-                <div class="form-group"><label>检查日期</label><input id="ocr-record-date" type="date" value="${parsed.visitDate || today}"></div>
+                <div class="form-group"><label>检查日期</label><input id="ocr-record-date" type="text" readonly value="${parsed.visitDate || today}" onclick="CalendarPicker.attach(this,{max:'today'})" placeholder="点击选择日期" style="background:#fff;"></div>
                 <div class="form-group"><label>医院</label><input id="ocr-hospital" value="${this._escAttr(parsed.hospital)}" placeholder="如：市中心医院" oninput="HospitalSuggest.onInput(this)"></div>
                 <div class="form-group"><label>科室</label><input id="ocr-department" value="${this._escAttr(parsed.department)}" placeholder="如：影像科" oninput="DeptSuggest.onInput(this)"></div>
                 <div class="form-group"><label>检查项目</label><input id="ocr-diagnosis" value="${this._escAttr(parsed.examName)}"></div>
@@ -832,11 +996,11 @@ const App = {
                     <div class="form-group"><label>规格（每片/袋含量）</label><div style="display:flex;gap:8px"><input id="${p}SpecDosage" type="number" step="0.001" value="${m.specDosage || ''}" placeholder="如 0.25" style="flex:2"><select id="${p}SpecDosageUnit" style="flex:1">${optsSel(specUnitOpts, sdu)}</select></div></div>
                     <div class="form-group"><label>单位容量（每盒/瓶数量）</label><div style="display:flex;gap:8px"><input id="${p}UnitCap" type="number" value="${m.unitCap || ''}" placeholder="如 20" style="flex:2"><select id="${p}UnitCapUnit" style="flex:1">${opts(capUnitOpts)}</select></div></div>
                     <div class="form-group"><label>数量</label><input id="${p}Qty" type="number" value="1" min="1"></div>
-                    <div class="form-group"><label>有效期 *</label><input id="${p}Expiry" type="date"></div>
+                    <div class="form-group"><label>有效期 *</label><input id="${p}Expiry" type="text" readonly onclick="CalendarPicker.attach(this)" placeholder="点击选择日期" style="background:#fff;"></div>
                     <div class="form-group"><label>每次剂量</label><div style="display:flex;gap:8px"><input id="${p}DoseAmount" type="number" step="0.001" value="${m.doseAmount || ''}" placeholder="如 5" style="flex:2"><select id="${p}DoseUnit" style="flex:1">${optsSel(doseUnitOpts, du)}</select></div></div>
                     <div class="form-group"><label>每日次数</label><input id="${p}Freq" type="number" min="1" max="4" value="${freqN}" oninput="MedTimesUI.render('${p}')"></div>
                     <div class="form-group"><label>服用时间段</label><div id="${p}TimeSlots"></div></div>
-                    <div class="form-group"><label>开始日期</label><input id="${p}Start" type="date" value="${today}"></div>
+                    <div class="form-group"><label>开始日期</label><input id="${p}Start" type="text" readonly value="${today}" onclick="CalendarPicker.attach(this,{max:'today'})" placeholder="点击选择日期" style="background:#fff;"></div>
                     <div class="form-group"><label>备注</label><input id="${p}Note" value="${this._escAttr(m.note)}" placeholder="如：餐后服用"></div>
                 </div>`;
             }).join('');
@@ -881,7 +1045,7 @@ const App = {
                 <div class="form-group"><label>规格</label><input id="ocr-drug-spec" value="${this._escAttr(parsed.specification)}"></div>
                 <div class="form-group"><label>厂商</label><input id="ocr-drug-manufacturer" value="${this._escAttr(parsed.manufacturer)}" placeholder="如：扬子江药业"></div>
                 <div class="form-group"><label>数量</label><input id="ocr-drug-qty" type="number" value="1"></div>
-                <div class="form-group"><label>有效期</label><input id="ocr-drug-exp" type="date"></div>
+                <div class="form-group"><label>有效期</label><input id="ocr-drug-exp" type="text" readonly onclick="CalendarPicker.attach(this)" placeholder="点击选择日期" style="background:#fff;"></div>
                 <div class="form-group"><label>备注</label><input id="ocr-drug-note" placeholder="备注信息"></div>
                 <button class="btn-primary" onclick="App.saveOcrDrug()">录入药箱</button>
                 <button class="btn-outline" style="margin-top:8px;" onclick="App.closeModal()">取消</button>
