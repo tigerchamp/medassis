@@ -132,16 +132,41 @@ function findLine(text, keywords) {
 }
 
 function extractAfter(line) {
-  // 取关键词后的内容
-  const m = line.match(/[:：]\s*(.+)$/);
+  // 取关键词后的内容，支持 ：】 ] 等分隔符
+  const m = line.match(/[:：】\]]\s*(.+)$/);
   return m ? m[1].trim() : '';
+}
+
+// 收集某关键词所在行及其后续行，直到遇到下一个【标签】或结束标志（用于多行内容如"处置"区块）
+function extractBlock(text, keywords) {
+  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  const stopRe = /^[【\[][^】\]]*[】\]]/;          // 下一个【标签】
+  const endRe = /(医师签名|医师签字|签章|第\s*\d+\s*页|共\s*\d+\s*页|审核|调配|核对|发药)/;
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i];
+    if (!keywords.some(kw => l.includes(kw))) continue;
+    // 同行分隔符后的内容
+    const after = l.replace(/^[^:：】\]]*[:：】\]]\s*/, '').trim();
+    const parts = after ? [after] : [];
+    for (let j = i + 1; j < lines.length; j++) {
+      const nl = lines[j];
+      if (stopRe.test(nl) || endRe.test(nl)) break;
+      // 跳过 <西药> </西药> <中药> 等分类标签
+      if (/^<\/?[^>]+>$/.test(nl)) continue;
+      parts.push(nl);
+    }
+    return parts.filter(Boolean).join('\n').trim();
+  }
+  return '';
 }
 
 function findHospital(text) {
   const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
   for (const l of lines) {
     if (/(医院|门诊|诊所|中心卫生院|卫生院|卫生服务中心|保健院|人民医院|中心)/.test(l) && l.length < 40) {
-      return l.replace(/^.*?院|校|所/, '').trim() || l;
+      // 去掉后缀类词汇：门诊病历、病历、处方笺、处方等
+      const cleaned = l.replace(/(门诊病历|门诊处方|病历|处方笺|处方|就诊记录|就诊)$/, '').trim();
+      return cleaned || l;
     }
   }
   return '';
@@ -192,10 +217,11 @@ function parseRecord(text) {
     hospital: findHospital(text),
     department: findDepartment(text),
     visitDate: findDate(text),
-    diagnosis: extractAfter(findLine(text, ['诊断', '初步诊断', '临床诊断'])) || '',
-    chiefComplaint: extractAfter(findLine(text, ['主诉'])) || '',
-    orders: extractAfter(findLine(text, ['处理', '医嘱', '建议', '处理意见', '治疗方案', 'Rp'])) || '',
-    doctor: extractAfter(findLine(text, ['医师', '医生', '接诊医生', '主治医师', '签名'])) || '',
+    diagnosis: extractBlock(text, ['诊断', '初步诊断', '临床诊断']) || '',
+    chiefComplaint: extractBlock(text, ['主诉']) || '',
+    // 无"医嘱"时用"处置"等区块内容代替（多行药品/用法文本）
+    orders: extractBlock(text, ['医嘱', '处置', '处理', '处理意见', '治疗方案', '建议', 'Rp']) || '',
+    doctor: extractAfter(findLine(text, ['医师签名', '医师签字', '医师', '医生', '接诊医生', '主治医师', '签名'])) || '',
     metrics: findMetrics(text)
   };
 }

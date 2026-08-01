@@ -590,6 +590,55 @@ const App = {
         document.getElementById('modalOverlay').classList.remove('show');
     },
 
+    // OCR 识别原文全屏查看（方便查看与拷贝）
+    showOcrTextFullscreen() {
+        const ta = document.getElementById('ocrRawText');
+        const text = ta ? ta.value : '';
+        let overlay = document.getElementById('ocrTextOverlay');
+        if (!overlay) {
+            overlay = document.createElement('div');
+            overlay.id = 'ocrTextOverlay';
+            document.body.appendChild(overlay);
+        }
+        overlay.innerHTML = `
+            <div style="position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;padding:16px;" onclick="if(event.target===this)App.closeOcrTextFullscreen()">
+                <div style="background:#fff;border-radius:12px;width:100%;max-width:800px;max-height:90vh;display:flex;flex-direction:column;overflow:hidden;">
+                    <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid #eee;">
+                        <span style="font-weight:600;">识别原文</span>
+                        <div>
+                            <button type="button" onclick="App.copyOcrText()" style="background:#2b7a78;color:#fff;border:none;border-radius:6px;padding:6px 12px;cursor:pointer;font-size:13px;margin-right:8px;"><i class="fas fa-copy"></i> 复制全部</button>
+                            <button type="button" onclick="App.closeOcrTextFullscreen()" style="background:none;border:none;font-size:20px;cursor:pointer;color:#666;line-height:1;"><i class="fas fa-times"></i></button>
+                        </div>
+                    </div>
+                    <textarea readonly style="flex:1;width:100%;border:none;padding:16px;font-size:14px;line-height:1.7;white-space:pre-wrap;resize:none;outline:none;font-family:inherit;color:#333;" onclick="event.stopPropagation()">${this._escAttr(text)}</textarea>
+                </div>
+            </div>`;
+    },
+
+    closeOcrTextFullscreen() {
+        const overlay = document.getElementById('ocrTextOverlay');
+        if (overlay) overlay.innerHTML = '';
+    },
+
+    async copyOcrText() {
+        const ta = document.querySelector('#ocrTextOverlay textarea');
+        if (!ta) return;
+        const text = ta.value;
+        try {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                await navigator.clipboard.writeText(text);
+            } else {
+                ta.select();
+                document.execCommand('copy');
+            }
+            this.toast('已复制到剪贴板');
+        } catch (e) {
+            ta.select();
+            document.execCommand('copy');
+            this.toast('已复制到剪贴板');
+        }
+    },
+
     // 下拉菜单：显示所有家庭成员 + 家庭组管理入口（无"添加成员"）
     toggleDropdown() {
         const dd = document.getElementById('familyDropdown');
@@ -712,8 +761,10 @@ const App = {
         // OCR 识别原文（参考用，便于手动核对/填写）
         const ocrTextHtml = resp.text ? `
             <div class="form-group">
-                <label>识别原文（可参考手动核对）</label>
-                <textarea readonly style="background:#f5f5f5;font-size:13px;min-height:50px;max-height:120px;white-space:pre-wrap;">${this._escAttr(resp.text)}</textarea>
+                <label style="display:flex;align-items:center;justify-content:space-between;">识别原文（可参考手动核对）
+                    <button type="button" onclick="App.showOcrTextFullscreen()" style="background:none;border:none;color:#2b7a78;cursor:pointer;font-size:13px;padding:2px 6px;" title="全屏查看"><i class="fas fa-expand"></i> 全屏</button>
+                </label>
+                <textarea id="ocrRawText" readonly style="background:#f5f5f5;font-size:13px;min-height:50px;max-height:120px;white-space:pre-wrap;">${this._escAttr(resp.text)}</textarea>
             </div>` : '';
 
         if (type === '病历') {
