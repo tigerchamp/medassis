@@ -7,6 +7,10 @@ router.use(authMiddleware);
 
 // 搜索药品库（支持拼音首字母缩写与名称）
 router.get('/search', drugLibraryController.search);
+// 校验药品是否存在（不存在返回相似项）
+router.get('/check', drugLibraryController.check);
+// 添加新药品（自动生成拼音首字母，标记 owner_user_id 私有数据）
+router.post('/add', drugLibraryController.add);
 // 按编码获取药品
 router.get('/:code', drugLibraryController.getDrug);
 

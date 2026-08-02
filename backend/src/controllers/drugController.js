@@ -3,6 +3,21 @@ const { v4: uuidv4 } = require('uuid');
 const { resolveDrugCode } = require('../utils/drugLibrary');
 const { getEntityFiles, setEntityFiles, deleteEntityFiles } = require('../utils/entityFiles');
 
+/**
+ * 获取当前用户及其所在家庭组的全部用户ID（用于私有数据隔离）
+ */
+async function _getFamilyUserIds(req) {
+  const familyId = req.familyId || (req.user && req.user.family_id);
+  let userIds = [req.user.id];
+  if (familyId) {
+    const [rows] = await getPool().query('SELECT id FROM users WHERE family_id = ?', [familyId]);
+    const ids = rows.map(r => r.id);
+    if (ids.length) userIds = ids;
+    if (!userIds.includes(req.user.id)) userIds.push(req.user.id);
+  }
+  return userIds;
+}
+
 function fmtDate(d) { if (d instanceof Date) { const y = d.getFullYear(); const m = String(d.getMonth() + 1).padStart(2, '0'); const day = String(d.getDate()).padStart(2, '0'); return `${y}-${m}-${day}`; } return d; }
 
 function computeStatus(expiryDate, currentStatus) {
@@ -116,7 +131,8 @@ async function addDrug(req, res) {
       return res.status(400).json({ error: '请选择或输入药品名称' });
     }
 
-    // 关联药品库：前端传入 drugCode 则校验；否则按名称匹配，未匹配则新增入库
+    // 关联药品库：前端传入 drugCode 则校验；否则按名称匹配，未匹配则新增入库（写入 owner_user_id 私有数据隔离）
+    const familyUserIds = await _getFamilyUserIds(req);
     const resolved = await resolveDrugCode({
       drugCode,
       name,
@@ -125,7 +141,9 @@ async function addDrug(req, res) {
       specDosageUnit,
       unitCapacity,
       unitCapacityUnit,
-      manufacturer
+      manufacturer,
+      ownerUserId: req.user.id,
+      familyUserIds
     });
 
     const finalName = resolved.name;
@@ -202,11 +220,14 @@ async function updateDrug(req, res) {
     let finalManu = drugs[0].manufacturer;
 
     if (drugCode || name) {
+      const familyUserIds = await _getFamilyUserIds(req);
       const resolved = await resolveDrugCode({
         drugCode,
         name: name || drugs[0].name,
         specification: null,
-        manufacturer: null
+        manufacturer: null,
+        ownerUserId: req.user.id,
+        familyUserIds
       });
       finalCode = resolved.code;
       finalName = resolved.name;
@@ -306,7 +327,8 @@ async function getDrugRecords(req, res) {
     let medicationRecords = [];
     if (drugCode) {
       const [meds] = await getPool().query(
-        `SELECT m.*, e.name as elder_name FROM medications m
+        `SELECT m.*, COALESCE(d.specification, m.specification) as specification, e.name as elder_name FROM medications m
+         LEFT JOIN drugs d ON m.drug_code COLLATE utf8mb4_unicode_ci = d.code
          LEFT JOIN elders e ON m.elder_id = e.id
          WHERE m.family_id = ? AND m.drug_code = ?
          ORDER BY m.created_at DESC`,

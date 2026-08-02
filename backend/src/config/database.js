@@ -405,6 +405,19 @@ async function _ensureColumns(p) {
     await p.query(`ALTER TABLE hospitals ADD COLUMN alias VARCHAR(200) DEFAULT NULL COMMENT '别名' AFTER abbreviation`);
     console.log('已补充 hospitals 表的 abbreviation/alias 列');
   }
+  // 检查hospitals表是否缺少owner_user_id列（用户私有数据隔离：NULL=标准共享数据，非NULL=创建者私有）
+  const [hospOwnerCols] = await p.query(`SHOW COLUMNS FROM hospitals LIKE 'owner_user_id'`);
+  if (hospOwnerCols.length === 0) {
+    await p.query(`ALTER TABLE hospitals ADD COLUMN owner_user_id VARCHAR(36) DEFAULT NULL COMMENT '创建者用户ID(NULL=标准共享数据)' AFTER alias`);
+    await p.query(`ALTER TABLE hospitals ADD INDEX idx_owner (owner_user_id)`);
+    console.log('已补充 hospitals 表的 owner_user_id 列');
+  }
+  // 将 hospitals.name 的唯一索引改为普通索引，支持不同用户/家庭添加同名私有医院
+  const [hospNameUnique] = await p.query(`SHOW INDEX FROM hospitals WHERE Key_name = 'idx_name' AND Non_unique = 0`);
+  if (hospNameUnique.length > 0) {
+    await p.query(`ALTER TABLE hospitals DROP INDEX idx_name, ADD INDEX idx_name (name)`);
+    console.log('已将 hospitals.idx_name 从唯一索引改为普通索引');
+  }
 
   // 创建 departments 科室表
   await p.query(`
@@ -425,6 +438,19 @@ async function _ensureColumns(p) {
     await p.query(`ALTER TABLE departments ADD COLUMN abbreviation VARCHAR(50) DEFAULT NULL COMMENT '简称' AFTER pinyin_abbr`);
     await p.query(`ALTER TABLE departments ADD COLUMN alias VARCHAR(200) DEFAULT NULL COMMENT '别名' AFTER abbreviation`);
     console.log('已补充 departments 表的 abbreviation/alias 列');
+  }
+  // 检查departments表是否缺少owner_user_id列（用户私有数据隔离）
+  const [deptOwnerCols] = await p.query(`SHOW COLUMNS FROM departments LIKE 'owner_user_id'`);
+  if (deptOwnerCols.length === 0) {
+    await p.query(`ALTER TABLE departments ADD COLUMN owner_user_id VARCHAR(36) DEFAULT NULL COMMENT '创建者用户ID(NULL=标准共享数据)' AFTER alias`);
+    await p.query(`ALTER TABLE departments ADD INDEX idx_owner (owner_user_id)`);
+    console.log('已补充 departments 表的 owner_user_id 列');
+  }
+  // 将 departments.name 的唯一索引改为普通索引，支持不同用户/家庭添加同名私有科室
+  const [deptNameUnique] = await p.query(`SHOW INDEX FROM departments WHERE Key_name = 'idx_name' AND Non_unique = 0`);
+  if (deptNameUnique.length > 0) {
+    await p.query(`ALTER TABLE departments DROP INDEX idx_name, ADD INDEX idx_name (name)`);
+    console.log('已将 departments.idx_name 从唯一索引改为普通索引');
   }
 
   // 检查records表是否缺少findings和conclusion列
@@ -599,6 +625,14 @@ async function _ensureColumns(p) {
         }
       }
     }
+  }
+
+  // 为 drugs 表补充 owner_user_id 列（用户私有数据隔离：NULL=标准共享数据，非NULL=创建者私有）
+  const [drugOwnerCols] = await p.query(`SHOW COLUMNS FROM drugs LIKE 'owner_user_id'`);
+  if (drugOwnerCols.length === 0) {
+    await p.query(`ALTER TABLE drugs ADD COLUMN owner_user_id VARCHAR(36) DEFAULT NULL COMMENT '创建者用户ID(NULL=标准共享数据)' AFTER storage`);
+    await p.query(`ALTER TABLE drugs ADD INDEX idx_owner (owner_user_id)`);
+    console.log('已补充 drugs 表的 owner_user_id 列');
   }
 
   // 为 medications 表补充 drug_code 列（关联药品库）

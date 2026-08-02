@@ -45,6 +45,8 @@ function parseSpecification(spec) {
  * @param {string} [params.specDosageUnit] 规格单位（片/袋等）
  * @param {number} [params.unitCapacity] 单位容量数值（每包装含量）
  * @param {string} [params.unitCapacityUnit] 包装单位（盒/瓶等）
+ * @param {string} [params.ownerUserId] 创建者用户ID（新建药品时写入，用于私有数据隔离）
+ * @param {string[]} [params.familyUserIds] 当前用户及家庭组成员ID列表（名称匹配可见范围过滤）
  * @returns {Promise<{code:string, name:string, specification:string, manufacturer:string, dosageForm:string, approvalNumber:string, specDosage:number, specDosageUnit:string, unitCapacity:number, unitCapacityUnit:string, created:boolean}>}
  */
 async function resolveDrugCode(params) {
@@ -59,19 +61,27 @@ async function resolveDrugCode(params) {
     specDosage = null,
     specDosageUnit = null,
     unitCapacity = null,
-    unitCapacityUnit = null
+    unitCapacityUnit = null,
+    ownerUserId = null,
+    familyUserIds = null
   } = params || {};
+
+  // 可见范围过滤条件：标准共享数据(owner_user_id IS NULL) + 当前用户及家庭组私有数据
+  const scope = familyUserIds && familyUserIds.length
+    ? `(owner_user_id IS NULL OR owner_user_id IN (${familyUserIds.map(() => '?').join(',')}))`
+    : `owner_user_id IS NULL`;
+  const scopeParams = familyUserIds && familyUserIds.length ? familyUserIds : [];
 
   const trimmedName = (name || '').trim();
   if (!trimmedName && !drugCode) {
     throw new Error('药品名称不能为空');
   }
 
-  // 1) 前端传入 drugCode：校验存在性
+  // 1) 前端传入 drugCode：校验存在性（限定可见范围）
   if (drugCode) {
     const [rows] = await pool.query(
-      'SELECT code, name, specification, manufacturer, dosage_form, approval_number, spec_dosage, spec_dosage_unit, unit_capacity, unit_capacity_unit FROM drugs WHERE code = ? LIMIT 1',
-      [drugCode]
+      `SELECT code, name, specification, manufacturer, dosage_form, approval_number, spec_dosage, spec_dosage_unit, unit_capacity, unit_capacity_unit FROM drugs WHERE code = ? AND ${scope} LIMIT 1`,
+      [drugCode, ...scopeParams]
     );
     if (rows.length > 0) {
       const r = rows[0];
@@ -106,11 +116,11 @@ async function resolveDrugCode(params) {
     // drugCode 无效则继续走名称匹配
   }
 
-  // 2) 按名称精确匹配（不区分大小写）
+  // 2) 按名称精确匹配（限定可见范围）
   if (trimmedName) {
     const [rows] = await pool.query(
-      'SELECT code, name, specification, manufacturer, dosage_form, approval_number, spec_dosage, spec_dosage_unit, unit_capacity, unit_capacity_unit FROM drugs WHERE name = ? LIMIT 1',
-      [trimmedName]
+      `SELECT code, name, specification, manufacturer, dosage_form, approval_number, spec_dosage, spec_dosage_unit, unit_capacity, unit_capacity_unit FROM drugs WHERE name = ? AND ${scope} LIMIT 1`,
+      [trimmedName, ...scopeParams]
     );
     if (rows.length > 0) {
       const r = rows[0];
@@ -143,13 +153,13 @@ async function resolveDrugCode(params) {
     }
   }
 
-  // 3) 未匹配到：新增入库（UUID 作为 code，避免与国家本位码冲突）
+  // 3) 未匹配到：新增入库（UUID 作为 code，避免与国家本位码冲突），写入 owner_user_id 标记私有
   const newCode = uuidv4();
   const pinyinAbbr = getPinyinAbbr(trimmedName);
   await pool.query(
-    `INSERT INTO drugs (code, approval_number, name, pinyin_abbr, dosage_form, specification, spec_dosage, spec_dosage_unit, unit_capacity, unit_capacity_unit, manufacturer)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [newCode, approvalNumber || null, trimmedName, pinyinAbbr, dosageForm || null, specification || null, specDosage || null, specDosageUnit || null, unitCapacity || null, unitCapacityUnit || null, manufacturer || null]
+    `INSERT INTO drugs (code, approval_number, name, pinyin_abbr, dosage_form, specification, spec_dosage, spec_dosage_unit, unit_capacity, unit_capacity_unit, manufacturer, owner_user_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [newCode, approvalNumber || null, trimmedName, pinyinAbbr, dosageForm || null, specification || null, specDosage || null, specDosageUnit || null, unitCapacity || null, unitCapacityUnit || null, manufacturer || null, ownerUserId || null]
   );
 
   return {

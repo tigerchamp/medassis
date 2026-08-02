@@ -107,6 +107,22 @@ body{font-family:'Inter',-apple-system,sans-serif;background:#f4f7fc;display:fle
 .drug-suggest-item .ds-name{font-size:15px;color:#1e293b;font-weight:500;display:flex;justify-content:space-between;align-items:center;gap:8px}
 .drug-suggest-item .ds-py{font-size:11px;color:#2b7a78;background:#e8f3f2;padding:2px 6px;border-radius:6px;font-weight:600;letter-spacing:.5px}
 .drug-suggest-item .ds-sub{font-size:12px;color:#64748b;margin-top:2px}
+/* 处方多药品区块 */
+.med-block{background:#f8fafd;border:1px solid #e2e8f0;border-radius:12px;margin-bottom:10px;overflow:hidden}
+.med-block.expanded{border-color:#2b7a78;box-shadow:0 2px 8px rgba(43,122,120,.08)}
+.med-block-header{display:flex;align-items:center;gap:8px;padding:10px 12px;cursor:pointer;background:#fff;border-bottom:1px solid transparent;transition:background .15s}
+.med-block.expanded .med-block-header{border-bottom-color:#e2e8f0}
+.med-block-header:hover{background:#f1f8f7}
+.med-block-header .med-arrow{font-size:12px;color:#94a3b8;transition:transform .2s;width:14px;flex-shrink:0}
+.med-block.expanded .med-block-header .med-arrow{transform:rotate(90deg);color:#2b7a78}
+.med-block-header .med-title{flex:1;font-size:14px;font-weight:600;color:#1e293b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.med-block-header .med-title .med-name-text{color:#2b7a78}
+.med-block-header .med-title .med-empty{color:#94a3b8;font-weight:400;font-size:13px}
+.med-block-header .med-remove{flex-shrink:0;width:26px;height:26px;border-radius:50%;background:#fee2e2;color:#b91c1c;border:none;font-size:15px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.med-block-header .med-remove:hover{background:#fecaca}
+.med-block-content{padding:12px}
+.add-next-btn{width:100%;margin-top:4px;padding:10px;border:1.5px dashed #2b7a78;background:#e8f3f2;color:#2b7a78;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;transition:background .15s}
+.add-next-btn:hover{background:#d6ebe8}
 .hosp-suggest{display:none;position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid #e2e8f0;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.1);max-height:260px;overflow-y:auto;z-index:50;margin-top:4px}
 .hosp-suggest-item{padding:10px 14px;cursor:pointer;border-bottom:1px solid #f1f5f9}
 .hosp-suggest-item:last-child{border-bottom:none}

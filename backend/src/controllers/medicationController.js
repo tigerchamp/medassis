@@ -3,6 +3,21 @@ const { v4: uuidv4 } = require('uuid');
 const { resolveDrugCode } = require('../utils/drugLibrary');
 const { getEntityFiles, setEntityFiles, deleteEntityFiles } = require('../utils/entityFiles');
 
+/**
+ * 获取当前用户及其所在家庭组的全部用户ID（用于私有数据隔离）
+ */
+async function _getFamilyUserIds(req) {
+  const familyId = req.familyId || (req.user && req.user.family_id);
+  let userIds = [req.user.id];
+  if (familyId) {
+    const [rows] = await getPool().query('SELECT id FROM users WHERE family_id = ?', [familyId]);
+    const ids = rows.map(r => r.id);
+    if (ids.length) userIds = ids;
+    if (!userIds.includes(req.user.id)) userIds.push(req.user.id);
+  }
+  return userIds;
+}
+
 function fmtDate(d) { if (d instanceof Date) { const y = d.getFullYear(); const m = String(d.getMonth() + 1).padStart(2, '0'); const day = String(d.getDate()).padStart(2, '0'); return `${y}-${m}-${day}`; } return d; }
 
 function formatMedication(m) {
@@ -35,20 +50,24 @@ async function getMedications(req, res) {
     const familyId = req.familyId;
     const { elderId, active } = req.query;
 
-    let query = 'SELECT * FROM medications WHERE family_id = ?';
+    // LEFT JOIN drugs 获取 specification（medications 表不再存储该重复字段）
+    let query = `SELECT m.*, COALESCE(d.specification, m.specification) as specification
+      FROM medications m
+      LEFT JOIN drugs d ON m.drug_code COLLATE utf8mb4_unicode_ci = d.code
+      WHERE m.family_id = ?`;
     const params = [familyId];
 
     if (elderId) {
-      query += ' AND elder_id = ?';
+      query += ' AND m.elder_id = ?';
       params.push(elderId);
     }
 
     if (active === 'true') {
-      query += ' AND status = ?';
+      query += ' AND m.status = ?';
       params.push('active');
     }
 
-    query += ' ORDER BY created_at DESC';
+    query += ' ORDER BY m.created_at DESC';
 
     const [medications] = await getPool().query(query, params);
 
@@ -69,7 +88,10 @@ async function getMedication(req, res) {
     const familyId = req.familyId;
 
     const [medications] = await getPool().query(
-      'SELECT * FROM medications WHERE id = ? AND family_id = ?',
+      `SELECT m.*, COALESCE(d.specification, m.specification) as specification
+       FROM medications m
+       LEFT JOIN drugs d ON m.drug_code COLLATE utf8mb4_unicode_ci = d.code
+       WHERE m.id = ? AND m.family_id = ?`,
       [id, familyId]
     );
 
@@ -89,7 +111,7 @@ async function getMedication(req, res) {
 async function addMedication(req, res) {
   try {
     const familyId = req.familyId;
-    const { elderId, drugCode, name, specification, dose, doseAmount, doseUnit, quantity, quantityUnit, frequency, times, startDate, endDate, note, reminder, status, fileIds, expiryDate, sourcePrescriptionId } = req.body;
+    const { elderId, drugCode, name, specification, specDosage, specDosageUnit, unitCapacity, unitCapacityUnit, manufacturer, dose, doseAmount, doseUnit, quantity, quantityUnit, frequency, times, startDate, endDate, note, reminder, status, fileIds, expiryDate, sourcePrescriptionId } = req.body;
 
     if (!elderId) {
       return res.status(400).json({ error: '老人不能为空' });
@@ -104,19 +126,25 @@ async function addMedication(req, res) {
       return res.status(400).json({ error: '老人档案不存在' });
     }
 
-    // 关联药品库：前端传入 drugCode 则校验；否则按名称匹配，未匹配则新增入库
-    const resolved = await resolveDrugCode({ drugCode, name, specification });
+    const familyUserIds = await _getFamilyUserIds(req);
+    // 关联药品库：传入规格/单位容量/厂商，新建时写入 owner_user_id（私有数据隔离）
+    const resolved = await resolveDrugCode({
+      drugCode, name, specification,
+      specDosage, specDosageUnit, unitCapacity, unitCapacityUnit, manufacturer,
+      ownerUserId: req.user.id, familyUserIds
+    });
     const finalCode = resolved.code;
     const finalName = resolved.name;
-    const finalSpec = specification || resolved.specification || '';
+    const finalSpec = resolved.specification || '';
 
     const id = uuidv4();
     const timesJson = JSON.stringify(times || ['08:00']);
 
+    // medications 表不再存储 specification（重复字段，由 drugs 表通过 drug_code 关联获取）
     await getPool().query(
-      `INSERT INTO medications (id, elder_id, family_id, drug_code, name, specification, dose, dose_amount, dose_unit, quantity, quantity_unit, frequency, times, start_date, end_date, note, reminder, status, source_prescription_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, elderId, familyId, finalCode, finalName, finalSpec || null, dose || null, doseAmount || null, doseUnit || null, quantity || 1, quantityUnit || null, frequency || null, timesJson, startDate || null, endDate || null, note || null, reminder !== false, status || 'active', sourcePrescriptionId || null]
+      `INSERT INTO medications (id, elder_id, family_id, drug_code, name, dose, dose_amount, dose_unit, quantity, quantity_unit, frequency, times, start_date, end_date, note, reminder, status, source_prescription_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, elderId, familyId, finalCode, finalName, dose || null, doseAmount || null, doseUnit || null, quantity || 1, quantityUnit || null, frequency || null, timesJson, startDate || null, endDate || null, note || null, reminder !== false, status || 'active', sourcePrescriptionId || null]
     );
 
     // 保存关联图片

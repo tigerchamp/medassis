@@ -595,10 +595,11 @@ const PageAddMed = {
         </div>
         <div class="card">
             <div class="form-group"><label>关联成员 *</label><select id="medElderId">${memberOptions}</select></div>
-            <div class="form-group"><label>药品名称 *</label><input id="medName" placeholder="输入名称或拼音首字母（如 SHP）" autocomplete="off" oninput="DrugSuggest.onInput(this,'medDrugCode')"><input type="hidden" id="medDrugCode"></div>
+            <div class="form-group"><label>药品名称 *</label><input id="medName" placeholder="输入名称或拼音首字母（如 SHP）" autocomplete="off" oninput="DrugSuggest.onInput(this,'medDrugCode',{specDosage:'medSpecDosage',specDosageUnit:'medSpecDosageUnit',unitCapacity:'medUnitCap',unitCapacityUnit:'medUnitCapUnit',manufacturer:'medManu'})"><input type="hidden" id="medDrugCode"></div>
             <div class="form-group"><label>规格（每片/袋含量）</label><div style="display:flex;gap:8px"><input id="medSpecDosage" type="number" step="0.001" placeholder="如 0.25" style="flex:2"><select id="medSpecDosageUnit" style="flex:1"><option value="g">g</option><option value="mg">mg</option><option value="ml">ml</option><option value="μg">μg</option></select></div></div>
             <div class="form-group"><label>单位容量（每盒/瓶数量）</label><div style="display:flex;gap:8px"><input id="medUnitCap" type="number" placeholder="如 20" style="flex:2"><select id="medUnitCapUnit" style="flex:1"><option value="片">片</option><option value="粒">粒</option><option value="袋">袋</option><option value="支">支</option><option value="瓶">瓶</option><option value="贴">贴</option></select></div></div>
-            <div class="form-group"><label>数量</label><div style="display:flex;gap:8px"><input id="medQty" type="number" value="1" min="1" style="flex:2"><select id="medQtyUnit" style="flex:1"><option value="盒">盒</option><option value="瓶">瓶</option><option value="袋">袋</option><option value="支">支</option><option value="包">包</option><option value="板">板</option></select></div></div>
+            <div class="form-group"><label>生产厂商</label><input id="medManu" placeholder="生产单位"></div>
+            <div class="form-group"><label>数量</label><div style="display:flex;gap:8px"><input id="medQty" type="number" value="1" min="1" style="flex:2"><select id="medQtyUnit" style="flex:1"><option value="盒">盒</option><option value="瓶">瓶</option><option value="件">件</option><option value="包">包</option></select></div></div>
             <div class="form-group"><label>每次剂量</label><div style="display:flex;gap:8px"><input id="medDoseAmount" type="number" step="0.001" placeholder="如 5" style="flex:2"><select id="medDoseUnit" style="flex:1"><option value="mg">mg</option><option value="g">g</option><option value="ml">ml</option><option value="μg">μg</option><option value="片">片</option><option value="粒">粒</option><option value="袋">袋</option><option value="支">支</option><option value="贴">贴</option></select></div></div>
             <div class="form-group"><label>每日次数</label><input id="medFreq" type="number" min="1" max="4" value="1" oninput="MedTimesUI.render('med')"></div>
             <div class="form-group"><label>服用时间段</label><div id="medTimeSlots"></div></div>
@@ -632,11 +633,12 @@ const PageAddRecord = {
         <div class="sub-header">
             <button class="back-btn" onclick="App.goBack()"><i class="fas fa-arrow-left"></i></button>
             <h2>添加病历</h2>
-            <button style="background:none;border:none;cursor:pointer;font-size:20px;color:#2b7a78;margin-left:auto;padding:8px;" onclick="App.startScan('病历')" title="拍照识别"><i class="fas fa-camera"></i></button>
+            <button style="background:none;border:none;cursor:pointer;font-size:20px;color:#2b7a78;margin-left:auto;padding:8px;" onclick="App.startScan(document.getElementById('recordType')?.value || '病历')" title="拍照识别"><i class="fas fa-camera"></i></button>
         </div>
         <div class="card">
             <div class="form-group"><label>关联成员 *</label><select id="recordElderId" onchange="PageAddRecord.onElderChange(this.value)">${memberOptions}</select></div>
             <div class="form-group"><label>类型</label><select id="recordType" onchange="PageAddRecord.onTypeChange(this.value)"><option value="病历">病历</option><option value="检查报告">检查报告</option><option value="处方">处方</option></select></div>
+            <div id="recordRelatedGroup" class="form-group" style="display:none;"><label>关联病历</label><select id="recordRelated" onchange="PageAddRecord.onRelatedChange(this.value)"><option value="">不关联</option></select><div style="font-size:12px;color:#94a3b8;margin-top:4px;">如未选择病历记录，在保存时，将自动创建一条病历记录。</div></div>
             <div id="recordFieldsMedical">
                 <div class="form-group"><label id="recordDateLabel">就诊日期</label><input id="recordDate" type="text" readonly onclick="CalendarPicker.attach(this,{max:'today'})" placeholder="点击选择日期" style="background:#fff;"></div>
                 <div class="form-group"><label>医院</label><input id="recordHospital" placeholder="输入医院名称或拼音首字母" autocomplete="off" oninput="HospitalSuggest.onInput(this)"></div>
@@ -653,7 +655,6 @@ const PageAddRecord = {
                 <div class="form-group"><label>检查项目 *</label><input id="recordExamName" placeholder="如：胸部CT平扫"></div>
                 <div class="form-group"><label>检查所见</label><textarea id="recordFindings" rows="4" placeholder="检查所见内容"></textarea></div>
                 <div class="form-group"><label>报告结论</label><textarea id="recordConclusion" rows="3" placeholder="报告结论内容"></textarea></div>
-                <div class="form-group"><label>关联病历</label><select id="recordRelatedRecord2"><option value="">不关联</option></select></div>
             </div>
             <div id="recordFieldsPrescription" style="display:none;">
                 <div class="form-group"><label>开始日期</label><input id="recordDate3" type="text" readonly onclick="CalendarPicker.attach(this,{max:'today'})" placeholder="点击选择日期" style="background:#fff;"></div>
@@ -661,18 +662,7 @@ const PageAddRecord = {
                 <div class="form-group"><label>科室</label><input id="recordMedDept" placeholder="输入科室名称或拼音首字母" autocomplete="off" oninput="DeptSuggest.onInput(this)"></div>
                 <div class="form-group"><label>诊断</label><input id="recordMedDiagnosis" placeholder="诊断结果"></div>
                 <div class="form-group"><label>医生</label><input id="recordMedDoctor" placeholder="主治医生"></div>
-                <div style="background:#f8fafd;border-radius:12px;padding:12px;margin-bottom:8px;">
-                    <div class="form-group"><label>药品名称 *</label><input id="recordMedName" placeholder="输入名称或拼音首字母" autocomplete="off" oninput="DrugSuggest.onInput(this,'recordMedCode')"><input type="hidden" id="recordMedCode"></div>
-                    <div class="form-group"><label>规格（每片/袋含量）</label><div style="display:flex;gap:8px"><input id="recordMedSpecDosage" type="number" step="0.001" placeholder="如 0.25" style="flex:2"><select id="recordMedSpecDosageUnit" style="flex:1"><option value="g">g</option><option value="mg">mg</option><option value="ml">ml</option><option value="μg">μg</option></select></div></div>
-                    <div class="form-group"><label>单位容量（每盒/瓶数量）</label><div style="display:flex;gap:8px"><input id="recordMedUnitCap" type="number" placeholder="如 20" style="flex:2"><select id="recordMedUnitCapUnit" style="flex:1"><option value="片">片</option><option value="粒">粒</option><option value="袋">袋</option><option value="支">支</option><option value="瓶">瓶</option><option value="贴">贴</option></select></div></div>
-                    <div class="form-group"><label>数量</label><div style="display:flex;gap:8px"><input id="recordMedQty" type="number" value="1" min="1" style="flex:2"><select id="recordMedQtyUnit" style="flex:1"><option value="盒">盒</option><option value="瓶">瓶</option><option value="袋">袋</option><option value="支">支</option><option value="包">包</option><option value="板">板</option></select></div></div>
-                    <div class="form-group"><label>有效期 *</label><input id="recordMedExpiryDate" type="text" readonly onclick="CalendarPicker.attach(this)" placeholder="点击选择日期" style="background:#fff;"></div>
-                    <div class="form-group"><label>每次剂量</label><div style="display:flex;gap:8px"><input id="recordMedDoseAmount" type="number" step="0.001" placeholder="如 5" style="flex:2"><select id="recordMedDoseUnit" style="flex:1"><option value="mg">mg</option><option value="g">g</option><option value="ml">ml</option><option value="μg">μg</option><option value="片">片</option><option value="粒">粒</option><option value="袋">袋</option><option value="支">支</option><option value="贴">贴</option></select></div></div>
-                    <div class="form-group"><label>每日次数</label><input id="recordMedFreq" type="number" min="1" max="4" value="1" oninput="MedTimesUI.render('recordMed')"></div>
-                    <div class="form-group"><label>服用时间段</label><div id="recordMedTimeSlots"></div></div>
-                    <div class="form-group"><label>备注</label><input id="recordMedNote" placeholder="如：餐后服用"></div>
-                </div>
-                <div class="form-group"><label>关联病历</label><select id="recordMedRelated"><option value="">不关联</option></select></div>
+                <div id="recordMedList"></div>
             </div>
             <div class="form-group"><label>图片</label><div id="recordImages"></div></div>
             <button class="btn-primary" onclick="App.saveRecord()">保存</button>
@@ -683,6 +673,10 @@ const PageAddRecord = {
         const medicalFields = document.getElementById('recordFieldsMedical');
         const reportFields = document.getElementById('recordFieldsReport');
         const prescriptionFields = document.getElementById('recordFieldsPrescription');
+        const relatedGroup = document.getElementById('recordRelatedGroup');
+        // 关联病历下拉仅对"检查报告/处方"显示
+        const showRelated = type === '检查报告' || type === '处方';
+        if (relatedGroup) relatedGroup.style.display = showRelated ? 'block' : 'none';
         if (type === '检查报告') {
             medicalFields.style.display = 'none';
             reportFields.style.display = 'block';
@@ -691,25 +685,36 @@ const PageAddRecord = {
             medicalFields.style.display = 'none';
             reportFields.style.display = 'none';
             prescriptionFields.style.display = 'block';
-            MedTimesUI.render('recordMed');
+            // 懒初始化多药品列表（已有区块时保留已填数据，不重置）
+            this._ensureMedList();
         } else {
             medicalFields.style.display = 'block';
             reportFields.style.display = 'none';
             prescriptionFields.style.display = 'none';
         }
+        // 若已选择关联病历，切换类型后重新填充并锁定对应字段
+        if (showRelated) {
+            const relatedSel = document.getElementById('recordRelated');
+            if (relatedSel && relatedSel.value) {
+                this.onRelatedChange(relatedSel.value);
+            }
+        }
     },
 
     afterRender() {
         ImageUploader.init('recordImages');
+        // 页面每次进入都会整体重渲染，清空药品区块的脏状态（旧 uid 指向的 DOM 已不存在）
+        this._medBlocks = [];
+        this._medExpandedUid = null;
         const today = new Date().toISOString().slice(0,10);
         // 设置就诊/检查/开始日期缺省为当天
         ['recordDate','recordDate2','recordDate3'].forEach(id => {
             const el = document.getElementById(id);
             if (el && !el.value) el.value = today;
         });
-        // 处方类型时初始化时间段
+        // 处方类型时初始化多药品列表（首次进入创建一个空区块）
         if (document.getElementById('recordType').value === '处方') {
-            MedTimesUI.render('recordMed');
+            this._ensureMedList();
         }
         // 加载关联病历下拉数据（处方/报告用）
         const elderId = document.getElementById('recordElderId')?.value;
@@ -719,10 +724,226 @@ const PageAddRecord = {
     // 成员切换时刷新关联病历下拉
     async onElderChange(elderId) {
         if (!elderId) return;
-        await Promise.all([
-            App._loadRelatedRecords(elderId, 'recordMedRelated'),
-            App._loadRelatedRecords(elderId, 'recordRelatedRecord2')
-        ]);
+        await App._loadRelatedRecords(elderId, 'recordRelated');
+    },
+
+    // 选择关联病历时，自动将该病历的医院/科室/诊断/医生等信息填入对应表单字段，
+    // 并将相关字段置灰只读（即使值为空也锁定）；取消选择时解锁字段允许手动修改
+    async onRelatedChange(recordId) {
+        const type = document.getElementById('recordType').value;
+        const fields = type === '处方'
+            ? ['recordMedHospital', 'recordMedDept', 'recordMedDiagnosis', 'recordMedDoctor']
+            : type === '检查报告'
+            ? ['recordHospital2', 'recordDept2']
+            : [];
+        if (!recordId) {
+            // 取消关联：解锁字段，允许手动修改
+            fields.forEach(id => this._setFieldReadOnly(id, false));
+            return;
+        }
+        try {
+            const res = await Api.records.get(recordId);
+            const rec = res.record || {};
+            // 即使值为空也写入（清空用户原值），随后锁定
+            const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.value = val || ''; };
+            if (type === '处方') {
+                setVal('recordMedHospital', rec.hospital);
+                setVal('recordMedDept', rec.department);
+                setVal('recordMedDiagnosis', rec.diagnosis);
+                setVal('recordMedDoctor', rec.doctor);
+            } else if (type === '检查报告') {
+                setVal('recordHospital2', rec.hospital);
+                setVal('recordDept2', rec.department);
+            }
+            // 选择病历后置灰只读，即使值为空也锁定
+            fields.forEach(id => this._setFieldReadOnly(id, true));
+        } catch (e) { /* 静默失败 */ }
+    },
+
+    // ===== 处方多药品区块管理 =====
+    // 使用稳定 uid 作为字段前缀，避免删除/重排导致状态错乱
+    _medUid: 0,
+    _medBlocks: [],          // [{ uid }]
+    _medExpandedUid: null,   // 当前展开的区块 uid
+
+    // 生成单个药品区块 HTML（uid 作为字段前缀 recordMed${uid}）
+    _medBlockHtml(uid) {
+        const p = `recordMed${uid}`;
+        return `
+        <div class="med-block" data-uid="${uid}" id="medBlock${uid}">
+            <div class="med-block-header" onclick="PageAddRecord.expandMed(${uid})">
+                <span class="med-arrow">▶</span>
+                <span class="med-title" id="medTitle${uid}"><span class="med-empty">药品（未填写）</span></span>
+                <button type="button" class="med-remove" onclick="event.stopPropagation();PageAddRecord.removeMed(${uid})" title="删除该药品">×</button>
+            </div>
+            <div class="med-block-content">
+                <div class="form-group"><label>药品名称 *</label><input id="${p}Name" placeholder="输入名称或拼音首字母" autocomplete="off" oninput="DrugSuggest.onInput(this,'${p}Code',{specDosage:'${p}SpecDosage',specDosageUnit:'${p}SpecDosageUnit',unitCapacity:'${p}UnitCap',unitCapacityUnit:'${p}UnitCapUnit',manufacturer:'${p}Manu'});PageAddRecord._updateHeader(${uid})"><input type="hidden" id="${p}Code"></div>
+                <div class="form-group"><label>规格（每片/袋含量）</label><div style="display:flex;gap:8px"><input id="${p}SpecDosage" type="number" step="0.001" placeholder="如 0.25" style="flex:2"><select id="${p}SpecDosageUnit" style="flex:1"><option value="g">g</option><option value="mg">mg</option><option value="ml">ml</option><option value="μg">μg</option></select></div></div>
+                <div class="form-group"><label>单位容量（每盒/瓶数量）</label><div style="display:flex;gap:8px"><input id="${p}UnitCap" type="number" placeholder="如 20" style="flex:2"><select id="${p}UnitCapUnit" style="flex:1"><option value="片">片</option><option value="粒">粒</option><option value="袋">袋</option><option value="支">支</option><option value="瓶">瓶</option><option value="贴">贴</option></select></div></div>
+                <div class="form-group"><label>生产厂商</label><input id="${p}Manu" placeholder="生产单位"></div>
+                <div class="form-group"><label>数量</label><div style="display:flex;gap:8px"><input id="${p}Qty" type="number" value="1" min="1" style="flex:2"><select id="${p}QtyUnit" style="flex:1"><option value="盒">盒</option><option value="瓶">瓶</option><option value="件">件</option><option value="包">包</option></select></div></div>
+                <div class="form-group"><label>有效期 *</label><input id="${p}ExpiryDate" type="text" readonly onclick="CalendarPicker.attach(this)" placeholder="点击选择日期" style="background:#fff;"></div>
+                <div class="form-group"><label>每次剂量</label><div style="display:flex;gap:8px"><input id="${p}DoseAmount" type="number" step="0.001" placeholder="如 5" style="flex:2"><select id="${p}DoseUnit" style="flex:1"><option value="mg">mg</option><option value="g">g</option><option value="ml">ml</option><option value="μg">μg</option><option value="片">片</option><option value="粒">粒</option><option value="袋">袋</option><option value="支">支</option><option value="贴">贴</option></select></div></div>
+                <div class="form-group"><label>每日次数</label><input id="${p}Freq" type="number" min="1" max="4" value="1" oninput="MedTimesUI.render('${p}')"></div>
+                <div class="form-group"><label>服用时间段</label><div id="${p}TimeSlots"></div></div>
+                <div class="form-group"><label>备注</label><input id="${p}Note" placeholder="如：餐后服用"></div>
+                <button type="button" class="add-next-btn" onclick="PageAddRecord.addNextMed()">+ 添加下一个</button>
+            </div>
+        </div>`;
+    },
+
+    // 初始化药品列表：清空容器，创建一个展开的空区块
+    initMedList() {
+        const container = document.getElementById('recordMedList');
+        if (!container) return;
+        container.innerHTML = '';
+        this._medBlocks = [];
+        this._medUid = 0;
+        this._medExpandedUid = null;
+        this._appendBlock();
+    },
+
+    // 懒初始化：仅在尚未创建任何区块时初始化，避免切换类型时丢失已填数据
+    _ensureMedList() {
+        if (!this._medBlocks || this._medBlocks.length === 0) {
+            this.initMedList();
+        }
+    },
+
+    // 追加一个新区块并展开它
+    _appendBlock() {
+        const container = document.getElementById('recordMedList');
+        if (!container) return null;
+        const uid = ++this._medUid;
+        const wrap = document.createElement('div');
+        wrap.innerHTML = this._medBlockHtml(uid);
+        const blockEl = wrap.firstElementChild;
+        container.appendChild(blockEl);
+        this._medBlocks.push({ uid });
+        // 初始化该区块的服用时间段状态
+        const p = `recordMed${uid}`;
+        delete MedTimesUI._state[p];
+        MedTimesUI.render(p);
+        this._setExpanded(uid);
+        return uid;
+    },
+
+    // 切换展开的区块：折叠其他，仅展开指定 uid（同一时间只有一个展开）
+    expandMed(uid) {
+        if (this._medExpandedUid === uid) {
+            // 已展开，点击则保持展开（避免全部折叠无法操作）
+            return;
+        }
+        this._setExpanded(uid);
+    },
+
+    _setExpanded(uid) {
+        this._medBlocks.forEach(b => {
+            const el = document.getElementById(`medBlock${b.uid}`);
+            if (!el) return;
+            const content = el.querySelector('.med-block-content');
+            if (b.uid === uid) {
+                el.classList.add('expanded');
+                if (content) content.style.display = '';
+                this._updateHeader(b.uid);
+            } else {
+                el.classList.remove('expanded');
+                if (content) content.style.display = 'none';
+                this._updateHeader(b.uid);
+            }
+        });
+        this._medExpandedUid = uid;
+    },
+
+    // 更新区块标题：展开时显示“药品 N”，折叠时显示药品名称
+    _updateHeader(uid) {
+        const titleEl = document.getElementById(`medTitle${uid}`);
+        if (!titleEl) return;
+        const nameEl = document.getElementById(`recordMed${uid}Name`);
+        const name = nameEl ? nameEl.value.trim() : '';
+        // 计算序号（按当前 _medBlocks 顺序）
+        const idx = this._medBlocks.findIndex(b => b.uid === uid);
+        const seq = idx >= 0 ? idx + 1 : uid;
+        if (name) {
+            titleEl.innerHTML = `药品${seq}：<span class="med-name-text">${this._escHtml(name)}</span>`;
+        } else {
+            titleEl.innerHTML = `药品${seq}：<span class="med-empty">未填写</span>`;
+        }
+    },
+
+    _escHtml(s) {
+        return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    },
+
+    // “+ 添加下一个”：追加新区块并展开（自动折叠当前）
+    addNextMed() {
+        this._appendBlock();
+        // 滚动到新区块
+        const newEl = document.getElementById(`medBlock${this._medExpandedUid}`);
+        if (newEl) newEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    },
+
+    // 删除指定区块；若删的是当前展开项，则展开最后一个
+    removeMed(uid) {
+        const idx = this._medBlocks.findIndex(b => b.uid === uid);
+        if (idx < 0) return;
+        // 至少保留一个区块：若只剩一个，清空其内容而非移除
+        if (this._medBlocks.length <= 1) {
+            const p = `recordMed${uid}`;
+            ['Name','Code','SpecDosage','UnitCap','Manu','Qty','ExpiryDate','DoseAmount','Note'].forEach(k => {
+                const el = document.getElementById(`${p}${k}`);
+                if (el) el.value = '';
+            });
+            delete MedTimesUI._state[p];
+            MedTimesUI.render(p);
+            this._updateHeader(uid);
+            return;
+        }
+        const el = document.getElementById(`medBlock${uid}`);
+        if (el) el.remove();
+        this._medBlocks.splice(idx, 1);
+        delete MedTimesUI._state[`recordMed${uid}`];
+        // 重新计算序号并更新所有标题
+        this._medBlocks.forEach(b => this._updateHeader(b.uid));
+        // 若删除的是展开项，展开最后一个
+        if (this._medExpandedUid === uid) {
+            const last = this._medBlocks[this._medBlocks.length - 1];
+            if (last) this._setExpanded(last.uid);
+        } else {
+            // 当前展开项未变，但序号可能变了，刷新其标题
+            if (this._medExpandedUid != null) this._updateHeader(this._medExpandedUid);
+        }
+    },
+
+    // 保存前校验所有药品：调用 DrugSuggest.ensure 并校验名称/有效期
+    // 返回有效药品区块列表 [{uid, prefix}]；返回 null 表示校验未通过
+    async ensureAllMeds() {
+        const blocks = this._medBlocks.slice();
+        for (const b of blocks) {
+            const p = `recordMed${b.uid}`;
+            const nameEl = document.getElementById(`${p}Name`);
+            if (!nameEl || !nameEl.value.trim()) continue; // 跳过空区块
+            const expiryEl = document.getElementById(`${p}ExpiryDate`);
+            if (!expiryEl || !expiryEl.value) {
+                App.toast(`请填写药品“${nameEl.value.trim()}”的有效期`);
+                // 展开该区块方便用户补填
+                this._setExpanded(b.uid);
+                return null;
+            }
+            // 保存前校验药品是否存在，不存在提示选择或新建
+            if (false === await DrugSuggest.ensure(nameEl)) return null;
+        }
+        return blocks.map(b => ({ uid: b.uid, prefix: `recordMed${b.uid}` }));
+    },
+
+    // 设置字段只读/可编辑状态并切换灰色样式
+    _setFieldReadOnly(id, readOnly) {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.readOnly = readOnly;
+        el.style.backgroundColor = readOnly ? '#f1f5f9' : '';
+        el.style.color = readOnly ? '#64748b' : '';
+        el.style.cursor = readOnly ? 'not-allowed' : '';
     }
 };
 

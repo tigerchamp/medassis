@@ -338,7 +338,14 @@ function parsePrescription(text) {
     }
   }
   flush();
-  return { medications: meds };
+  return {
+    hospital: findHospital(text),
+    department: findDepartment(text),
+    visitDate: findDate(text),
+    diagnosis: extractBlock(text, ['诊断', '初步诊断', '临床诊断']) || '',
+    doctor: extractAfter(findLine(text, ['医师签名', '医师签字', '医师', '医生', '接诊医生', '主治医师', '签名'])) || '',
+    medications: meds
+  };
 }
 
 function parseDrug(text) {

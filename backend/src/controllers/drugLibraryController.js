@@ -1,13 +1,28 @@
 const { getPool } = require('../config/database');
-const { parseSpecification } = require('../utils/drugLibrary');
+const { v4: uuidv4 } = require('uuid');
+const { getPinyinAbbr, parseSpecification } = require('../utils/drugLibrary');
+
+/**
+ * 获取当前用户及其所在家庭组的全部用户ID（用于私有数据隔离）
+ */
+async function _getFamilyUserIds(req) {
+  const familyId = req.familyId || (req.user && req.user.family_id);
+  let userIds = [req.user.id];
+  if (familyId) {
+    const [rows] = await getPool().query('SELECT id FROM users WHERE family_id = ?', [familyId]);
+    const ids = rows.map(r => r.id);
+    if (ids.length) userIds = ids;
+    if (!userIds.includes(req.user.id)) userIds.push(req.user.id);
+  }
+  return userIds;
+}
 
 /**
  * 搜索药品库
  * GET /api/drug-library/search?q=xxx&limit=20
  *
- * 匹配规则：
- * - 同时按 名称 LIKE 模糊匹配 和 拼音首字母缩写前缀匹配
- * - 拼音缩写前缀匹配优先排序（更符合"首字母缩写快速检索"语义）
+ * 可见范围：标准共享数据 + 当前用户及其家庭组的私有数据
+ * 匹配 名称模糊 + 拼音首字母缩写前缀
  */
 async function search(req, res) {
   try {
@@ -18,13 +33,13 @@ async function search(req, res) {
       return res.json({ drugs: [] });
     }
     const kw = q.trim();
+    const familyUserIds = await _getFamilyUserIds(req);
 
-    // 名称模糊 + 拼音缩写前缀，UNION 去重
-    // 使用参数化查询避免注入
     const [rows] = await getPool().query(
       `SELECT code, name, pinyin_abbr, generic_name, category, dosage_form, specification, spec_dosage, spec_dosage_unit, unit_capacity, unit_capacity_unit, manufacturer, approval_number, indication, contraindication, dosage_instruction, adverse_reaction, drug_interaction, precaution, storage
        FROM drugs
-       WHERE name LIKE ? OR pinyin_abbr LIKE ?
+       WHERE (owner_user_id IS NULL OR owner_user_id IN (?))
+         AND (name LIKE ? OR pinyin_abbr LIKE ?)
        ORDER BY CASE
          WHEN name = ? THEN 0
          WHEN pinyin_abbr = ? THEN 1
@@ -33,7 +48,7 @@ async function search(req, res) {
          ELSE 4
        END, name
        LIMIT ?`,
-      [`%${kw}%`, `${kw}%`, kw, kw, `${kw}%`, `${kw}%`, limit]
+      [familyUserIds, `%${kw}%`, `${kw}%`, kw, kw, `${kw}%`, `${kw}%`, limit]
     );
 
     res.json({
@@ -132,4 +147,113 @@ async function getDrug(req, res) {
   }
 }
 
-module.exports = { search, getDrug };
+/**
+ * 精确查询药品是否存在（按名称匹配，限定在可见范围内）
+ * GET /api/drug-library/check?name=xxx
+ * 返回：{ exists: bool, drug: {...}|null, similar: [...] }
+ *
+ * 可见范围：标准共享数据 + 当前用户及其家庭组的私有数据
+ */
+async function check(req, res) {
+  try {
+    const name = (req.query.name || '').trim();
+    if (!name) return res.json({ exists: false, drug: null, similar: [] });
+    const familyUserIds = await _getFamilyUserIds(req);
+
+    // 精确匹配 name（仅在可见范围内）
+    const [exact] = await getPool().query(
+      `SELECT code, name, specification, spec_dosage, spec_dosage_unit, unit_capacity, unit_capacity_unit, manufacturer
+       FROM drugs
+       WHERE (owner_user_id IS NULL OR owner_user_id IN (?))
+         AND name = ? LIMIT 1`,
+      [familyUserIds, name]
+    );
+    if (exact.length > 0) {
+      return res.json({
+        exists: true,
+        drug: {
+          code: exact[0].code,
+          name: exact[0].name,
+          specification: exact[0].specification || '',
+          specDosage: exact[0].spec_dosage != null ? Number(exact[0].spec_dosage) : null,
+          specDosageUnit: exact[0].spec_dosage_unit || '',
+          unitCapacity: exact[0].unit_capacity != null ? Number(exact[0].unit_capacity) : null,
+          unitCapacityUnit: exact[0].unit_capacity_unit || '',
+          manufacturer: exact[0].manufacturer || ''
+        }
+      });
+    }
+    // 不存在则返回相似项（同样限定可见范围）
+    const [similar] = await getPool().query(
+      `SELECT code, name, specification, manufacturer FROM drugs
+       WHERE (owner_user_id IS NULL OR owner_user_id IN (?))
+         AND (name LIKE ? OR pinyin_abbr LIKE ?) ORDER BY name LIMIT 8`,
+      [familyUserIds, `%${name}%`, `${name}%`]
+    );
+    res.json({ exists: false, drug: null, similar });
+  } catch (err) {
+    console.error('Drug library check error:', err);
+    res.status(500).json({ error: '校验药品失败' });
+  }
+}
+
+/**
+ * 添加新药品（仅当前用户及其家庭组可用）
+ * POST /api/drug-library/add  body: { name, specification?, specDosage?, specDosageUnit?, unitCapacity?, unitCapacityUnit?, manufacturer?, dosageForm?, approvalNumber? }
+ * 自动生成拼音首字母作为 pinyin_abbr，owner_user_id 记录创建者
+ */
+async function add(req, res) {
+  try {
+    const { name, specification, specDosage, specDosageUnit, unitCapacity, unitCapacityUnit, manufacturer, dosageForm, approvalNumber } = req.body;
+    const trimmed = (name || '').trim();
+    if (!trimmed) return res.status(400).json({ error: '药品名称不能为空' });
+
+    const familyUserIds = await _getFamilyUserIds(req);
+    // 在可见范围内已存在则直接返回，避免重复添加
+    const [existing] = await getPool().query(
+      `SELECT code, name, specification, spec_dosage, spec_dosage_unit, unit_capacity, unit_capacity_unit, manufacturer FROM drugs
+       WHERE (owner_user_id IS NULL OR owner_user_id IN (?)) AND name = ? LIMIT 1`,
+      [familyUserIds, trimmed]
+    );
+    if (existing.length > 0) {
+      const r = existing[0];
+      return res.json({
+        drug: {
+          code: r.code, name: r.name,
+          specification: r.specification || '',
+          specDosage: r.spec_dosage != null ? Number(r.spec_dosage) : null,
+          specDosageUnit: r.spec_dosage_unit || '',
+          unitCapacity: r.unit_capacity != null ? Number(r.unit_capacity) : null,
+          unitCapacityUnit: r.unit_capacity_unit || '',
+          manufacturer: r.manufacturer || ''
+        }
+      });
+    }
+
+    const code = uuidv4();
+    const pinyinAbbr = getPinyinAbbr(trimmed);
+    await getPool().query(
+      `INSERT INTO drugs (code, approval_number, name, pinyin_abbr, dosage_form, specification, spec_dosage, spec_dosage_unit, unit_capacity, unit_capacity_unit, manufacturer, owner_user_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [code, approvalNumber || null, trimmed, pinyinAbbr, dosageForm || null, specification || null,
+       specDosage || null, specDosageUnit || null, unitCapacity || null, unitCapacityUnit || null,
+       manufacturer || null, req.user.id]
+    );
+    res.json({
+      drug: {
+        code, name: trimmed,
+        specification: specification || '',
+        specDosage: specDosage || null,
+        specDosageUnit: specDosageUnit || '',
+        unitCapacity: unitCapacity || null,
+        unitCapacityUnit: unitCapacityUnit || '',
+        manufacturer: manufacturer || ''
+      }
+    });
+  } catch (err) {
+    console.error('Add drug error:', err);
+    res.status(500).json({ error: '添加药品失败' });
+  }
+}
+
+module.exports = { search, getDrug, check, add };

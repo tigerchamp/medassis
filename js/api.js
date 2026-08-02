@@ -77,16 +77,18 @@ const Api = {
     drugLibrary: {
         search: (q, limit = 20) => api(`/drug-library/search?q=${encodeURIComponent(q)}&limit=${limit}`),
         get: (code) => api(`/drug-library/${encodeURIComponent(code)}`),
+        check: (name) => api(`/drug-library/check?name=${encodeURIComponent(name)}`),
+        add: (d) => api('/drug-library/add', { method: 'POST', body: JSON.stringify(d) }),
     },
     hospitals: {
         search: (q, limit = 20) => api(`/hospitals/search?q=${encodeURIComponent(q)}&limit=${limit}`),
         check: (name) => api(`/hospitals/check?name=${encodeURIComponent(name)}`),
-        add: (name, abbreviation, alias) => api('/hospitals/add', { method: 'POST', body: JSON.stringify({ name, abbreviation, alias }) }),
+        add: (name, abbreviation, alias, phone, address) => api('/hospitals/add', { method: 'POST', body: JSON.stringify({ name, abbreviation, alias, phone, address }) }),
     },
     departments: {
         search: (q, limit = 20) => api(`/departments/search?q=${encodeURIComponent(q)}&limit=${limit}`),
         check: (name) => api(`/departments/check?name=${encodeURIComponent(name)}`),
-        add: (name, abbreviation, alias) => api('/departments/add', { method: 'POST', body: JSON.stringify({ name, abbreviation, alias }) }),
+        add: (name, abbreviation, alias, category) => api('/departments/add', { method: 'POST', body: JSON.stringify({ name, abbreviation, alias, category }) }),
     },
     search: (keyword) => api(`/search?keyword=${encodeURIComponent(keyword)}`),
     upload: async (files) => {
