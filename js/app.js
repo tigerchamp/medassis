@@ -239,6 +239,16 @@ const DrugSuggest = {
         this._timer = setTimeout(() => this._search(inputEl, q), 220);
     },
 
+    // 点击药品名称输入框时，若已有内容则直接显示匹配下拉（不清除已选 code、不解锁字段）
+    showSuggestions(inputEl) {
+        if (!inputEl) return;
+        this._currentInput = inputEl;
+        this._autoFillMap = (inputEl._dsAutoFillMap) || null;
+        const q = inputEl.value.trim();
+        if (!q) return;
+        this._search(inputEl, q);
+    },
+
     async _search(inputEl, q) {
         try {
             const res = await Api.drugLibrary.search(q);
@@ -473,7 +483,7 @@ document.addEventListener('click', (e) => {
 });
 
 // ========== 医院库下拉建议组件 ==========
-// 用法：在医院名称输入框上 oninput="HospitalSuggest.onInput(this)"
+// 用法：在医院名称输入框上 onclick="HospitalSuggest.onInput(this)" oninput="HospitalSuggest.onInput(this)"
 // 选中后自动填充名称到当前输入框
 const HospitalSuggest = {
     _timer: null,
@@ -637,7 +647,7 @@ const HospitalSuggest = {
 };
 
 // ========== 科室下拉建议组件 ==========
-// 用法：在科室输入框上 oninput="DeptSuggest.onInput(this)"
+// 用法：在科室输入框上 onclick="DeptSuggest.onInput(this)" oninput="DeptSuggest.onInput(this)"
 const DeptSuggest = {
     _timer: null,
     _currentInput: null,
@@ -1080,9 +1090,12 @@ const App = {
     },
 
     // OCR 识别原文全屏查看（方便查看与拷贝）
-    showOcrTextFullscreen() {
-        const ta = document.getElementById('ocrRawText');
-        const text = ta ? ta.value : '';
+    // 支持传入 text 直接显示（如详情页查看识别内容），或从 #ocrRawText 读取（扫描表单）
+    showOcrTextFullscreen(text) {
+        if (typeof text !== 'string') {
+            const ta = document.getElementById('ocrRawText');
+            text = ta ? ta.value : '';
+        }
         let overlay = document.getElementById('ocrTextOverlay');
         if (!overlay) {
             overlay = document.createElement('div');
@@ -1298,8 +1311,8 @@ const App = {
                 <div class="form-group"><label>关联成员</label><select id="ocr-record-elder">${this._memberOptions()}</select></div>
                 <div class="form-group"><label>类型</label><select id="ocr-record-type"><option selected>病历</option><option>检查报告</option></select></div>
                 <div class="form-group"><label>就诊日期</label><input id="ocr-record-date" type="text" readonly value="${parsed.visitDate || today}" onclick="CalendarPicker.attach(this,{max:'today'})" placeholder="点击选择日期" style="background:#fff;"></div>
-                <div class="form-group"><label>医院</label><input id="ocr-hospital" value="${this._escAttr(parsed.hospital)}" placeholder="输入医院名称或拼音首字母" autocomplete="off" oninput="HospitalSuggest.onInput(this)"></div>
-                <div class="form-group"><label>科室</label><input id="ocr-department" value="${this._escAttr(parsed.department)}" placeholder="输入科室名称或拼音首字母" autocomplete="off" oninput="DeptSuggest.onInput(this)"></div>
+                <div class="form-group"><label>医院 *</label><input id="ocr-hospital" value="${this._escAttr(parsed.hospital)}" placeholder="输入医院名称或拼音首字母" autocomplete="off" onclick="HospitalSuggest.onInput(this)" oninput="HospitalSuggest.onInput(this)"></div>
+                <div class="form-group"><label>科室 *</label><input id="ocr-department" value="${this._escAttr(parsed.department)}" placeholder="输入科室名称或拼音首字母" autocomplete="off" onclick="DeptSuggest.onInput(this)" oninput="DeptSuggest.onInput(this)"></div>
                 <div class="form-group"><label>主诉</label><textarea id="ocr-complaint" placeholder="主要症状">${this._escAttr(parsed.chiefComplaint)}</textarea></div>
                 <div class="form-group"><label>诊断 *</label><input id="ocr-diagnosis" value="${this._escAttr(parsed.diagnosis)}" placeholder="诊断结果"></div>
                 <div class="form-group"><label>医嘱</label><textarea id="ocr-orders" placeholder="医嘱内容">${this._escAttr(parsed.orders)}</textarea></div>
@@ -1320,8 +1333,8 @@ const App = {
                 <div class="form-group"><label>关联成员</label><select id="ocr-record-elder" onchange="App._loadRelatedRecords(this.value,'ocr-record-related')">${this._memberOptions()}</select></div>
                 <div class="form-group"><label>类型</label><select id="ocr-record-type"><option>病历</option><option selected>检查报告</option></select></div>
                 <div class="form-group"><label>检查日期</label><input id="ocr-record-date" type="text" readonly value="${parsed.visitDate || today}" onclick="CalendarPicker.attach(this,{max:'today'})" placeholder="点击选择日期" style="background:#fff;"></div>
-                <div class="form-group"><label>医院</label><input id="ocr-hospital" value="${this._escAttr(parsed.hospital)}" placeholder="如：市中心医院" oninput="HospitalSuggest.onInput(this)"></div>
-                <div class="form-group"><label>科室</label><input id="ocr-department" value="${this._escAttr(parsed.department)}" placeholder="如：影像科" oninput="DeptSuggest.onInput(this)"></div>
+                <div class="form-group"><label>医院 *</label><input id="ocr-hospital" value="${this._escAttr(parsed.hospital)}" placeholder="如：市中心医院" onclick="HospitalSuggest.onInput(this)" oninput="HospitalSuggest.onInput(this)"></div>
+                <div class="form-group"><label>科室 *</label><input id="ocr-department" value="${this._escAttr(parsed.department)}" placeholder="如：影像科" onclick="DeptSuggest.onInput(this)" oninput="DeptSuggest.onInput(this)"></div>
                 <div class="form-group"><label>检查项目</label><input id="ocr-diagnosis" value="${this._escAttr(parsed.examName)}"></div>
                 <div class="form-group"><label>检查所见</label><textarea id="ocr-findings" rows="4">${this._escAttr(parsed.findings)}</textarea></div>
                 <div class="form-group"><label>报告结论</label><textarea id="ocr-conclusion" rows="3">${this._escAttr(parsed.conclusion)}</textarea></div>
@@ -1348,15 +1361,15 @@ const App = {
                 const du = normUnit(m.doseUnit);
                 return `
                 <div style="background:#f8fafd;border-radius:12px;padding:12px;margin-bottom:8px;">
-                    <div class="form-group"><label>药品${i + 1}名称 *</label><input id="${p}Name" value="${this._escAttr(m.name)}" placeholder="输入名称或拼音首字母" autocomplete="off" oninput="DrugSuggest.onInput(this,'${p}Code',{specDosage:'${p}SpecDosage',specDosageUnit:'${p}SpecDosageUnit',unitCapacity:'${p}UnitCap',unitCapacityUnit:'${p}UnitCapUnit',manufacturer:'${p}Manu'})"><input type="hidden" id="${p}Code"></div>
-                    <div class="form-group"><label>规格（每片/袋含量）</label><div style="display:flex;gap:8px"><input id="${p}SpecDosage" type="number" step="0.001" value="${m.specDosage || ''}" placeholder="如 0.25" style="flex:2"><select id="${p}SpecDosageUnit" style="flex:1">${optsSel(specUnitOpts, sdu)}</select></div></div>
-                    <div class="form-group"><label>单位容量（每盒/瓶数量）</label><div style="display:flex;gap:8px"><input id="${p}UnitCap" type="number" value="${m.unitCap || ''}" placeholder="如 20" style="flex:2"><select id="${p}UnitCapUnit" style="flex:1">${opts(capUnitOpts)}</select></div></div>
+                    <div class="form-group"><label>药品${i + 1}名称 *</label><input id="${p}Name" value="${this._escAttr(m.name)}" placeholder="输入名称或拼音首字母" autocomplete="off" onclick="DrugSuggest.showSuggestions(this)" oninput="DrugSuggest.onInput(this,'${p}Code',{specDosage:'${p}SpecDosage',specDosageUnit:'${p}SpecDosageUnit',unitCapacity:'${p}UnitCap',unitCapacityUnit:'${p}UnitCapUnit',manufacturer:'${p}Manu'})"><input type="hidden" id="${p}Code"></div>
+                    <div class="form-group"><label>规格（每片/袋含量） *</label><div style="display:flex;gap:8px"><input id="${p}SpecDosage" type="number" step="0.001" value="${m.specDosage || ''}" placeholder="如 0.25" style="flex:2"><select id="${p}SpecDosageUnit" style="flex:1">${optsSel(specUnitOpts, sdu)}</select></div></div>
+                    <div class="form-group"><label>单位容量（每盒/瓶数量） *</label><div style="display:flex;gap:8px"><input id="${p}UnitCap" type="number" value="${m.unitCap || ''}" placeholder="如 20" style="flex:2"><select id="${p}UnitCapUnit" style="flex:1">${opts(capUnitOpts)}</select></div></div>
                     <div class="form-group"><label>生产厂商</label><input id="${p}Manu" value="${this._escAttr(m.manufacturer || '')}" placeholder="生产单位"></div>
-                    <div class="form-group"><label>数量</label><div style="display:flex;gap:8px"><input id="${p}Qty" type="number" value="${m.quantity || 1}" min="1" style="flex:2"><select id="${p}QtyUnit" style="flex:1">${optsSel(qtyUnitOpts, m.quantityUnit)}</select></div></div>
-                    <div class="form-group"><label>有效期 *</label><input id="${p}Expiry" type="text" readonly onclick="CalendarPicker.attach(this)" placeholder="点击选择日期" style="background:#fff;"></div>
-                    <div class="form-group"><label>每次剂量</label><div style="display:flex;gap:8px"><input id="${p}DoseAmount" type="number" step="0.001" value="${m.doseAmount || ''}" placeholder="如 5" style="flex:2"><select id="${p}DoseUnit" style="flex:1">${optsSel(doseUnitOpts, du)}</select></div></div>
-                    <div class="form-group"><label>每日次数</label><input id="${p}Freq" type="number" min="1" max="4" value="${freqN}" oninput="MedTimesUI.render('${p}')"></div>
-                    <div class="form-group"><label>服用时间段</label><div id="${p}TimeSlots"></div></div>
+                    <div class="form-group"><label>数量 *</label><div style="display:flex;gap:8px"><input id="${p}Qty" type="number" value="${m.quantity || 1}" min="1" style="flex:2"><select id="${p}QtyUnit" style="flex:1">${optsSel(qtyUnitOpts, m.quantityUnit)}</select></div></div>
+                    <div class="form-group"><label>有效期</label><input id="${p}Expiry" type="text" readonly onclick="CalendarPicker.attach(this)" placeholder="点击选择日期" style="background:#fff;"></div>
+                    <div class="form-group"><label>每次剂量 *</label><div style="display:flex;gap:8px"><input id="${p}DoseAmount" type="number" step="0.001" value="${m.doseAmount || ''}" placeholder="如 5" style="flex:2"><select id="${p}DoseUnit" style="flex:1">${optsSel(doseUnitOpts, du)}</select></div></div>
+                    <div class="form-group"><label>每日次数 *</label><input id="${p}Freq" type="number" min="1" max="4" value="${freqN}" oninput="MedTimesUI.render('${p}')"></div>
+                    <div class="form-group"><label>服用时间段 *</label><div id="${p}TimeSlots"></div></div>
                     <div class="form-group"><label>开始日期</label><input id="${p}Start" type="text" readonly value="${today}" onclick="CalendarPicker.attach(this,{max:'today'})" placeholder="点击选择日期" style="background:#fff;"></div>
                     <div class="form-group"><label>备注</label><input id="${p}Note" value="${this._escAttr(m.note)}" placeholder="如：餐后服用"></div>
                 </div>`;
@@ -1370,8 +1383,8 @@ const App = {
                 ${thumbsHtml}
                 ${ocrTextHtml}
                 <div class="form-group"><label>关联成员</label><select id="ocr-med-elder" onchange="App._loadRelatedRecords(this.value,'ocr-med-related')">${this._memberOptions()}</select></div>
-                <div class="form-group"><label>医院</label><input id="ocr-med-hospital" value="${this._escAttr(parsed.hospital)}" placeholder="医院名称" autocomplete="off" oninput="HospitalSuggest.onInput(this)"></div>
-                <div class="form-group"><label>科室</label><input id="ocr-med-dept" value="${this._escAttr(parsed.department)}" placeholder="科室" autocomplete="off" oninput="DeptSuggest.onInput(this)"></div>
+                <div class="form-group"><label>医院 *</label><input id="ocr-med-hospital" value="${this._escAttr(parsed.hospital)}" placeholder="医院名称" autocomplete="off" onclick="HospitalSuggest.onInput(this)" oninput="HospitalSuggest.onInput(this)"></div>
+                <div class="form-group"><label>科室 *</label><input id="ocr-med-dept" value="${this._escAttr(parsed.department)}" placeholder="科室" autocomplete="off" onclick="DeptSuggest.onInput(this)" oninput="DeptSuggest.onInput(this)"></div>
                 <div class="form-group"><label>诊断</label><input id="ocr-med-diagnosis" value="${this._escAttr(parsed.diagnosis)}" placeholder="诊断"></div>
                 <div class="form-group"><label>医生</label><input id="ocr-med-doctor" value="${this._escAttr(parsed.doctor)}" placeholder="主治医生"></div>
                 <div class="form-group"><label>关联病历</label><select id="ocr-med-related"><option value="">不关联</option></select><div style="font-size:12px;color:#94a3b8;margin-top:4px;">如未选择病历记录，在保存时，将自动创建一条病历记录。</div></div>
@@ -1398,13 +1411,13 @@ const App = {
                 </div>
                 ${thumbsHtml}
                 ${ocrTextHtml}
-                <div class="form-group"><label>药品名称</label><input id="ocr-drug-name" value="${this._escAttr(parsed.name)}" oninput="DrugSuggest.onInput(this,'drugCodeHidden',{specDosage:'ocr-drug-specdosage',specDosageUnit:'ocr-drug-specdosageunit',unitCapacity:'ocr-drug-unitcap',unitCapacityUnit:'ocr-drug-unitcapunit',specification:'ocr-drug-spec',manufacturer:'ocr-drug-manufacturer'})"><input type="hidden" id="drugCodeHidden"></div>
-                <div class="form-group"><label>规格（每片/袋含量）</label><div style="display:flex;gap:8px"><input id="ocr-drug-specdosage" type="number" step="0.001" value="${this._escAttr(parsed.specDosage || '')}" placeholder="如 0.25" style="flex:2"><select id="ocr-drug-specdosageunit" style="flex:1"><option value="g">g</option><option value="mg">mg</option><option value="ml">ml</option><option value="μg">μg</option></select></div></div>
-                <div class="form-group"><label>单位容量（每盒/瓶数量）</label><div style="display:flex;gap:8px"><input id="ocr-drug-unitcap" type="number" value="${this._escAttr(parsed.unitCap || '')}" placeholder="如 20" style="flex:2"><select id="ocr-drug-unitcapunit" style="flex:1"><option value="片">片</option><option value="粒">粒</option><option value="袋">袋</option><option value="支">支</option><option value="瓶">瓶</option><option value="贴">贴</option></select></div></div>
+                <div class="form-group"><label>药品名称 *</label><input id="ocr-drug-name" value="${this._escAttr(parsed.name)}" onclick="DrugSuggest.showSuggestions(this)" oninput="DrugSuggest.onInput(this,'drugCodeHidden',{specDosage:'ocr-drug-specdosage',specDosageUnit:'ocr-drug-specdosageunit',unitCapacity:'ocr-drug-unitcap',unitCapacityUnit:'ocr-drug-unitcapunit',specification:'ocr-drug-spec',manufacturer:'ocr-drug-manufacturer'})"><input type="hidden" id="drugCodeHidden"></div>
+                <div class="form-group"><label>规格（每片/袋含量） *</label><div style="display:flex;gap:8px"><input id="ocr-drug-specdosage" type="number" step="0.001" value="${this._escAttr(parsed.specDosage || '')}" placeholder="如 0.25" style="flex:2"><select id="ocr-drug-specdosageunit" style="flex:1"><option value="g">g</option><option value="mg">mg</option><option value="ml">ml</option><option value="μg">μg</option></select></div></div>
+                <div class="form-group"><label>单位容量（每盒/瓶数量） *</label><div style="display:flex;gap:8px"><input id="ocr-drug-unitcap" type="number" value="${this._escAttr(parsed.unitCap || '')}" placeholder="如 20" style="flex:2"><select id="ocr-drug-unitcapunit" style="flex:1"><option value="片">片</option><option value="粒">粒</option><option value="袋">袋</option><option value="支">支</option><option value="瓶">瓶</option><option value="贴">贴</option></select></div></div>
                 <div class="form-group"><label>规格文本</label><input id="ocr-drug-spec" value="${this._escAttr(parsed.specification)}" placeholder="如：0.25g/片"></div>
                 <div class="form-group"><label>厂商</label><input id="ocr-drug-manufacturer" value="${this._escAttr(parsed.manufacturer)}" placeholder="如：扬子江药业"></div>
-                <div class="form-group"><label>数量</label><div style="display:flex;gap:8px"><input id="ocr-drug-qty" type="number" value="1" min="1" style="flex:2"><select id="ocr-drug-qty-unit" style="flex:1"><option value="盒">盒</option><option value="瓶">瓶</option><option value="袋">袋</option><option value="支">支</option><option value="包">包</option><option value="板">板</option></select></div></div>
-                <div class="form-group"><label>有效期</label><input id="ocr-drug-exp" type="text" readonly onclick="CalendarPicker.attach(this)" placeholder="点击选择日期" style="background:#fff;"></div>
+                <div class="form-group"><label>数量 *</label><div style="display:flex;gap:8px"><input id="ocr-drug-qty" type="number" value="1" min="1" style="flex:2"><select id="ocr-drug-qty-unit" style="flex:1"><option value="盒">盒</option><option value="瓶">瓶</option><option value="袋">袋</option><option value="支">支</option><option value="包">包</option><option value="板">板</option></select></div></div>
+                <div class="form-group"><label>有效期 *</label><input id="ocr-drug-exp" type="text" readonly onclick="CalendarPicker.attach(this)" placeholder="点击选择日期" style="background:#fff;"></div>
                 <div class="form-group"><label>备注</label><input id="ocr-drug-note" placeholder="备注信息"></div>
                 <button class="btn-primary" onclick="App.saveOcrDrug()">录入药箱</button>
                 <button class="btn-outline" style="margin-top:8px;" onclick="App.closeModal()">取消</button>
@@ -1443,6 +1456,9 @@ const App = {
 
     async saveOcrRecord() {
         const elderId = document.getElementById('ocr-record-elder')?.value || this.state.currentMemberId;
+        // 医院/科室必填
+        if (!document.getElementById('ocr-hospital')?.value.trim()) { this.toast('请填写医院'); return; }
+        if (!document.getElementById('ocr-department')?.value.trim()) { this.toast('请填写科室'); return; }
         // 保存前校验医院/科室是否存在，不存在提示选择或添加
         if (false === await HospitalSuggest.ensure(document.getElementById('ocr-hospital'))) return;
         if (false === await DeptSuggest.ensure(document.getElementById('ocr-department'))) return;
@@ -1476,6 +1492,7 @@ const App = {
                 confidence: App._ocrConfidence || 0.9,
                 relatedRecordId: relatedId || undefined,
                 fileIds,
+                ocrText: document.getElementById('ocrRawText')?.value || undefined,
             });
             this.closeModal();
             this.toast('保存成功');
@@ -1535,15 +1552,35 @@ const App = {
 
     async saveOcrMeds() {
         if (this._ocrMedsSaving) return;
+        // 医院/科室必填
+        if (!document.getElementById('ocr-med-hospital')?.value.trim()) { this.toast('请填写医院'); return; }
+        if (!document.getElementById('ocr-med-dept')?.value.trim()) { this.toast('请填写科室'); return; }
         // 保存前校验医院/科室是否存在，不存在提示选择或添加
         if (false === await HospitalSuggest.ensure(document.getElementById('ocr-med-hospital'))) return;
         if (false === await DeptSuggest.ensure(document.getElementById('ocr-med-dept'))) return;
         // 保存前校验每个药品是否存在，不存在提示选择或新建（与医院逻辑一致）
         const _preMedCount = App._ocrMeds ? App._ocrMeds.length : 0;
+        // 必填字段（除生产厂家、有效期、备注外）
+        const _reqFields = [['SpecDosage','规格'],['UnitCap','单位容量'],['Qty','数量'],['DoseAmount','每次剂量'],['Freq','每日次数']];
         for (let i = 0; i < _preMedCount; i++) {
             const _p = `ocrMed${i}`;
             const _nameEl = document.getElementById(`${_p}Name`);
             if (!_nameEl || !_nameEl.value.trim()) continue;
+            const _name = _nameEl.value.trim();
+            // 校验必填数值/文本字段（disabled 锁定的字段必有值，跳过）
+            for (const [suffix, label] of _reqFields) {
+                const el = document.getElementById(`${_p}${suffix}`);
+                if (el && !el.disabled && !String(el.value).trim()) {
+                    this.toast(`请填写药品“${_name}”的${label}`);
+                    return;
+                }
+            }
+            // 校验服用时间段至少一个
+            const _times = MedTimesUI.getTimes(_p);
+            if (!_times || _times.length === 0) {
+                this.toast(`请选择药品“${_name}”的服用时间段`);
+                return;
+            }
             if (false === await DrugSuggest.ensure(_nameEl)) return;
         }
         this._ocrMedsSaving = true;
@@ -1572,6 +1609,7 @@ const App = {
                 doctor: document.getElementById('ocr-med-doctor')?.value || undefined,
                 relatedRecordId: relatedId || undefined,
                 fileIds: fileIds.length > 0 ? fileIds : undefined,
+                ocrText: document.getElementById('ocrRawText')?.value || undefined,
             });
             const prescriptionId = recResp.record.id;
 
@@ -1619,6 +1657,12 @@ const App = {
 
     async saveOcrDrug() {
         try {
+            // 必填：药品名称/规格/单位容量/数量/有效期（除厂商、备注、图片外）
+            if (!document.getElementById('ocr-drug-name').value.trim()) { this.toast('请输入药品名称'); return; }
+            if (!document.getElementById('ocr-drug-specdosage').value.trim()) { this.toast('请填写规格'); return; }
+            if (!document.getElementById('ocr-drug-unitcap').value.trim()) { this.toast('请填写单位容量'); return; }
+            if (!document.getElementById('ocr-drug-qty').value.trim()) { this.toast('请填写数量'); return; }
+            if (!document.getElementById('ocr-drug-exp').value.trim()) { this.toast('请填写有效期'); return; }
             // 保存前校验药品是否存在，不存在提示选择或新建（与医院逻辑一致）
             if (false === await DrugSuggest.ensure(document.getElementById('ocr-drug-name'))) return;
             const fileIds = await this._uploadOcrFiles();
@@ -1821,6 +1865,9 @@ const App = {
         // 保存前校验医院/科室是否存在，不存在提示选择或添加
         const hospId = isPrescription ? 'recordMedHospital' : (isReport ? 'recordHospital2' : 'recordHospital');
         const deptId = isPrescription ? 'recordMedDept' : (isReport ? 'recordDept2' : 'recordDept');
+        // 医院/科室必填
+        if (!document.getElementById(hospId)?.value.trim()) { this.toast('请填写医院'); return; }
+        if (!document.getElementById(deptId)?.value.trim()) { this.toast('请填写科室'); return; }
         if (false === await HospitalSuggest.ensure(document.getElementById(hospId))) return;
         if (false === await DeptSuggest.ensure(document.getElementById(deptId))) return;
         const fileIds = ImageUploader.getFileIds('recordImages');
@@ -1855,8 +1902,8 @@ const App = {
                     quantityUnit: document.getElementById(`${p}QtyUnit`)?.value || undefined,
                     frequency: parseInt(document.getElementById(`${p}Freq`).value) || 1,
                     times: MedTimesUI.getTimes(p),
-                    note: document.getElementById(`${p}Note`).value,
-                    expiryDate,
+                    note: document.getElementById(`${p}Note`).value || undefined,
+                    expiryDate: expiryDate || undefined,
                     prefix: p,
                 });
             }
@@ -1967,6 +2014,10 @@ const App = {
         const expiryDate = document.getElementById('drugExp').value;
         if (!name) { this.toast('请输入药品名称'); return; }
         if (!expiryDate) { this.toast('请填写有效期'); return; }
+        // 必填：规格/单位容量/数量（除生产厂家、备注、图片外）
+        if (!document.getElementById('specDosage').value.trim()) { this.toast('请填写规格'); return; }
+        if (!document.getElementById('unitCap').value.trim()) { this.toast('请填写单位容量'); return; }
+        if (!document.getElementById('drugQty').value.trim()) { this.toast('请填写数量'); return; }
         // 保存前校验药品是否存在，不存在提示选择或新建（与医院逻辑一致）
         if (false === await DrugSuggest.ensure(document.getElementById('drugName'))) return;
         // ensure 可能已回填 drugCode，重新读取

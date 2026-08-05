@@ -87,6 +87,7 @@ async function getRecord(req, res) {
       confidence: r.confidence,
       notes: typeof r.notes === 'string' ? JSON.parse(r.notes) : (r.notes || []),
       relatedRecordId: r.related_record_id || null,
+      ocrText: r.ocr_text || null,
       images,
       createdAt: r.created_at
     };
@@ -155,7 +156,7 @@ async function getRecord(req, res) {
 async function addRecord(req, res) {
   try {
     const familyId = req.familyId;
-  const { elderId, type, visitDate, hospital, department, diagnosis, chiefComplaint, findings, conclusion, metrics, orders, doctor, imageUrl, confidence, fileIds, relatedRecordId } = req.body;
+  const { elderId, type, visitDate, hospital, department, diagnosis, chiefComplaint, findings, conclusion, metrics, orders, doctor, imageUrl, confidence, fileIds, relatedRecordId, ocrText } = req.body;
 
   if (!elderId) {
       return res.status(400).json({ error: '必须关联老人' });
@@ -172,9 +173,9 @@ async function addRecord(req, res) {
     const notesJson = JSON.stringify([]);
 
     await getPool().query(
-      `INSERT INTO records (id, elder_id, family_id, type, visit_date, hospital, department, diagnosis, chief_complaint, findings, conclusion, metrics, orders, doctor, image_url, confidence, notes, related_record_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, elderId, familyId, type || '病历', visitDate || null, hospital || null, department || null, diagnosis || null, chiefComplaint || null, findings || null, conclusion || null, metricsJson, orders || null, doctor || null, imageUrl || null, confidence || null, notesJson, relatedRecordId || null]
+      `INSERT INTO records (id, elder_id, family_id, type, visit_date, hospital, department, diagnosis, chief_complaint, findings, conclusion, metrics, orders, doctor, image_url, confidence, notes, ocr_text, related_record_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, elderId, familyId, type || '病历', visitDate || null, hospital || null, department || null, diagnosis || null, chiefComplaint || null, findings || null, conclusion || null, metricsJson, orders || null, doctor || null, imageUrl || null, confidence || null, notesJson, ocrText || null, relatedRecordId || null]
     );
 
     // 保存关联图片
@@ -203,6 +204,7 @@ async function addRecord(req, res) {
         confidence: r.confidence,
         notes: [],
       relatedRecordId: r.related_record_id || null,
+      ocrText: r.ocr_text || null,
       images,
       createdAt: r.created_at
     }

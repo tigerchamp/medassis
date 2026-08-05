@@ -111,6 +111,7 @@ async function initDatabase() {
         image_url TEXT,
         confidence DECIMAL(4,2),
         notes JSON,
+        ocr_text LONGTEXT COMMENT 'OCR识别原文（扫描保存时留存）',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         INDEX idx_elder (elder_id),
@@ -471,6 +472,12 @@ async function _ensureColumns(p) {
   if (relatedCols.length === 0) {
     await p.query(`ALTER TABLE records ADD COLUMN related_record_id VARCHAR(36) DEFAULT NULL COMMENT '关联病历ID' AFTER notes`);
     console.log('已补充 records 表的 related_record_id 列');
+  }
+  // 检查records表是否缺少ocr_text列（OCR识别原文）
+  const [ocrTextCols] = await p.query(`SHOW COLUMNS FROM records LIKE 'ocr_text'`);
+  if (ocrTextCols.length === 0) {
+    await p.query(`ALTER TABLE records ADD COLUMN ocr_text LONGTEXT COMMENT 'OCR识别原文（扫描保存时留存）' AFTER notes`);
+    console.log('已补充 records 表的 ocr_text 列');
   }
   // 检查medications表是否缺少specification/quantity列
   const [medSpecCols] = await p.query(`SHOW COLUMNS FROM medications LIKE 'specification'`);

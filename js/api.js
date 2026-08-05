@@ -122,6 +122,21 @@ const Api = {
             if (!res.ok) throw new Error(data.error || 'OCR识别失败');
             return data;
         },
+        // 纯文本解析（不调百度OCR），供粘贴文本自动识别使用
+        parse: async (type, text) => {
+            const token = localStorage.getItem(TOKEN_KEY);
+            const res = await fetch(`${API_BASE}/api/ocr/parse`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`,
+                },
+                body: JSON.stringify({ type, text }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || '文本解析失败');
+            return data;
+        },
     },
     upload: {
         // 上传文件到后端 MinIO，返回 [{id, url, originalName, size}]

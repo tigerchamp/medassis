@@ -13,6 +13,27 @@ const upload = multer({
 });
 
 /**
+ * POST /api/ocr/parse
+ * body: { type: record|report|prescription|drug, text: '识别文本' }
+ * 仅做结构化解析（不调用百度OCR），供前端粘贴文本自动识别使用
+ * 返回: { parsed }
+ */
+router.post('/parse', (req, res) => {
+  try {
+    const { type, text } = req.body;
+    if (!text || !text.trim()) {
+      return res.status(400).json({ error: '文本内容不能为空' });
+    }
+    const parsed = parse(type || 'record', text);
+    console.log(`[OCR/parse] type=${type}, 文本长度=${text.length}, 解析结果:`, JSON.stringify(parsed).substring(0, 200));
+    res.json({ parsed });
+  } catch (err) {
+    console.error('[OCR/parse] 异常:', err);
+    res.status(500).json({ error: '文本解析失败' });
+  }
+});
+
+/**
  * POST /api/ocr/recognize
  * multipart: files (多张图片) + type (record|report|prescription|drug)
  * 流程：仅调百度 OCR 识别 → 结构化解析（不保存到 MinIO/DB）
