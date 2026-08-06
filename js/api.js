@@ -138,20 +138,4 @@ const Api = {
             return data;
         },
     },
-    upload: {
-        // 上传文件到后端 MinIO，返回 [{id, url, originalName, size}]
-        files: async (files) => {
-            const formData = new FormData();
-            files.forEach(f => formData.append('files', f));
-            const token = localStorage.getItem(TOKEN_KEY);
-            const res = await fetch(`${API_BASE}/api/upload`, {
-                method: 'POST',
-                headers: { 'Authorization': `Bearer ${token}` },
-                body: formData
-            });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.error || '上传失败');
-            return data.files || [];
-        },
-    },
 };

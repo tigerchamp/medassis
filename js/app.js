@@ -290,6 +290,11 @@ const DrugSuggest = {
         this._setHiddenCode(inputEl, drug.code);
         this._applyAutoFill(inputEl, drug);
         this._hide();
+        // 选中药品后通知处方多药品区块更新标题（程序设值不触发oninput）
+        if (inputEl && inputEl.id && typeof PageAddRecord !== 'undefined' && PageAddRecord._updateHeader) {
+            const m = inputEl.id.match(/^recordMed(\d+)Name$/);
+            if (m) PageAddRecord._updateHeader(Number(m[1]));
+        }
     },
 
     // 将药品的规格/单位容量/厂商等字段填充到 autoFillMap 指定的表单字段并置灰
@@ -477,9 +482,10 @@ const DrugSuggest = {
 
 // 点击页面空白处关闭下拉
 document.addEventListener('click', (e) => {
-    if (!e.target.closest('.drug-suggest') && !e.target.matches('input')) DrugSuggest._hide();
-    if (!e.target.closest('.hosp-suggest') && !e.target.matches('input')) HospitalSuggest._hide();
-    if (!e.target.closest('.dept-suggest') && !e.target.matches('input')) DeptSuggest._hide();
+    // 点击当前输入框或下拉项时不收起；点击其他input/字段时收起
+    if (!e.target.closest('.drug-suggest') && e.target !== DrugSuggest._currentInput) DrugSuggest._hide();
+    if (!e.target.closest('.hosp-suggest') && e.target !== HospitalSuggest._currentInput) HospitalSuggest._hide();
+    if (!e.target.closest('.dept-suggest') && e.target !== DeptSuggest._currentInput) DeptSuggest._hide();
 });
 
 // ========== 医院库下拉建议组件 ==========
@@ -1445,8 +1451,8 @@ const App = {
         const filesToUpload = App._ocrFiles;
         App._ocrFiles = null; // 防止重复上传
         try {
-            const uploaded = await Api.upload.files(filesToUpload);
-            return uploaded.map(f => f.id);
+            const uploaded = await Api.upload(filesToUpload);
+            return (uploaded.files || []).map(f => f.id);
         } catch (err) {
             console.error('上传OCR图片失败:', err.message);
             this.toast('图片上传失败：' + err.message);
