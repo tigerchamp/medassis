@@ -40,18 +40,20 @@ async function search(req, res) {
       `SELECT id, name, pinyin_abbr, abbreviation, alias, address, postcode, phone
        FROM hospitals
        WHERE (owner_user_id IS NULL OR owner_user_id IN (?))
-         AND (name LIKE ? OR abbreviation LIKE ? OR alias LIKE ? OR pinyin_abbr LIKE ?)
+         AND (name LIKE ? OR ? LIKE CONCAT('%', name, '%')
+              OR abbreviation LIKE ? OR alias LIKE ? OR pinyin_abbr LIKE ?)
        ORDER BY CASE
          WHEN name = ? THEN 0
          WHEN abbreviation = ? THEN 1
          WHEN alias = ? THEN 2
          WHEN pinyin_abbr = ? THEN 3
          WHEN name LIKE ? THEN 4
-         WHEN pinyin_abbr LIKE ? THEN 5
-         ELSE 6
+         WHEN ? LIKE CONCAT('%', name, '%') THEN 5
+         WHEN pinyin_abbr LIKE ? THEN 6
+         ELSE 7
        END, name
        LIMIT ?`,
-      [familyUserIds, `%${kw}%`, `%${kw}%`, `%${kw}%`, `${kw}%`, kw, kw, kw, kw, `${kw}%`, `${kw}%`, limit]
+      [familyUserIds, `%${kw}%`, kw, `%${kw}%`, `%${kw}%`, `${kw}%`, kw, kw, kw, kw, `${kw}%`, kw, `${kw}%`, limit]
     );
 
     res.json({
@@ -150,4 +152,129 @@ async function add(req, res) {
   }
 }
 
-module.exports = { search, check, add };
+// ============ 分词匹配辅助函数 ============
+
+/**
+ * 生成 n-gram（默认2-gram）集合
+ * 例如 "北京人民医院" → {"北京","京人","人民","民医","医院"}
+ */
+function _generateGrams(text, n = 2) {
+  const grams = new Set();
+  for (let i = 0; i <= text.length - n; i++) {
+    grams.add(text.substring(i, i + n));
+  }
+  return grams;
+}
+
+/**
+ * 计算查询名称与目标名称的 2-gram 相似度
+ * 算法：统计匹配的 2-gram 数量，命中分词合计长度 / 查询名称长度 >= 0.6 才认为相似
+ * @param {string} query 识别出的医院名称
+ * @param {string} target 数据库中的医院名称
+ * @returns {number} 相似度分数（0 表示不相似）
+ */
+function _calcSimilarity(query, target) {
+  if (!query || !target) return 0;
+  const queryGrams = _generateGrams(query, 2);
+  const targetGrams = _generateGrams(target, 2);
+  let matched = 0;
+  for (const g of queryGrams) {
+    if (targetGrams.has(g)) matched++;
+  }
+  const matchedChars = matched * 2;
+  // 以查询名称长度为基准（如名称长10，命中分词合计长度6以上才相似）
+  const score = matchedChars / Math.max(query.length, 1);
+  return score >= 0.6 ? score : 0;
+}
+
+/**
+ * 医院名称匹配（精确匹配 + 模糊双向LIKE + 2-gram分词匹配）
+ * GET /api/hospitals/match?name=xxx
+ *
+ * 返回：{ exact: bool, hospital: {...}|null, similar: [...] }
+ * - exact=true 时 hospital 为精确匹配的医院
+ * - exact=false 时 similar 为模糊+分词匹配的相似医院列表（按相似度排序）
+ */
+async function match(req, res) {
+  try {
+    const name = (req.query.name || '').trim();
+    if (!name) return res.json({ exact: false, hospital: null, similar: [] });
+
+    const familyUserIds = await _getFamilyUserIds(req);
+
+    // 1. 精确匹配 name/abbreviation/alias
+    const [exact] = await getPool().query(
+      `SELECT id, name, pinyin_abbr, abbreviation, alias, phone, address FROM hospitals
+       WHERE (owner_user_id IS NULL OR owner_user_id IN (?))
+         AND (name = ? OR abbreviation = ? OR alias = ?) LIMIT 1`,
+      [familyUserIds, name, name, name]
+    );
+    if (exact.length > 0) {
+      return res.json({
+        exact: true,
+        hospital: {
+          id: exact[0].id, name: exact[0].name,
+          abbreviation: exact[0].abbreviation || '', alias: exact[0].alias || '',
+          phone: exact[0].phone || '', address: exact[0].address || ''
+        }
+      });
+    }
+
+    // 2. 模糊双向 LIKE（名称包含查询 OR 查询包含名称）+ 简称/别名模糊
+    const [fuzzy] = await getPool().query(
+      `SELECT id, name, pinyin_abbr, abbreviation, alias, phone, address FROM hospitals
+       WHERE (owner_user_id IS NULL OR owner_user_id IN (?))
+         AND (name LIKE ? OR ? LIKE CONCAT('%', name, '%')
+              OR abbreviation LIKE ? OR alias LIKE ?)
+       ORDER BY
+         CASE WHEN name LIKE ? THEN 0
+              WHEN ? LIKE CONCAT('%', name, '%') THEN 1
+              ELSE 2 END, name
+       LIMIT 10`,
+      [familyUserIds, `%${name}%`, name, `%${name}%`, `%${name}%`, `%${name}%`, name]
+    );
+
+    // 3. 2-gram 分词匹配（补充 LIKE 未覆盖的相似项）
+    // 用查询名称的 2-gram 做 SQL 预筛选：只取包含至少一个 2-gram 的医院，确保不遗漏
+    const queryGrams = [..._generateGrams(name, 2)];
+    let gramScored = [];
+    if (queryGrams.length > 0) {
+      const gramConds = queryGrams.map(() => 'name LIKE ?').join(' OR ');
+      const gramParams = queryGrams.map(g => `%${g}%`);
+      const [gramHospitals] = await getPool().query(
+        `SELECT id, name, pinyin_abbr, abbreviation, alias, phone, address FROM hospitals
+         WHERE (owner_user_id IS NULL OR owner_user_id IN (?))
+           AND (${gramConds})
+         ORDER BY CASE WHEN owner_user_id IS NOT NULL THEN 0 ELSE 1 END, name
+         LIMIT 1000`,
+        [familyUserIds, ...gramParams]
+      );
+      gramScored = gramHospitals
+        .map(h => ({ ...h, _score: _calcSimilarity(name, h.name) }))
+        .filter(h => h._score > 0)
+        .sort((a, b) => b._score - a._score)
+        .slice(0, 10);
+    }
+
+    // 合并去重（fuzzy 优先，gram 补充）
+    const seen = new Set();
+    const similar = [];
+    for (const h of [...fuzzy, ...gramScored]) {
+      if (!seen.has(h.id)) {
+        seen.add(h.id);
+        similar.push({
+          id: h.id, name: h.name,
+          abbreviation: h.abbreviation || '', alias: h.alias || '',
+          phone: h.phone || '', address: h.address || ''
+        });
+      }
+    }
+
+    res.json({ exact: false, hospital: null, similar: similar.slice(0, 10) });
+  } catch (err) {
+    console.error('Hospital match error:', err);
+    res.status(500).json({ error: '医院匹配失败' });
+  }
+}
+
+module.exports = { search, check, add, match };

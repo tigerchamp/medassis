@@ -39,16 +39,17 @@ async function search(req, res) {
       `SELECT code, name, pinyin_abbr, generic_name, category, dosage_form, specification, spec_dosage, spec_dosage_unit, unit_capacity, unit_capacity_unit, manufacturer, approval_number, indication, contraindication, dosage_instruction, adverse_reaction, drug_interaction, precaution, storage
        FROM drugs
        WHERE (owner_user_id IS NULL OR owner_user_id IN (?))
-         AND (name LIKE ? OR pinyin_abbr LIKE ?)
+         AND (name LIKE ? OR ? LIKE CONCAT('%', name, '%') OR pinyin_abbr LIKE ?)
        ORDER BY CASE
          WHEN name = ? THEN 0
          WHEN pinyin_abbr = ? THEN 1
          WHEN name LIKE ? THEN 2
-         WHEN pinyin_abbr LIKE ? THEN 3
-         ELSE 4
+         WHEN ? LIKE CONCAT('%', name, '%') THEN 3
+         WHEN pinyin_abbr LIKE ? THEN 4
+         ELSE 5
        END, name
        LIMIT ?`,
-      [familyUserIds, `%${kw}%`, `${kw}%`, kw, kw, `${kw}%`, `${kw}%`, limit]
+      [familyUserIds, `%${kw}%`, kw, `${kw}%`, kw, kw, `${kw}%`, kw, `${kw}%`, limit]
     );
 
     res.json({
@@ -256,4 +257,126 @@ async function add(req, res) {
   }
 }
 
-module.exports = { search, getDrug, check, add };
+// ============ 分词匹配辅助函数 ============
+
+function _generateGrams(text, n = 2) {
+  const grams = new Set();
+  for (let i = 0; i <= text.length - n; i++) {
+    grams.add(text.substring(i, i + n));
+  }
+  return grams;
+}
+
+function _calcSimilarity(query, target) {
+  if (!query || !target) return 0;
+  const queryGrams = _generateGrams(query, 2);
+  const targetGrams = _generateGrams(target, 2);
+  let matched = 0;
+  for (const g of queryGrams) {
+    if (targetGrams.has(g)) matched++;
+  }
+  const matchedChars = matched * 2;
+  const score = matchedChars / Math.max(query.length, 1);
+  return score >= 0.6 ? score : 0;
+}
+
+/**
+ * 药品名称匹配（精确匹配 + 模糊双向LIKE + 2-gram分词匹配）
+ * GET /api/drug-library/match?name=xxx
+ *
+ * 返回：{ exact: bool, drug: {...}|null, similar: [...] }
+ */
+async function match(req, res) {
+  try {
+    const name = (req.query.name || '').trim();
+    if (!name) return res.json({ exact: false, drug: null, similar: [] });
+
+    const familyUserIds = await _getFamilyUserIds(req);
+    const selectFields = 'code, name, pinyin_abbr, specification, spec_dosage, spec_dosage_unit, unit_capacity, unit_capacity_unit, manufacturer';
+
+    // 1. 精确匹配 name
+    const [exact] = await getPool().query(
+      `SELECT ${selectFields} FROM drugs
+       WHERE (owner_user_id IS NULL OR owner_user_id IN (?)) AND name = ? LIMIT 1`,
+      [familyUserIds, name]
+    );
+    if (exact.length > 0) {
+      return res.json({ exact: true, drug: _formatDrug(exact[0]) });
+    }
+
+    // 2. 模糊双向 LIKE
+    const [fuzzy] = await getPool().query(
+      `SELECT ${selectFields} FROM drugs
+       WHERE (owner_user_id IS NULL OR owner_user_id IN (?))
+         AND (name LIKE ? OR ? LIKE CONCAT('%', name, '%') OR pinyin_abbr LIKE ?)
+       ORDER BY
+         CASE WHEN name LIKE ? THEN 0
+              WHEN ? LIKE CONCAT('%', name, '%') THEN 1
+              ELSE 2 END, name
+       LIMIT 10`,
+      [familyUserIds, `%${name}%`, name, `${name}%`, `%${name}%`, name]
+    );
+
+    // 3. 2-gram 分词匹配（用查询名称的 2-gram 做 SQL LIKE 预筛选）
+    const queryGrams = [..._generateGrams(name, 2)];
+    let gramScored = [];
+    if (queryGrams.length > 0) {
+      const gramConds = queryGrams.map(() => 'name LIKE ?').join(' OR ');
+      const gramParams = queryGrams.map(g => `%${g}%`);
+      const [gramDrugs] = await getPool().query(
+        `SELECT ${selectFields} FROM drugs
+         WHERE (owner_user_id IS NULL OR owner_user_id IN (?))
+           AND (${gramConds})
+         ORDER BY CASE WHEN owner_user_id IS NOT NULL THEN 0 ELSE 1 END, name
+         LIMIT 1000`,
+        [familyUserIds, ...gramParams]
+      );
+      gramScored = gramDrugs
+        .map(r => ({ ...r, _score: _calcSimilarity(name, r.name) }))
+        .filter(r => r._score > 0)
+        .sort((a, b) => b._score - a._score)
+        .slice(0, 10);
+    }
+
+    // 合并去重
+    const seen = new Set();
+    const similar = [];
+    for (const r of [...fuzzy, ...gramScored]) {
+      if (!seen.has(r.code)) {
+        seen.add(r.code);
+        similar.push(_formatDrug(r));
+      }
+    }
+
+    res.json({ exact: false, drug: null, similar: similar.slice(0, 10) });
+  } catch (err) {
+    console.error('Drug library match error:', err);
+    res.status(500).json({ error: '药品匹配失败' });
+  }
+}
+
+// 格式化药品记录（解析 spec_dosage）
+function _formatDrug(r) {
+  let specDosageVal = r.spec_dosage != null ? Number(r.spec_dosage) : null;
+  let specDosageUnitVal = r.spec_dosage_unit || '';
+  if (specDosageVal === null && r.specification) {
+    const parsed = parseSpecification(r.specification);
+    if (parsed.specDosage !== null) {
+      specDosageVal = parsed.specDosage;
+      specDosageUnitVal = parsed.specDosageUnit || '';
+    }
+  }
+  return {
+    code: r.code,
+    name: r.name,
+    pinyinAbbr: r.pinyin_abbr || '',
+    specification: r.specification || '',
+    specDosage: specDosageVal,
+    specDosageUnit: specDosageUnitVal,
+    unitCapacity: r.unit_capacity != null ? Number(r.unit_capacity) : null,
+    unitCapacityUnit: r.unit_capacity_unit || '',
+    manufacturer: r.manufacturer || ''
+  };
+}
+
+module.exports = { search, getDrug, check, add, match };

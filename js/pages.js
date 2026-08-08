@@ -654,8 +654,8 @@ const PageAddRecord = {
             <div id="recordRelatedGroup" class="form-group" style="display:none;"><label>关联病历</label><select id="recordRelated" onchange="PageAddRecord.onRelatedChange(this.value)"><option value="">不关联</option></select><div style="font-size:12px;color:#94a3b8;margin-top:4px;">如未选择病历记录，在保存时，将自动创建一条病历记录。</div></div>
             <div id="recordFieldsMedical">
                 <div class="form-group"><label id="recordDateLabel">就诊日期</label><input id="recordDate" type="text" readonly onclick="CalendarPicker.attach(this,{max:'today'})" placeholder="点击选择日期" style="background:#fff;"></div>
-                <div class="form-group"><label>医院 *</label><input id="recordHospital" placeholder="输入医院名称或拼音首字母" autocomplete="off" onclick="HospitalSuggest.onInput(this)" oninput="HospitalSuggest.onInput(this)"></div>
-                <div class="form-group"><label>科室 *</label><input id="recordDept" placeholder="输入科室名称或拼音首字母" autocomplete="off" onclick="DeptSuggest.onInput(this)" oninput="DeptSuggest.onInput(this)"></div>
+                <div class="form-group"><label>医院 *</label><input id="recordHospital" placeholder="输入医院名称或拼音首字母" autocomplete="off" onclick="HospitalSuggest.showSuggestions(this)" oninput="HospitalSuggest.onInput(this)"></div>
+                <div class="form-group"><label>科室 *</label><input id="recordDept" placeholder="输入科室名称或拼音首字母" autocomplete="off" onclick="DeptSuggest.showSuggestions(this)" oninput="DeptSuggest.onInput(this)"></div>
                 <div class="form-group"><label>主诉</label><textarea id="recordComplaint" placeholder="主要症状"></textarea></div>
                 <div class="form-group"><label>诊断 *</label><input id="recordDiagnosis" placeholder="诊断结果"></div>
                 <div class="form-group"><label>医嘱</label><textarea id="recordOrders" placeholder="医嘱内容"></textarea></div>
@@ -663,16 +663,16 @@ const PageAddRecord = {
             </div>
             <div id="recordFieldsReport" style="display:none;">
                 <div class="form-group"><label>检查日期</label><input id="recordDate2" type="text" readonly onclick="CalendarPicker.attach(this,{max:'today'})" placeholder="点击选择日期" style="background:#fff;"></div>
-                <div class="form-group"><label>医院 *</label><input id="recordHospital2" placeholder="输入医院名称或拼音首字母" autocomplete="off" onclick="HospitalSuggest.onInput(this)" oninput="HospitalSuggest.onInput(this)"></div>
-                <div class="form-group"><label>科室 *</label><input id="recordDept2" placeholder="输入科室名称或拼音首字母" autocomplete="off" onclick="DeptSuggest.onInput(this)" oninput="DeptSuggest.onInput(this)"></div>
+                <div class="form-group"><label>医院 *</label><input id="recordHospital2" placeholder="输入医院名称或拼音首字母" autocomplete="off" onclick="HospitalSuggest.showSuggestions(this)" oninput="HospitalSuggest.onInput(this)"></div>
+                <div class="form-group"><label>科室 *</label><input id="recordDept2" placeholder="输入科室名称或拼音首字母" autocomplete="off" onclick="DeptSuggest.showSuggestions(this)" oninput="DeptSuggest.onInput(this)"></div>
                 <div class="form-group"><label>检查项目 *</label><input id="recordExamName" placeholder="如：胸部CT平扫"></div>
                 <div class="form-group"><label>检查所见</label><textarea id="recordFindings" rows="4" placeholder="检查所见内容"></textarea></div>
                 <div class="form-group"><label>报告结论</label><textarea id="recordConclusion" rows="3" placeholder="报告结论内容"></textarea></div>
             </div>
             <div id="recordFieldsPrescription" style="display:none;">
                 <div class="form-group"><label>开始日期</label><input id="recordDate3" type="text" readonly onclick="CalendarPicker.attach(this,{max:'today'})" placeholder="点击选择日期" style="background:#fff;"></div>
-                <div class="form-group"><label>医院 *</label><input id="recordMedHospital" placeholder="输入医院名称或拼音首字母" autocomplete="off" onclick="HospitalSuggest.onInput(this)" oninput="HospitalSuggest.onInput(this)"></div>
-                <div class="form-group"><label>科室 *</label><input id="recordMedDept" placeholder="输入科室名称或拼音首字母" autocomplete="off" onclick="DeptSuggest.onInput(this)" oninput="DeptSuggest.onInput(this)"></div>
+                <div class="form-group"><label>医院 *</label><input id="recordMedHospital" placeholder="输入医院名称或拼音首字母" autocomplete="off" onclick="HospitalSuggest.showSuggestions(this)" oninput="HospitalSuggest.onInput(this)"></div>
+                <div class="form-group"><label>科室 *</label><input id="recordMedDept" placeholder="输入科室名称或拼音首字母" autocomplete="off" onclick="DeptSuggest.showSuggestions(this)" oninput="DeptSuggest.onInput(this)"></div>
                 <div class="form-group"><label>诊断</label><input id="recordMedDiagnosis" placeholder="诊断结果"></div>
                 <div class="form-group"><label>医生</label><input id="recordMedDoctor" placeholder="主治医生"></div>
                 <div id="recordMedList"></div>
@@ -711,6 +711,11 @@ const PageAddRecord = {
             if (relatedSel && relatedSel.value) {
                 this.onRelatedChange(relatedSel.value);
             }
+        }
+        // 若已粘贴识别文本，切换类型后按新类型重新识别填写（不同类型字段不同，需重新解析）
+        const pasteBox = document.getElementById('pasteRecognizeBox');
+        if (pasteBox && pasteBox.value.trim()) {
+            this.onPasteRecognize(null);
         }
     },
 
@@ -906,7 +911,7 @@ const PageAddRecord = {
         App.toast('正在识别...');
         try {
             const res = await Api.ocr.parse(parseType, text);
-            this._applyParsedToForm(res.parsed, type);
+            await this._applyParsedToForm(res.parsed, type);
             App.toast('识别完成，已填写表单字段');
         } catch (err) {
             App.toast('识别失败: ' + err.message);
@@ -914,44 +919,46 @@ const PageAddRecord = {
     },
 
     // 将解析结果填入手动表单字段
-    _applyParsedToForm(parsed, type) {
+    async _applyParsedToForm(parsed, type) {
         const setVal = (id, val) => { if (val != null && val !== '') { const el = document.getElementById(id); if (el) el.value = val; } };
+        const matchHosp = (id, val) => { if (val != null && val !== '') HospitalSuggest.matchAndFill(document.getElementById(id), val); };
+        const matchDept = (id, val) => { if (val != null && val !== '') DeptSuggest.matchAndFill(document.getElementById(id), val); };
         if (type === '病历') {
-            setVal('recordHospital', parsed.hospital);
-            setVal('recordDept', parsed.department);
+            matchHosp('recordHospital', parsed.hospital);
+            matchDept('recordDept', parsed.department);
             setVal('recordDate', parsed.visitDate);
             setVal('recordDiagnosis', parsed.diagnosis);
             setVal('recordComplaint', parsed.chiefComplaint);
             setVal('recordOrders', parsed.orders);
             setVal('recordDoctor', parsed.doctor);
         } else if (type === '检查报告') {
-            setVal('recordHospital2', parsed.hospital);
-            setVal('recordDept2', parsed.department);
+            matchHosp('recordHospital2', parsed.hospital);
+            matchDept('recordDept2', parsed.department);
             setVal('recordDate2', parsed.visitDate);
             setVal('recordExamName', parsed.examName);
             setVal('recordFindings', parsed.findings);
             setVal('recordConclusion', parsed.conclusion);
         } else if (type === '处方') {
-            setVal('recordMedHospital', parsed.hospital);
-            setVal('recordMedDept', parsed.department);
+            matchHosp('recordMedHospital', parsed.hospital);
+            matchDept('recordMedDept', parsed.department);
             setVal('recordDate3', parsed.visitDate);
             setVal('recordMedDiagnosis', parsed.diagnosis);
             setVal('recordMedDoctor', parsed.doctor);
             if (parsed.medications && parsed.medications.length > 0) {
-                this._applyMedsToBlocks(parsed.medications);
+                await this._applyMedsToBlocks(parsed.medications);
             }
         }
     },
 
     // 将解析的药品列表填入多药品区块
-    _applyMedsToBlocks(meds) {
+    async _applyMedsToBlocks(meds) {
         // 重置药品列表
         this._medBlocks = [];
         this._medExpandedUid = null;
         const listEl = document.getElementById('recordMedList');
         if (listEl) listEl.innerHTML = '';
         // 为每个药品创建区块并填充
-        meds.forEach((med) => {
+        for (const med of meds) {
             this._appendBlock();
             const b = this._medBlocks[this._medBlocks.length - 1];
             const p = `recordMed${b.uid}`;
@@ -973,7 +980,15 @@ const PageAddRecord = {
                 MedTimesUI.render(p);
             }
             this._updateHeader(b.uid);
-        });
+            // 药品名与数据库匹配：精确则自动填充规格/厂商等并置灰，不精确则显示红色提示与相似项
+            // 串行 await 以避免并发渲染下拉时共享 _lastDrugs 状态错乱
+            if (med.name) {
+                const nameInput = document.getElementById(`${p}Name`);
+                if (nameInput) {
+                    await DrugSuggest.matchAndFill(nameInput, med.name, { specDosage: `${p}SpecDosage`, specDosageUnit: `${p}SpecDosageUnit`, unitCapacity: `${p}UnitCap`, unitCapacityUnit: `${p}UnitCapUnit`, manufacturer: `${p}Manu` });
+                }
+            }
+        }
         // 展开第一个区块，折叠其他
         if (this._medBlocks.length > 0) {
             this._setExpanded(this._medBlocks[0].uid);

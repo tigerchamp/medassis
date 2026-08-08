@@ -78,11 +78,13 @@ const Api = {
         search: (q, limit = 20) => api(`/drug-library/search?q=${encodeURIComponent(q)}&limit=${limit}`),
         get: (code) => api(`/drug-library/${encodeURIComponent(code)}`),
         check: (name) => api(`/drug-library/check?name=${encodeURIComponent(name)}`),
+        match: (name) => api(`/drug-library/match?name=${encodeURIComponent(name)}`),
         add: (d) => api('/drug-library/add', { method: 'POST', body: JSON.stringify(d) }),
     },
     hospitals: {
         search: (q, limit = 20) => api(`/hospitals/search?q=${encodeURIComponent(q)}&limit=${limit}`),
         check: (name) => api(`/hospitals/check?name=${encodeURIComponent(name)}`),
+        match: (name) => api(`/hospitals/match?name=${encodeURIComponent(name)}`),
         add: (name, abbreviation, alias, phone, address) => api('/hospitals/add', { method: 'POST', body: JSON.stringify({ name, abbreviation, alias, phone, address }) }),
     },
     departments: {

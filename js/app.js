@@ -215,6 +215,9 @@ const DrugSuggest = {
     onInput(inputEl, hiddenCodeId, autoFillMap) {
         this._currentInput = inputEl;
         this._autoFillMap = autoFillMap || null;
+        this._setHint(inputEl, '');
+        this._markMatched(inputEl, false);
+        this._bindBlur(inputEl);
         // 在输入元素上记住上下文，供 ensure 流程使用
         if (inputEl) {
             inputEl._dsHiddenId = hiddenCodeId || null;
@@ -263,6 +266,7 @@ const DrugSuggest = {
             box.className = 'drug-suggest';
             inputEl.parentNode.style.position = 'relative';
             inputEl.parentNode.appendChild(box);
+            box.onmousedown = (e) => e.preventDefault(); // 点击下拉不让输入框失焦，避免 blur 先于 click 隐藏下拉
         }
         const q = inputEl.value.trim();
         this._lastDrugs = drugs;
@@ -276,7 +280,9 @@ const DrugSuggest = {
                 ${sub ? `<div class="ds-sub">${sub}</div>` : ''}
             </div>`;
         }).join('');
-        const addBtn = q ? `<div class="drug-suggest-item drug-suggest-add" onclick="DrugSuggest._addNewFromInput()"><i class="fas fa-plus"></i> 添加新药品"${this._esc(q)}"</div>` : '';
+        // 当输入文字已与某药品名称完全精确匹配时，不再显示"+添加新药品"
+        const hasExact = drugs.some(d => d.name === q);
+        const addBtn = (q && !hasExact) ? `<div class="drug-suggest-item drug-suggest-add" onclick="DrugSuggest._addNewFromInput()"><i class="fas fa-plus"></i> 添加新药品"${this._esc(q)}"</div>` : '';
         box.innerHTML = (listHtml || '<div class="drug-suggest-item drug-suggest-empty">未找到匹配药品</div>') + addBtn;
         box.style.display = 'block';
     },
@@ -289,12 +295,96 @@ const DrugSuggest = {
         if (inputEl) inputEl.value = drug.name;
         this._setHiddenCode(inputEl, drug.code);
         this._applyAutoFill(inputEl, drug);
+        this._markMatched(inputEl, true);
+        this._setHint(inputEl, '');
         this._hide();
         // 选中药品后通知处方多药品区块更新标题（程序设值不触发oninput）
         if (inputEl && inputEl.id && typeof PageAddRecord !== 'undefined' && PageAddRecord._updateHeader) {
             const m = inputEl.id.match(/^recordMed(\d+)Name$/);
             if (m) PageAddRecord._updateHeader(Number(m[1]));
         }
+    },
+
+    // OCR/粘贴填充时调用：与数据库匹配，精确则自动选中并填充规格等，不精确则显示红色提示和相似选项
+    async matchAndFill(inputEl, name, autoFillMap) {
+        if (!inputEl || !name || !name.trim()) return;
+        inputEl.value = name.trim();
+        this._currentInput = inputEl;
+        this._bindBlur(inputEl);
+        if (autoFillMap) {
+            inputEl._dsAutoFillMap = autoFillMap;
+            this._autoFillMap = autoFillMap;
+        }
+        try {
+            const res = await Api.drugLibrary.match(name.trim());
+            if (res.exact) {
+                inputEl.value = res.drug.name;
+                this._setHiddenCode(inputEl, res.drug.code);
+                this._applyAutoFill(inputEl, res.drug);
+                this._markMatched(inputEl, true);
+                this._setHint(inputEl, '');
+                // 通知处方多药品区块更新标题
+                if (inputEl.id && typeof PageAddRecord !== 'undefined' && PageAddRecord._updateHeader) {
+                    const m = inputEl.id.match(/^recordMed(\d+)Name$/);
+                    if (m) PageAddRecord._updateHeader(Number(m[1]));
+                }
+            } else {
+                this._markMatched(inputEl, false);
+                this._setHint(inputEl, '（无匹配，请选择或创建）');
+                if (res.similar && res.similar.length > 0) {
+                    this._render(inputEl, res.similar);
+                }
+            }
+        } catch (e) { /* 静默失败 */ }
+    },
+
+    // 在label后显示/隐藏红色提示文字
+    _setHint(inputEl, text) {
+        if (!inputEl) return;
+        const group = inputEl.closest('.form-group');
+        if (!group) return;
+        const label = group.querySelector('label');
+        if (!label) return;
+        let hint = label.querySelector('.match-hint');
+        if (!hint) {
+            hint = document.createElement('span');
+            hint.className = 'match-hint';
+            hint.style.cssText = 'color:red;font-size:12px;margin-left:4px;';
+            label.appendChild(hint);
+        }
+        hint.textContent = text;
+        hint.style.display = text ? 'inline' : 'none';
+    },
+
+    // 标记输入框是否已关联到库条目（关联→灰色背景；手动输入/未关联→白色背景）
+    _markMatched(inputEl, matched) {
+        if (!inputEl) return;
+        inputEl._matched = !!matched;
+        inputEl.style.backgroundColor = inputEl._matched ? '#f1f5f9' : '#ffffff';
+    },
+
+    // 绑定失焦检查（去重，仅绑定一次）
+    _bindBlur(inputEl) {
+        if (!inputEl || inputEl._drugBlurBound) return;
+        inputEl._drugBlurBound = true;
+        inputEl.addEventListener('blur', () => this._onBlur(inputEl));
+    },
+
+    // 失焦后检查：未关联则查询库，不精确匹配时显示红色提示（输入时不即时显示）
+    async _onBlur(inputEl) {
+        this._hide();
+        const q = (inputEl?.value || '').trim();
+        if (!q) { this._setHint(inputEl, ''); return; }
+        // 延迟检查，避免点击下拉项时 blur 先于 pick 触发误判
+        setTimeout(async () => {
+            if (inputEl._matched) { this._setHint(inputEl, ''); return; }
+            if ((inputEl.value || '').trim() !== q) return;
+            try {
+                const r = await Api.drugLibrary.check(q);
+                if ((inputEl.value || '').trim() !== q) return;
+                this._setHint(inputEl, r.exists ? '' : '（无匹配，请选择或创建）');
+            } catch (e) { /* 静默 */ }
+        }, 200);
     },
 
     // 将药品的规格/单位容量/厂商等字段填充到 autoFillMap 指定的表单字段并置灰
@@ -385,6 +475,7 @@ const DrugSuggest = {
             if (inputEl) inputEl.value = drug.name;
             this._setHiddenCode(inputEl, drug.code);
             this._applyAutoFill(inputEl, drug);
+            this._markMatched(inputEl, true);
             App.closeModal();
             this._hide();
             App.toast(`已添加药品：${drug.name}`);
@@ -417,6 +508,7 @@ const DrugSuggest = {
                     // 回填 code，便于后续保存直接关联
                     if (r.drug && r.drug.code) this._setHiddenCode(inputEl, r.drug.code);
                     if (r.drug) this._applyAutoFill(inputEl, r.drug);
+                    this._markMatched(inputEl, true);
                     resolve(true); return;
                 }
                 this._ensureResolve = resolve;
@@ -442,6 +534,7 @@ const DrugSuggest = {
             // 选择相似项后清空隐藏 code，交由后端按名称匹配
             this._setHiddenCode(this._ensureInput, s.code || '');
         }
+        if (s) this._markMatched(this._ensureInput, true);
         App.closeModal();
         const r = this._ensureResolve; this._ensureResolve = null; this._ensureInput = null;
         if (r) r(true);
@@ -489,15 +582,28 @@ document.addEventListener('click', (e) => {
 });
 
 // ========== 医院库下拉建议组件 ==========
-// 用法：在医院名称输入框上 onclick="HospitalSuggest.onInput(this)" oninput="HospitalSuggest.onInput(this)"
-// 选中后自动填充名称到当前输入框
+// 用法：在医院名称输入框上 onclick="HospitalSuggest.showSuggestions(this)" oninput="HospitalSuggest.onInput(this)"
+// 选中后自动填充名称到当前输入框；点击时仅显示建议不改变关联态，输入修改时才解除关联
 const HospitalSuggest = {
     _timer: null,
     _currentInput: null,
     _lastHospitals: [],
 
+    // 点击输入框时显示匹配下拉（不修改值、不解除已建立的关联，保持灰色背景）
+    showSuggestions(inputEl) {
+        if (!inputEl) return;
+        this._currentInput = inputEl;
+        this._bindBlur(inputEl);
+        const q = inputEl.value.trim();
+        if (!q) return;
+        this._search(inputEl, q);
+    },
+
     onInput(inputEl) {
         this._currentInput = inputEl;
+        this._setHint(inputEl, '');
+        this._markMatched(inputEl, false);
+        this._bindBlur(inputEl);
         clearTimeout(this._timer);
         const q = inputEl.value.trim();
         this._hide();
@@ -519,6 +625,7 @@ const HospitalSuggest = {
             box.className = 'hosp-suggest';
             inputEl.parentNode.style.position = 'relative';
             inputEl.parentNode.appendChild(box);
+            box.onmousedown = (e) => e.preventDefault(); // 点击下拉不让输入框失焦，避免 blur 先于 click 隐藏下拉
         }
         this._lastHospitals = hospitals;
         const q = inputEl.value.trim();
@@ -527,7 +634,9 @@ const HospitalSuggest = {
             const sub = [h.abbreviation, h.alias].filter(x => x).map(x => this._esc(x)).join(' / ');
             return `<div class="hosp-suggest-item" onclick="HospitalSuggest._pick(${i})">${name}${sub ? `<span style="color:#94a3b8;font-size:12px;margin-left:6px;">${sub}</span>` : ''}</div>`;
         }).join('');
-        const addBtn = q ? `<div class="hosp-suggest-item hosp-suggest-add" onclick="HospitalSuggest._addNewFromInput()"><i class="fas fa-plus"></i> 添加新医院"${this._esc(q)}"</div>` : '';
+        // 当输入文字已与某医院名称完全精确匹配时，不再显示"+添加新医院"
+        const hasExact = hospitals.some(h => h.name === q);
+        const addBtn = (q && !hasExact) ? `<div class="hosp-suggest-item hosp-suggest-add" onclick="HospitalSuggest._addNewFromInput()"><i class="fas fa-plus"></i> 添加新医院"${this._esc(q)}"</div>` : '';
         box.innerHTML = (listHtml || '<div class="hosp-suggest-item hosp-suggest-empty">未找到匹配医院</div>') + addBtn;
         box.style.display = 'block';
     },
@@ -536,7 +645,83 @@ const HospitalSuggest = {
         const hosp = (this._lastHospitals || [])[index];
         if (!hosp || !this._currentInput) return;
         this._currentInput.value = hosp.name;
+        this._currentInput._matchedHospitalId = hosp.id;
+        this._markMatched(this._currentInput, true);
+        this._setHint(this._currentInput, '');
         this._hide();
+    },
+
+    // OCR/粘贴填充时调用：与数据库匹配，精确则自动选中，不精确则显示红色提示和相似选项
+    async matchAndFill(inputEl, name) {
+        if (!inputEl || !name || !name.trim()) return;
+        inputEl.value = name.trim();
+        this._currentInput = inputEl;
+        this._bindBlur(inputEl);
+        try {
+            const res = await Api.hospitals.match(name.trim());
+            if (res.exact) {
+                inputEl.value = res.hospital.name;
+                inputEl._matchedHospitalId = res.hospital.id;
+                this._markMatched(inputEl, true);
+                this._setHint(inputEl, '');
+            } else {
+                inputEl._matchedHospitalId = null;
+                this._markMatched(inputEl, false);
+                this._setHint(inputEl, '（无匹配，请选择或创建）');
+                if (res.similar && res.similar.length > 0) {
+                    this._render(inputEl, res.similar);
+                }
+            }
+        } catch (e) { /* 静默失败 */ }
+    },
+
+    // 在label后显示/隐藏红色提示文字
+    _setHint(inputEl, text) {
+        if (!inputEl) return;
+        const group = inputEl.closest('.form-group');
+        if (!group) return;
+        const label = group.querySelector('label');
+        if (!label) return;
+        let hint = label.querySelector('.match-hint');
+        if (!hint) {
+            hint = document.createElement('span');
+            hint.className = 'match-hint';
+            hint.style.cssText = 'color:red;font-size:12px;margin-left:4px;';
+            label.appendChild(hint);
+        }
+        hint.textContent = text;
+        hint.style.display = text ? 'inline' : 'none';
+    },
+
+    // 标记输入框是否已关联到库条目（关联→灰色背景；手动输入/未关联→白色背景）
+    _markMatched(inputEl, matched) {
+        if (!inputEl) return;
+        inputEl._matched = !!matched;
+        inputEl.style.backgroundColor = inputEl._matched ? '#f1f5f9' : '#ffffff';
+    },
+
+    // 绑定失焦检查（去重，仅绑定一次）
+    _bindBlur(inputEl) {
+        if (!inputEl || inputEl._hspBlurBound) return;
+        inputEl._hspBlurBound = true;
+        inputEl.addEventListener('blur', () => this._onBlur(inputEl));
+    },
+
+    // 失焦后检查：未关联则查询库，不精确匹配时显示红色提示（输入时不即时显示）
+    async _onBlur(inputEl) {
+        this._hide();
+        const q = (inputEl?.value || '').trim();
+        if (!q) { this._setHint(inputEl, ''); return; }
+        // 延迟检查，避免点击下拉项时 blur 先于 pick 触发误判
+        setTimeout(async () => {
+            if (inputEl._matched) { this._setHint(inputEl, ''); return; }
+            if ((inputEl.value || '').trim() !== q) return;
+            try {
+                const r = await Api.hospitals.check(q);
+                if ((inputEl.value || '').trim() !== q) return;
+                this._setHint(inputEl, r.exists ? '' : '（无匹配，请选择或创建）');
+            } catch (e) { /* 静默 */ }
+        }, 200);
     },
 
     // 从输入框当前值直接添加新医院 → 弹出对话框录入完整信息
@@ -576,6 +761,7 @@ const HospitalSuggest = {
         };
         Api.hospitals.add(data.name, data.abbreviation, data.alias, data.phone, data.address).then(r => {
             if (this._currentInput) this._currentInput.value = r.hospital.name;
+            this._markMatched(this._currentInput, true);
             App.closeModal();
             this._hide();
             App.toast(`已添加医院：${r.hospital.name}（${r.hospital.pinyinAbbr || '-'}）`);
@@ -616,6 +802,7 @@ const HospitalSuggest = {
     _pickSimilar(i) {
         const s = (this._lastSimilar || [])[i];
         if (s && this._ensureInput) this._ensureInput.value = s.name;
+        if (s) this._markMatched(this._ensureInput, true);
         App.closeModal();
         const r = this._ensureResolve; this._ensureResolve = null; this._ensureInput = null;
         if (r) r(true);
@@ -653,14 +840,27 @@ const HospitalSuggest = {
 };
 
 // ========== 科室下拉建议组件 ==========
-// 用法：在科室输入框上 onclick="DeptSuggest.onInput(this)" oninput="DeptSuggest.onInput(this)"
+// 用法：在科室输入框上 onclick="DeptSuggest.showSuggestions(this)" oninput="DeptSuggest.onInput(this)"
 const DeptSuggest = {
     _timer: null,
     _currentInput: null,
     _lastDepts: [],
 
+    // 点击输入框时显示匹配下拉（不修改值、不解除已建立的关联，保持灰色背景）
+    showSuggestions(inputEl) {
+        if (!inputEl) return;
+        this._currentInput = inputEl;
+        this._bindBlur(inputEl);
+        const q = inputEl.value.trim();
+        if (!q) return;
+        this._search(inputEl, q);
+    },
+
     onInput(inputEl) {
         this._currentInput = inputEl;
+        this._setHint(inputEl, '');
+        this._markMatched(inputEl, false);
+        this._bindBlur(inputEl);
         clearTimeout(this._timer);
         const q = inputEl.value.trim();
         this._hide();
@@ -682,6 +882,7 @@ const DeptSuggest = {
             box.className = 'dept-suggest';
             inputEl.parentNode.style.position = 'relative';
             inputEl.parentNode.appendChild(box);
+            box.onmousedown = (e) => e.preventDefault(); // 点击下拉不让输入框失焦，避免 blur 先于 click 隐藏下拉
         }
         this._lastDepts = depts;
         const q = inputEl.value.trim();
@@ -690,7 +891,9 @@ const DeptSuggest = {
             const sub = [d.abbreviation, d.alias].filter(x => x).map(x => this._esc(x)).join(' / ');
             return `<div class="dept-suggest-item" onclick="DeptSuggest._pick(${i})">${name}${sub ? `<span style="color:#94a3b8;font-size:12px;margin-left:6px;">${sub}</span>` : ''}</div>`;
         }).join('');
-        const addBtn = q ? `<div class="dept-suggest-item dept-suggest-add" onclick="DeptSuggest._addNewFromInput()"><i class="fas fa-plus"></i> 添加新科室"${this._esc(q)}"</div>` : '';
+        // 当输入文字已与某科室名称完全精确匹配时，不再显示"+添加新科室"
+        const hasExact = depts.some(d => d.name === q);
+        const addBtn = (q && !hasExact) ? `<div class="dept-suggest-item dept-suggest-add" onclick="DeptSuggest._addNewFromInput()"><i class="fas fa-plus"></i> 添加新科室"${this._esc(q)}"</div>` : '';
         box.innerHTML = (listHtml || '<div class="dept-suggest-item dept-suggest-empty">未找到匹配科室</div>') + addBtn;
         box.style.display = 'block';
     },
@@ -699,7 +902,81 @@ const DeptSuggest = {
         const dept = (this._lastDepts || [])[index];
         if (!dept || !this._currentInput) return;
         this._currentInput.value = dept.name;
+        this._markMatched(this._currentInput, true);
+        this._setHint(this._currentInput, '');
         this._hide();
+    },
+
+    // OCR/粘贴填充时调用：与数据库匹配，精确则自动选中，不精确则显示红色提示和相似选项
+    // 科室后端无 match 端点，复用 check（exists 视为精确匹配）
+    async matchAndFill(inputEl, name) {
+        if (!inputEl || !name || !name.trim()) return;
+        inputEl.value = name.trim();
+        this._currentInput = inputEl;
+        this._bindBlur(inputEl);
+        try {
+            const res = await Api.departments.check(name.trim());
+            if (res.exists && res.department) {
+                inputEl.value = res.department.name;
+                this._markMatched(inputEl, true);
+                this._setHint(inputEl, '');
+            } else {
+                this._markMatched(inputEl, false);
+                this._setHint(inputEl, '（无匹配，请选择或创建）');
+                if (res.similar && res.similar.length > 0) {
+                    this._render(inputEl, res.similar);
+                }
+            }
+        } catch (e) { /* 静默失败 */ }
+    },
+
+    // 在label后显示/隐藏红色提示文字
+    _setHint(inputEl, text) {
+        if (!inputEl) return;
+        const group = inputEl.closest('.form-group');
+        if (!group) return;
+        const label = group.querySelector('label');
+        if (!label) return;
+        let hint = label.querySelector('.match-hint');
+        if (!hint) {
+            hint = document.createElement('span');
+            hint.className = 'match-hint';
+            hint.style.cssText = 'color:red;font-size:12px;margin-left:4px;';
+            label.appendChild(hint);
+        }
+        hint.textContent = text;
+        hint.style.display = text ? 'inline' : 'none';
+    },
+
+    // 标记输入框是否已关联到库条目（关联→灰色背景；手动输入/未关联→白色背景）
+    _markMatched(inputEl, matched) {
+        if (!inputEl) return;
+        inputEl._matched = !!matched;
+        inputEl.style.backgroundColor = inputEl._matched ? '#f1f5f9' : '#ffffff';
+    },
+
+    // 绑定失焦检查（去重，仅绑定一次）
+    _bindBlur(inputEl) {
+        if (!inputEl || inputEl._deptBlurBound) return;
+        inputEl._deptBlurBound = true;
+        inputEl.addEventListener('blur', () => this._onBlur(inputEl));
+    },
+
+    // 失焦后检查：未关联则查询库，不精确匹配时显示红色提示（输入时不即时显示）
+    async _onBlur(inputEl) {
+        this._hide();
+        const q = (inputEl?.value || '').trim();
+        if (!q) { this._setHint(inputEl, ''); return; }
+        // 延迟检查，避免点击下拉项时 blur 先于 pick 触发误判
+        setTimeout(async () => {
+            if (inputEl._matched) { this._setHint(inputEl, ''); return; }
+            if ((inputEl.value || '').trim() !== q) return;
+            try {
+                const r = await Api.departments.check(q);
+                if ((inputEl.value || '').trim() !== q) return;
+                this._setHint(inputEl, r.exists ? '' : '（无匹配，请选择或创建）');
+            } catch (e) { /* 静默 */ }
+        }, 200);
     },
 
     // 从输入框当前值直接添加新科室 → 弹出对话框录入完整信息
@@ -738,6 +1015,7 @@ const DeptSuggest = {
         };
         Api.departments.add(data.name, data.abbreviation, data.alias, data.category).then(r => {
             if (this._currentInput) this._currentInput.value = r.department.name;
+            this._markMatched(this._currentInput, true);
             App.closeModal();
             this._hide();
             App.toast(`已添加科室：${r.department.name}（${r.department.pinyinAbbr || '-'}）`);
@@ -778,6 +1056,7 @@ const DeptSuggest = {
     _pickSimilar(i) {
         const s = (this._lastSimilar || [])[i];
         if (s && this._ensureInput) this._ensureInput.value = s.name;
+        if (s) this._markMatched(this._ensureInput, true);
         App.closeModal();
         const r = this._ensureResolve; this._ensureResolve = null; this._ensureInput = null;
         if (r) r(true);
@@ -1317,8 +1596,8 @@ const App = {
                 <div class="form-group"><label>关联成员</label><select id="ocr-record-elder">${this._memberOptions()}</select></div>
                 <div class="form-group"><label>类型</label><select id="ocr-record-type"><option selected>病历</option><option>检查报告</option></select></div>
                 <div class="form-group"><label>就诊日期</label><input id="ocr-record-date" type="text" readonly value="${parsed.visitDate || today}" onclick="CalendarPicker.attach(this,{max:'today'})" placeholder="点击选择日期" style="background:#fff;"></div>
-                <div class="form-group"><label>医院 *</label><input id="ocr-hospital" value="${this._escAttr(parsed.hospital)}" placeholder="输入医院名称或拼音首字母" autocomplete="off" onclick="HospitalSuggest.onInput(this)" oninput="HospitalSuggest.onInput(this)"></div>
-                <div class="form-group"><label>科室 *</label><input id="ocr-department" value="${this._escAttr(parsed.department)}" placeholder="输入科室名称或拼音首字母" autocomplete="off" onclick="DeptSuggest.onInput(this)" oninput="DeptSuggest.onInput(this)"></div>
+                <div class="form-group"><label>医院 *</label><input id="ocr-hospital" value="${this._escAttr(parsed.hospital)}" placeholder="输入医院名称或拼音首字母" autocomplete="off" onclick="HospitalSuggest.showSuggestions(this)" oninput="HospitalSuggest.onInput(this)"></div>
+                <div class="form-group"><label>科室 *</label><input id="ocr-department" value="${this._escAttr(parsed.department)}" placeholder="输入科室名称或拼音首字母" autocomplete="off" onclick="DeptSuggest.showSuggestions(this)" oninput="DeptSuggest.onInput(this)"></div>
                 <div class="form-group"><label>主诉</label><textarea id="ocr-complaint" placeholder="主要症状">${this._escAttr(parsed.chiefComplaint)}</textarea></div>
                 <div class="form-group"><label>诊断 *</label><input id="ocr-diagnosis" value="${this._escAttr(parsed.diagnosis)}" placeholder="诊断结果"></div>
                 <div class="form-group"><label>医嘱</label><textarea id="ocr-orders" placeholder="医嘱内容">${this._escAttr(parsed.orders)}</textarea></div>
@@ -1327,6 +1606,8 @@ const App = {
                 <button class="btn-outline" style="margin-top:8px;" onclick="App.closeModal()">取消</button>
             `);
             App._ocrMetrics = parsed.metrics || [];
+            if (parsed.hospital) HospitalSuggest.matchAndFill(document.getElementById('ocr-hospital'), parsed.hospital);
+            if (parsed.department) DeptSuggest.matchAndFill(document.getElementById('ocr-department'), parsed.department);
         } else if (type === '报告' || type === '检查报告') {
             this.closeModal();
             this.openModal(`
@@ -1339,8 +1620,8 @@ const App = {
                 <div class="form-group"><label>关联成员</label><select id="ocr-record-elder" onchange="App._loadRelatedRecords(this.value,'ocr-record-related')">${this._memberOptions()}</select></div>
                 <div class="form-group"><label>类型</label><select id="ocr-record-type"><option>病历</option><option selected>检查报告</option></select></div>
                 <div class="form-group"><label>检查日期</label><input id="ocr-record-date" type="text" readonly value="${parsed.visitDate || today}" onclick="CalendarPicker.attach(this,{max:'today'})" placeholder="点击选择日期" style="background:#fff;"></div>
-                <div class="form-group"><label>医院 *</label><input id="ocr-hospital" value="${this._escAttr(parsed.hospital)}" placeholder="如：市中心医院" onclick="HospitalSuggest.onInput(this)" oninput="HospitalSuggest.onInput(this)"></div>
-                <div class="form-group"><label>科室 *</label><input id="ocr-department" value="${this._escAttr(parsed.department)}" placeholder="如：影像科" onclick="DeptSuggest.onInput(this)" oninput="DeptSuggest.onInput(this)"></div>
+                <div class="form-group"><label>医院 *</label><input id="ocr-hospital" value="${this._escAttr(parsed.hospital)}" placeholder="如：市中心医院" onclick="HospitalSuggest.showSuggestions(this)" oninput="HospitalSuggest.onInput(this)"></div>
+                <div class="form-group"><label>科室 *</label><input id="ocr-department" value="${this._escAttr(parsed.department)}" placeholder="如：影像科" onclick="DeptSuggest.showSuggestions(this)" oninput="DeptSuggest.onInput(this)"></div>
                 <div class="form-group"><label>检查项目</label><input id="ocr-diagnosis" value="${this._escAttr(parsed.examName)}"></div>
                 <div class="form-group"><label>检查所见</label><textarea id="ocr-findings" rows="4">${this._escAttr(parsed.findings)}</textarea></div>
                 <div class="form-group"><label>报告结论</label><textarea id="ocr-conclusion" rows="3">${this._escAttr(parsed.conclusion)}</textarea></div>
@@ -1349,6 +1630,8 @@ const App = {
                 <button class="btn-outline" style="margin-top:8px;" onclick="App.closeModal()">取消</button>
             `);
             App._ocrMetrics = [];
+            if (parsed.hospital) HospitalSuggest.matchAndFill(document.getElementById('ocr-hospital'), parsed.hospital);
+            if (parsed.department) DeptSuggest.matchAndFill(document.getElementById('ocr-department'), parsed.department);
             const initElder2 = document.getElementById('ocr-record-elder')?.value;
             if (initElder2) this._loadRelatedRecords(initElder2, 'ocr-record-related');
         } else if (type === '处方') {
@@ -1389,8 +1672,8 @@ const App = {
                 ${thumbsHtml}
                 ${ocrTextHtml}
                 <div class="form-group"><label>关联成员</label><select id="ocr-med-elder" onchange="App._loadRelatedRecords(this.value,'ocr-med-related')">${this._memberOptions()}</select></div>
-                <div class="form-group"><label>医院 *</label><input id="ocr-med-hospital" value="${this._escAttr(parsed.hospital)}" placeholder="医院名称" autocomplete="off" onclick="HospitalSuggest.onInput(this)" oninput="HospitalSuggest.onInput(this)"></div>
-                <div class="form-group"><label>科室 *</label><input id="ocr-med-dept" value="${this._escAttr(parsed.department)}" placeholder="科室" autocomplete="off" onclick="DeptSuggest.onInput(this)" oninput="DeptSuggest.onInput(this)"></div>
+                <div class="form-group"><label>医院 *</label><input id="ocr-med-hospital" value="${this._escAttr(parsed.hospital)}" placeholder="医院名称" autocomplete="off" onclick="HospitalSuggest.showSuggestions(this)" oninput="HospitalSuggest.onInput(this)"></div>
+                <div class="form-group"><label>科室 *</label><input id="ocr-med-dept" value="${this._escAttr(parsed.department)}" placeholder="科室" autocomplete="off" onclick="DeptSuggest.showSuggestions(this)" oninput="DeptSuggest.onInput(this)"></div>
                 <div class="form-group"><label>诊断</label><input id="ocr-med-diagnosis" value="${this._escAttr(parsed.diagnosis)}" placeholder="诊断"></div>
                 <div class="form-group"><label>医生</label><input id="ocr-med-doctor" value="${this._escAttr(parsed.doctor)}" placeholder="主治医生"></div>
                 <div class="form-group"><label>关联病历</label><select id="ocr-med-related"><option value="">不关联</option></select><div style="font-size:12px;color:#94a3b8;margin-top:4px;">如未选择病历记录，在保存时，将自动创建一条病历记录。</div></div>
@@ -1405,6 +1688,17 @@ const App = {
                 MedTimesUI.render(p);
             }
             App._ocrMeds = meds;
+            if (parsed.hospital) HospitalSuggest.matchAndFill(document.getElementById('ocr-med-hospital'), parsed.hospital);
+            if (parsed.department) DeptSuggest.matchAndFill(document.getElementById('ocr-med-dept'), parsed.department);
+            // 对每个识别出的药品名进行数据库匹配：精确则自动填充规格/厂商等并置灰，不精确则显示红色提示与相似项
+            // 串行 await 以避免并发渲染下拉时共享 _lastDrugs 状态错乱
+            for (let i = 0; i < meds.length; i++) {
+                const p = `ocrMed${i}`;
+                const nameInput = document.getElementById(`${p}Name`);
+                if (nameInput && meds[i].name) {
+                    await DrugSuggest.matchAndFill(nameInput, meds[i].name, { specDosage: `${p}SpecDosage`, specDosageUnit: `${p}SpecDosageUnit`, unitCapacity: `${p}UnitCap`, unitCapacityUnit: `${p}UnitCapUnit`, manufacturer: `${p}Manu` });
+                }
+            }
             // 加载关联病历选项
             const initElder = document.getElementById('ocr-med-elder')?.value;
             if (initElder) this._loadRelatedRecords(initElder, 'ocr-med-related');
@@ -1428,6 +1722,8 @@ const App = {
                 <button class="btn-primary" onclick="App.saveOcrDrug()">录入药箱</button>
                 <button class="btn-outline" style="margin-top:8px;" onclick="App.closeModal()">取消</button>
             `);
+            // 识别出的药品名进行数据库匹配：精确则自动填充规格/单位容量/厂商等并置灰，不精确则显示红色提示与相似项
+            if (parsed.name) DrugSuggest.matchAndFill(document.getElementById('ocr-drug-name'), parsed.name, { specDosage: 'ocr-drug-specdosage', specDosageUnit: 'ocr-drug-specdosageunit', unitCapacity: 'ocr-drug-unitcap', unitCapacityUnit: 'ocr-drug-unitcapunit', specification: 'ocr-drug-spec', manufacturer: 'ocr-drug-manufacturer' });
         }
     },
 

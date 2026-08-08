@@ -137,6 +137,29 @@ function extractAfter(line) {
   return m ? m[1].trim() : '';
 }
 
+// 提取医师姓名：支持"医师：孙畅"（有分隔符）和"医师孙畅"（无分隔符）两种格式
+function extractDoctor(text) {
+  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  const keywords = ['医师签名', '医师签字', '主治医师', '接诊医生', '医师', '医生', '签名'];
+  for (const kw of keywords) {
+    for (const l of lines) {
+      if (!l.includes(kw)) continue;
+      // 1. 有分隔符：医师：孙畅
+      const after = extractAfter(l);
+      if (after && /^[\u4e00-\u9fa5a-zA-Z]/.test(after)) {
+        return after.replace(/[(（]签章[)）]/g, '').trim();
+      }
+      // 2. 无分隔符：医师孙畅 → 去掉关键词取剩余
+      const rest = l.replace(kw, '').replace(/^[:：】\]]\s*/, '').trim();
+      // 过滤纯标点/数字/签章等非姓名内容，要求至少2个连续中文或英文字符
+      if (rest && /^[\u4e00-\u9fa5a-zA-Z]{2,}/.test(rest)) {
+        return rest.replace(/[(（]签章[)）]/g, '').trim();
+      }
+    }
+  }
+  return '';
+}
+
 // 收集某关键词所在行及其后续行，直到遇到下一个【标签】或结束标志（用于多行内容如"处置"区块）
 function extractBlock(text, keywords) {
   const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
@@ -221,7 +244,7 @@ function parseRecord(text) {
     chiefComplaint: extractBlock(text, ['主诉']) || '',
     // 无"医嘱"时用"处置"等区块内容代替（多行药品/用法文本）
     orders: extractBlock(text, ['医嘱', '处置', '处理', '处理意见', '治疗方案', '建议', 'Rp']) || '',
-    doctor: extractAfter(findLine(text, ['医师签名', '医师签字', '医师', '医生', '接诊医生', '主治医师', '签名'])) || '',
+    doctor: extractDoctor(text),
     metrics: findMetrics(text)
   };
 }
@@ -299,6 +322,13 @@ function parsePrescription(text) {
         quantity: 1, quantityUnit: '',
         frequency: '每日1次', note: ''
       };
+      // 同行规格后可能还有数量（如 2.5mg*7X1盒 → 数量1盒）
+      const afterSpec = l.substring(specM.index + specM[0].length);
+      const qtyInLine = afterSpec.match(/(\d+)\s*(盒|瓶|袋|支|板|包)/);
+      if (qtyInLine) {
+        currentMed.quantity = parseInt(qtyInLine[1]);
+        currentMed.quantityUnit = qtyInLine[2];
+      }
       continue;
     }
 
@@ -319,9 +349,27 @@ function parsePrescription(text) {
 
     if (!currentMed) continue;
 
+    // 2.5 用法/用量/服法行：提取剂量和频次（如 用法：2.5mg口服1/日）
+    if (/^[用法用量服法]+[:：]/.test(l)) {
+      const usage = l.replace(/^[用法用量服法]+[:：]\s*/, '');
+      const dM = usage.match(/(\d+\.?\d*)\s*(mg|g|ml|片|粒|袋|丸|支|ug|μg)/i);
+      if (dM) { currentMed.doseAmount = dM[1]; currentMed.doseUnit = dM[2]; }
+      const fM = usage.match(freqRe);
+      if (fM) currentMed.frequency = fM[1];
+      continue;
+    }
+
     // 3. 频次
     const freqM = l.match(freqRe);
-    if (freqM) { currentMed.frequency = freqM[1]; continue; }
+    if (freqM) {
+      currentMed.frequency = freqM[1];
+      // 同行可能还有剂量（如 2.5mg口服1/日，无"用法："前缀的情况）
+      if (!currentMed.doseAmount) {
+        const dM = l.match(/(\d+\.?\d*)\s*(mg|g|ml|片|粒|袋|丸|支|ug|μg)/i);
+        if (dM) { currentMed.doseAmount = dM[1]; currentMed.doseUnit = dM[2]; }
+      }
+      continue;
+    }
 
     // 4. 数量（如 2盒、1瓶、3袋）→ 拆分为数值和单位
     const qtyM = l.match(qtyRe);
@@ -343,7 +391,7 @@ function parsePrescription(text) {
     department: findDepartment(text),
     visitDate: findDate(text),
     diagnosis: extractBlock(text, ['诊断', '初步诊断', '临床诊断']) || '',
-    doctor: extractAfter(findLine(text, ['医师签名', '医师签字', '医师', '医生', '接诊医生', '主治医师', '签名'])) || '',
+    doctor: extractDoctor(text),
     medications: meds
   };
 }
