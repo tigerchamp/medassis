@@ -334,8 +334,8 @@ const PagePharmacy = {
                     else if (d.status === 'expiring_soon') statusHtml = '<span class="danger">⚠ 即将过期</span>';
                     const icon = d.name.includes('注射') ? 'fa-syringe' : d.name.includes('片') ? 'fa-tablets' : 'fa-capsules';
                     const specParts = [];
-                    if (d.specDosage != null) specParts.push(`每${d.specDosageUnit || '片'}${d.specDosage}${d.specDosageUnit === 'g' ? 'g' : ''}`);
-                    if (d.unitCapacity != null) specParts.push(`每${d.unitCapacityUnit || '盒'}${d.unitCapacity}${d.specDosageUnit || '片'}`);
+                    if (d.specDosage != null) specParts.push(`每${d.unitCapacityUnit || '片'}${d.specDosage}${d.specDosageUnit || ''}`);
+                    if (d.unitCapacity != null) specParts.push(`每${d.quantityUnit || '盒'}${d.unitCapacity}${d.unitCapacityUnit || '片'}`);
                     const specLine = specParts.length > 0 ? specParts.join('，') : (d.specification || '');
                     return `<div class="drug-item" style="cursor:pointer;" onclick="App.viewDrugDetail('${d.id}')">
                         <div class="drug-icon"><i class="fas ${icon}"></i></div>
@@ -1141,8 +1141,8 @@ const PageDrugDetail = {
             else if (drug.status === 'expiring_soon') statusHtml = '<span class="danger">⚠ 即将过期</span>';
 
             const specParts = [];
-            if (drug.specDosage != null) specParts.push(`每${drug.specDosageUnit || '片'}${drug.specDosage}${drug.specDosageUnit === 'g' ? 'g' : drug.specDosageUnit === 'mg' ? 'mg' : drug.specDosageUnit === 'ml' ? 'ml' : ''}`);
-            if (drug.unitCapacity != null) specParts.push(`每${drug.unitCapacityUnit || '盒'}${drug.unitCapacity}${drug.specDosageUnit || '片'}`);
+            if (drug.specDosage != null) specParts.push(`每${drug.unitCapacityUnit || '片'}${drug.specDosage}${drug.specDosageUnit || ''}`);
+            if (drug.unitCapacity != null) specParts.push(`每${drug.quantityUnit || '盒'}${drug.unitCapacity}${drug.unitCapacityUnit || '片'}`);
             const specLine = specParts.length > 0 ? specParts.join('，') : (drug.specification || '');
 
             let imagesHtml = '';
@@ -1166,7 +1166,7 @@ const PageDrugDetail = {
                 ${drug.manufacturer ? `<div class="text-muted" style="font-size:0.9em;margin-bottom:4px;">厂商: ${drug.manufacturer}</div>` : ''}
                 <div style="display:flex;gap:16px;align-items:center;margin-top:8px;">
                     <span style="font-size:1.2em;font-weight:600;">库存: ${drug.quantity || 0}</span>
-                    ${drug.unitCapacityUnit || '盒'}
+                    ${drug.quantityUnit || '盒'}
                     ${statusHtml}
                 </div>
                 ${elderName ? `<div class="text-muted" style="font-size:0.9em;margin-top:4px;">所属: ${elderName}</div>` : ''}

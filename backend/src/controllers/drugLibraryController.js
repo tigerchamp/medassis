@@ -206,33 +206,16 @@ async function check(req, res) {
 async function add(req, res) {
   try {
     const { name, specification, specDosage, specDosageUnit, unitCapacity, unitCapacityUnit, manufacturer, dosageForm, approvalNumber } = req.body;
+    console.log('[drugLibrary.add] 收到请求 body=', JSON.stringify({ name, specification, specDosage, specDosageUnit, unitCapacity, unitCapacityUnit, manufacturer, dosageForm, approvalNumber }));
     const trimmed = (name || '').trim();
-    if (!trimmed) return res.status(400).json({ error: '药品名称不能为空' });
+    if (!trimmed) { console.log('[drugLibrary.add] 药品名称为空, 返回400'); return res.status(400).json({ error: '药品名称不能为空' }); }
 
-    const familyUserIds = await _getFamilyUserIds(req);
-    // 在可见范围内已存在则直接返回，避免重复添加
-    const [existing] = await getPool().query(
-      `SELECT code, name, specification, spec_dosage, spec_dosage_unit, unit_capacity, unit_capacity_unit, manufacturer FROM drugs
-       WHERE (owner_user_id IS NULL OR owner_user_id IN (?)) AND name = ? LIMIT 1`,
-      [familyUserIds, trimmed]
-    );
-    if (existing.length > 0) {
-      const r = existing[0];
-      return res.json({
-        drug: {
-          code: r.code, name: r.name,
-          specification: r.specification || '',
-          specDosage: r.spec_dosage != null ? Number(r.spec_dosage) : null,
-          specDosageUnit: r.spec_dosage_unit || '',
-          unitCapacity: r.unit_capacity != null ? Number(r.unit_capacity) : null,
-          unitCapacityUnit: r.unit_capacity_unit || '',
-          manufacturer: r.manufacturer || ''
-        }
-      });
-    }
-
+    // add 端点明确用于"创建新药品"，始终创建新条目（UUID code + owner_user_id 私有）
+    // 不按名称去重——同名不同规格/厂商的药品应允许共存（如国家库"阿司匹林肠溶片 25mg"与用户自建"阿司匹林肠溶片 100mg"）
+    // 去重逻辑由 check 端点 + ensure 流程在前端处理（用户从下拉选择已有药品）
     const code = uuidv4();
     const pinyinAbbr = getPinyinAbbr(trimmed);
+    console.log('[drugLibrary.add] 准备INSERT, code=', code, 'pinyinAbbr=', pinyinAbbr, 'owner_user_id=', req.user.id);
     await getPool().query(
       `INSERT INTO drugs (code, approval_number, name, pinyin_abbr, dosage_form, specification, spec_dosage, spec_dosage_unit, unit_capacity, unit_capacity_unit, manufacturer, owner_user_id)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -240,6 +223,7 @@ async function add(req, res) {
        specDosage || null, specDosageUnit || null, unitCapacity || null, unitCapacityUnit || null,
        manufacturer || null, req.user.id]
     );
+    console.log('[drugLibrary.add] INSERT成功, code=', code, 'name=', trimmed);
     res.json({
       drug: {
         code, name: trimmed,
@@ -252,7 +236,7 @@ async function add(req, res) {
       }
     });
   } catch (err) {
-    console.error('Add drug error:', err);
+    console.error('[drugLibrary.add] 异常:', err.message, err.stack);
     res.status(500).json({ error: '添加药品失败' });
   }
 }

@@ -280,11 +280,18 @@ const DrugSuggest = {
                 ${sub ? `<div class="ds-sub">${sub}</div>` : ''}
             </div>`;
         }).join('');
-        // 当输入文字已与某药品名称完全精确匹配时，不再显示"+添加新药品"
-        const hasExact = drugs.some(d => d.name === q);
-        const addBtn = (q && !hasExact) ? `<div class="drug-suggest-item drug-suggest-add" onclick="DrugSuggest._addNewFromInput()"><i class="fas fa-plus"></i> 添加新药品"${this._esc(q)}"</div>` : '';
+        // 药品允许重名（同名不同规格/厂商），所以始终显示"+添加新药品"按钮
+        const addBtn = q ? `<div class="drug-suggest-item drug-suggest-add" onclick="DrugSuggest._addNewFromInput()"><i class="fas fa-plus"></i> 添加新药品"${this._esc(q)}"</div>` : '';
         box.innerHTML = (listHtml || '<div class="drug-suggest-item drug-suggest-empty">未找到匹配药品</div>') + addBtn;
         box.style.display = 'block';
+        // 高亮精确匹配项并滚动到可见位置
+        if (q) {
+            const exactIdx = drugs.findIndex(d => d.name === q);
+            if (exactIdx >= 0) {
+                const target = box.querySelectorAll('.drug-suggest-item')[exactIdx];
+                if (target) { target.classList.add('suggest-item-active'); target.scrollIntoView({ block: 'nearest' }); }
+            }
+        }
     },
 
     // 选中下拉项：填充名称、code，并按 autoFillMap 自动填充规格/单位容量/厂商并置灰
@@ -425,6 +432,24 @@ const DrugSuggest = {
         if (hiddenEl) hiddenEl.value = code || '';
     },
 
+    // 独立 overlay 显示"未找到药品/添加新药品"对话框，避免覆盖/关闭 OCR 表单 modal
+    _showOverlay(html) {
+        let overlay = document.getElementById('drugSuggestOverlay');
+        if (!overlay) {
+            overlay = document.createElement('div');
+            overlay.id = 'drugSuggestOverlay';
+            overlay.style.cssText = 'position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,0.5);display:none;align-items:center;justify-content:center;padding:16px;';
+            document.body.appendChild(overlay);
+        }
+        overlay.innerHTML = `<div style="background:#fff;border-radius:12px;padding:20px;max-width:480px;width:100%;max-height:88vh;overflow:auto;">${html}</div>`;
+        overlay.style.display = 'flex';
+    },
+
+    _hideOverlay() {
+        const overlay = document.getElementById('drugSuggestOverlay');
+        if (overlay) overlay.style.display = 'none';
+    },
+
     // 从输入框当前值直接添加新药品 → 弹出对话框录入完整信息
     _addNewFromInput() {
         const name = (this._currentInput?.value || '').trim();
@@ -441,7 +466,7 @@ const DrugSuggest = {
         const specUnitOpts = ['g', 'mg', 'ml', 'μg'];
         const capUnitOpts = ['片', '粒', '袋', '支', '瓶', '贴'];
         const opts = arr => arr.map(u => `<option value="${u}">${u}</option>`).join('');
-        App.openModal(`
+        this._showOverlay(`
             <h3 style="margin:0 0 16px;">添加新药品</h3>
             <p style="color:#64748b;font-size:13px;margin:0 0 12px;">该药品仅你及你的家庭组可见，请填写完整信息：</p>
             <div class="form-group"><label>药品名称 *</label><input id="drug-add-name" value="${this._esc(prefillName || '')}" placeholder="如：阿莫西林胶囊"></div>
@@ -468,7 +493,10 @@ const DrugSuggest = {
             specification: (document.getElementById('drug-add-spec')?.value || '').trim() || null,
             manufacturer: (document.getElementById('drug-add-manu')?.value || '').trim() || null,
         };
+        console.log('[DrugSuggest._submitAdd] 提交添加药品，data=', JSON.stringify(data));
+        console.log('[DrugSuggest._submitAdd] _ensureInput=', !!this._ensureInput, '_currentInput=', !!this._currentInput, '_addOnSuccess=', typeof this._addOnSuccess);
         Api.drugLibrary.add(data).then(r => {
+            console.log('[DrugSuggest._submitAdd] API成功，response=', JSON.stringify(r));
             const drug = r.drug;
             // ensure 流程优先使用 _ensureInput，下拉添加流程使用 _currentInput
             const inputEl = this._ensureInput || this._currentInput;
@@ -476,48 +504,59 @@ const DrugSuggest = {
             this._setHiddenCode(inputEl, drug.code);
             this._applyAutoFill(inputEl, drug);
             this._markMatched(inputEl, true);
-            App.closeModal();
+            this._setHint(inputEl, ''); // 清除"无匹配，请选择或创建"红字提示
+            this._hideOverlay();
             this._hide();
             App.toast(`已添加药品：${drug.name}`);
             const cb = this._addOnSuccess; this._addOnSuccess = null; this._addOnCancel = null;
+            console.log('[DrugSuggest._submitAdd] onSuccess回调=', typeof cb);
             if (cb) cb(drug);
-        }).catch(e => App.toast('添加失败：' + e.message));
+        }).catch(e => {
+            console.error('[DrugSuggest._submitAdd] API失败:', e);
+            App.toast('添加失败：' + e.message);
+        });
     },
 
     _cancelAdd() {
-        App.closeModal();
+        this._hideOverlay();
         const cb = this._addOnCancel; this._addOnSuccess = null; this._addOnCancel = null;
         if (cb) cb();
     },
 
     // 保存前校验：不存在则提示相似项 + 添加按钮。返回 false 表示用户取消保存
-    // 用法：if (false === await DrugSuggest.ensure(nameInputEl)) return;
-    ensure(inputEl) {
+    // 用法：if (false === await DrugSuggest.ensure(nameInputEl, true)) return;
+    // returnAfterCreate=true：创建新药后 resolve(false) 中止保存，回表单让用户手动提交（用于 OCR modal 表单）
+    ensure(inputEl, returnAfterCreate = false) {
         return new Promise(async (resolve) => {
+            this._ensureReturnAfterCreate = returnAfterCreate;
             const name = (inputEl?.value || '').trim();
-            if (!name) { resolve(true); return; }
+            console.log('[DrugSuggest.ensure] 开始, name=', name, 'returnAfterCreate=', returnAfterCreate);
+            if (!name) { console.log('[DrugSuggest.ensure] 名称为空, resolve(true)'); resolve(true); return; }
             // 已从下拉选中（隐藏 code 有值）则跳过校验
             const hiddenId = inputEl && inputEl._dsHiddenId;
             if (hiddenId) {
                 const h = document.getElementById(hiddenId);
-                if (h && h.value) { resolve(true); return; }
+                if (h && h.value) { console.log('[DrugSuggest.ensure] 已有hidden code=', h.value, ', resolve(true)'); resolve(true); return; }
             }
             try {
                 const r = await Api.drugLibrary.check(name);
+                console.log('[DrugSuggest.ensure] check结果, exists=', r.exists, 'similarCount=', (r.similar || []).length);
                 if (r.exists) {
                     // 回填 code，便于后续保存直接关联
                     if (r.drug && r.drug.code) this._setHiddenCode(inputEl, r.drug.code);
                     if (r.drug) this._applyAutoFill(inputEl, r.drug);
                     this._markMatched(inputEl, true);
+                    console.log('[DrugSuggest.ensure] 药品已存在, resolve(true)');
                     resolve(true); return;
                 }
                 this._ensureResolve = resolve;
                 this._ensureInput = inputEl;
                 this._lastSimilar = r.similar || [];
+                console.log('[DrugSuggest.ensure] 药品未找到, 显示overlay等待用户选择');
                 const simHtml = (r.similar || []).map((s, i) =>
                     `<div class="drug-suggest-item" onclick="DrugSuggest._pickSimilar(${i})">${this._esc(s.name)}${s.specification ? `<span style="color:#94a3b8;font-size:12px;margin-left:6px;">${this._esc(s.specification)}</span>` : ''}${s.manufacturer ? `<span style="color:#94a3b8;font-size:12px;margin-left:6px;">${this._esc(s.manufacturer)}</span>` : ''}</div>`
                 ).join('') || '<div style="color:#94a3b8;padding:12px;text-align:center;">无相似药品</div>';
-                App.openModal(`
+                this._showOverlay(`
                     <h3 style="margin:0 0 8px;">药品"${this._esc(name)}"未找到</h3>
                     <p style="color:#64748b;font-size:13px;margin:0 0 12px;">请选择已有药品，或创建新药品后保存：</p>
                     <div style="max-height:240px;overflow:auto;border:1px solid #e2e8f0;border-radius:8px;margin-bottom:12px;">${simHtml}</div>
@@ -535,23 +574,28 @@ const DrugSuggest = {
             this._setHiddenCode(this._ensureInput, s.code || '');
         }
         if (s) this._markMatched(this._ensureInput, true);
-        App.closeModal();
+        this._hideOverlay();
         const r = this._ensureResolve; this._ensureResolve = null; this._ensureInput = null;
         if (r) r(true);
     },
 
     _confirmAdd() {
+        console.log('[DrugSuggest._confirmAdd] 触发创建新药品, _ensureInput=', !!this._ensureInput, 'returnAfterCreate=', this._ensureReturnAfterCreate);
         const name = (this._ensureInput?.value || '').trim();
         this._openAddDialog(name, (drug) => {
-            const r = this._ensureResolve; this._ensureResolve = null; this._ensureInput = null;
-            if (r) r(true);
+            console.log('[DrugSuggest._confirmAdd] onSuccess回调触发, drug=', drug?.code, drug?.name);
+            const r = this._ensureResolve; const ret = this._ensureReturnAfterCreate; this._ensureResolve = null; this._ensureInput = null; this._ensureReturnAfterCreate = false;
+            // returnAfterCreate=true → resolve(false) 中止保存，回表让用户手动提交；否则 resolve(true) 继续保存
+            console.log('[DrugSuggest._confirmAdd] resolve(', !ret, ') ensurePromise=', !!r);
+            if (r) r(!ret);
         }, () => {
             // 对话框取消：保持在 ensure 等待状态，不 resolve
+            console.log('[DrugSuggest._confirmAdd] onCancel回调触发, 保持在ensure等待');
         });
     },
 
     _cancelEnsure() {
-        App.closeModal();
+        this._hideOverlay();
         const r = this._ensureResolve; this._ensureResolve = null; this._ensureInput = null;
         if (r) r(false);
     },
@@ -639,6 +683,14 @@ const HospitalSuggest = {
         const addBtn = (q && !hasExact) ? `<div class="hosp-suggest-item hosp-suggest-add" onclick="HospitalSuggest._addNewFromInput()"><i class="fas fa-plus"></i> 添加新医院"${this._esc(q)}"</div>` : '';
         box.innerHTML = (listHtml || '<div class="hosp-suggest-item hosp-suggest-empty">未找到匹配医院</div>') + addBtn;
         box.style.display = 'block';
+        // 高亮精确匹配项并滚动到可见位置
+        if (q) {
+            const exactIdx = hospitals.findIndex(h => h.name === q);
+            if (exactIdx >= 0) {
+                const target = box.querySelectorAll('.hosp-suggest-item')[exactIdx];
+                if (target) { target.classList.add('suggest-item-active'); target.scrollIntoView({ block: 'nearest' }); }
+            }
+        }
     },
 
     _pick(index) {
@@ -724,6 +776,23 @@ const HospitalSuggest = {
         }, 200);
     },
 
+    // 独立 overlay（同 DrugSuggest，避免覆盖/关闭 OCR 表单 modal）
+    _showOverlay(html) {
+        let overlay = document.getElementById('hospitalSuggestOverlay');
+        if (!overlay) {
+            overlay = document.createElement('div');
+            overlay.id = 'hospitalSuggestOverlay';
+            overlay.style.cssText = 'position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,0.5);display:none;align-items:center;justify-content:center;padding:16px;';
+            document.body.appendChild(overlay);
+        }
+        overlay.innerHTML = `<div style="background:#fff;border-radius:12px;padding:20px;max-width:480px;width:100%;max-height:88vh;overflow:auto;">${html}</div>`;
+        overlay.style.display = 'flex';
+    },
+    _hideOverlay() {
+        const overlay = document.getElementById('hospitalSuggestOverlay');
+        if (overlay) overlay.style.display = 'none';
+    },
+
     // 从输入框当前值直接添加新医院 → 弹出对话框录入完整信息
     _addNewFromInput() {
         const name = (this._currentInput?.value || '').trim();
@@ -736,7 +805,7 @@ const HospitalSuggest = {
     _openAddDialog(prefillName, onSuccess, onCancel) {
         this._addOnSuccess = onSuccess || null;
         this._addOnCancel = onCancel || null;
-        App.openModal(`
+        this._showOverlay(`
             <h3 style="margin:0 0 16px;">添加新医院</h3>
             <p style="color:#64748b;font-size:13px;margin:0 0 12px;">该医院仅你及你的家庭组可见，请填写完整信息：</p>
             <div class="form-group"><label>医院名称 *</label><input id="hosp-add-name" value="${this._esc(prefillName || '')}" placeholder="如：市中心医院"></div>
@@ -762,7 +831,7 @@ const HospitalSuggest = {
         Api.hospitals.add(data.name, data.abbreviation, data.alias, data.phone, data.address).then(r => {
             if (this._currentInput) this._currentInput.value = r.hospital.name;
             this._markMatched(this._currentInput, true);
-            App.closeModal();
+            this._hideOverlay();
             this._hide();
             App.toast(`已添加医院：${r.hospital.name}（${r.hospital.pinyinAbbr || '-'}）`);
             const cb = this._addOnSuccess; this._addOnSuccess = null; this._addOnCancel = null;
@@ -771,14 +840,16 @@ const HospitalSuggest = {
     },
 
     _cancelAdd() {
-        App.closeModal();
+        this._hideOverlay();
         const cb = this._addOnCancel; this._addOnSuccess = null; this._addOnCancel = null;
         if (cb) cb();
     },
 
     // 保存前校验：不存在则提示相似项 + 添加按钮。返回 false 表示用户取消保存
-    ensure(inputEl) {
+    // returnAfterCreate=true：创建新医院后 resolve(false) 中止保存，回表单让用户手动提交（用于 OCR modal 表单）
+    ensure(inputEl, returnAfterCreate = false) {
         return new Promise(async (resolve) => {
+            this._ensureReturnAfterCreate = returnAfterCreate;
             const name = (inputEl?.value || '').trim();
             if (!name) { resolve(true); return; }
             try {
@@ -790,7 +861,7 @@ const HospitalSuggest = {
                 const simHtml = (r.similar || []).map((s, i) =>
                     `<div class="hosp-suggest-item" onclick="HospitalSuggest._pickSimilar(${i})">${this._esc(s.name)}${s.alias ? `<span style="color:#94a3b8;font-size:12px;margin-left:6px;">${this._esc(s.alias)}</span>` : ''}</div>`
                 ).join('') || '<div style="color:#94a3b8;padding:12px;text-align:center;">无相似医院</div>';
-                App.openModal(`
+                this._showOverlay(`
                     <h3 style="margin:0 0 8px;">医院"${this._esc(name)}"未找到</h3>
                     <p style="color:#64748b;font-size:13px;margin:0 0 12px;">请选择已有医院，或创建新医院后保存：</p>
                     <div style="max-height:240px;overflow:auto;border:1px solid #e2e8f0;border-radius:8px;margin-bottom:12px;">${simHtml}</div>
@@ -803,7 +874,7 @@ const HospitalSuggest = {
         const s = (this._lastSimilar || [])[i];
         if (s && this._ensureInput) this._ensureInput.value = s.name;
         if (s) this._markMatched(this._ensureInput, true);
-        App.closeModal();
+        this._hideOverlay();
         const r = this._ensureResolve; this._ensureResolve = null; this._ensureInput = null;
         if (r) r(true);
     },
@@ -811,21 +882,22 @@ const HospitalSuggest = {
         const name = (this._ensureInput?.value || '').trim();
         this._currentInput = this._ensureInput || this._currentInput;
         const resolve = this._ensureResolve;
-        this._ensureResolve = null; this._ensureInput = null;
-        // 关闭"未找到"弹窗后弹出录入对话框；成功→继续保存，取消→中止保存
-        App.closeModal();
+        const ret = this._ensureReturnAfterCreate;
+        this._ensureResolve = null; this._ensureInput = null; this._ensureReturnAfterCreate = false;
+        // 关闭"未找到"弹窗后弹出录入对话框；成功→(returnAfterCreate?resolve(false)回表单:resolve(true)继续保存)，取消→中止保存
+        this._hideOverlay();
         this._openAddDialog(name,
-            () => { if (resolve) resolve(true); },
+            () => { if (resolve) resolve(!ret); },
             () => { if (resolve) resolve(false); }
         );
     },
     _confirmKeep() {
-        App.closeModal();
+        this._hideOverlay();
         const r = this._ensureResolve; this._ensureResolve = null; this._ensureInput = null;
         if (r) r(true);
     },
     _cancelEnsure() {
-        App.closeModal();
+        this._hideOverlay();
         const r = this._ensureResolve; this._ensureResolve = null; this._ensureInput = null;
         if (r) r(false);
     },
@@ -845,6 +917,23 @@ const DeptSuggest = {
     _timer: null,
     _currentInput: null,
     _lastDepts: [],
+
+    // 独立 overlay（同 DrugSuggest/HospitalSuggest，避免覆盖/关闭 OCR 表单 modal）
+    _showOverlay(html) {
+        let overlay = document.getElementById('deptSuggestOverlay');
+        if (!overlay) {
+            overlay = document.createElement('div');
+            overlay.id = 'deptSuggestOverlay';
+            overlay.style.cssText = 'position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,0.5);display:none;align-items:center;justify-content:center;padding:16px;';
+            document.body.appendChild(overlay);
+        }
+        overlay.innerHTML = `<div style="background:#fff;border-radius:12px;padding:20px;max-width:480px;width:100%;max-height:88vh;overflow:auto;">${html}</div>`;
+        overlay.style.display = 'flex';
+    },
+    _hideOverlay() {
+        const overlay = document.getElementById('deptSuggestOverlay');
+        if (overlay) overlay.style.display = 'none';
+    },
 
     // 点击输入框时显示匹配下拉（不修改值、不解除已建立的关联，保持灰色背景）
     showSuggestions(inputEl) {
@@ -896,6 +985,14 @@ const DeptSuggest = {
         const addBtn = (q && !hasExact) ? `<div class="dept-suggest-item dept-suggest-add" onclick="DeptSuggest._addNewFromInput()"><i class="fas fa-plus"></i> 添加新科室"${this._esc(q)}"</div>` : '';
         box.innerHTML = (listHtml || '<div class="dept-suggest-item dept-suggest-empty">未找到匹配科室</div>') + addBtn;
         box.style.display = 'block';
+        // 高亮精确匹配项并滚动到可见位置
+        if (q) {
+            const exactIdx = depts.findIndex(d => d.name === q);
+            if (exactIdx >= 0) {
+                const target = box.querySelectorAll('.dept-suggest-item')[exactIdx];
+                if (target) { target.classList.add('suggest-item-active'); target.scrollIntoView({ block: 'nearest' }); }
+            }
+        }
     },
 
     _pick(index) {
@@ -992,7 +1089,7 @@ const DeptSuggest = {
         this._addOnCancel = onCancel || null;
         const catOpts = ['', '内科', '外科', '妇产科', '儿科', '眼科', '耳鼻喉科', '口腔科', '皮肤科', '中医科', '急诊科', '医技科', '其他'];
         const catHtml = catOpts.map(c => `<option value="${c}"${c === '' ? ' selected' : ''}>${c || '请选择类别'}</option>`).join('');
-        App.openModal(`
+        this._showOverlay(`
             <h3 style="margin:0 0 16px;">添加新科室</h3>
             <p style="color:#64748b;font-size:13px;margin:0 0 12px;">该科室仅你及你的家庭组可见，请填写完整信息：</p>
             <div class="form-group"><label>科室名称 *</label><input id="dept-add-name" value="${this._esc(prefillName || '')}" placeholder="如：心血管内科"></div>
@@ -1016,7 +1113,7 @@ const DeptSuggest = {
         Api.departments.add(data.name, data.abbreviation, data.alias, data.category).then(r => {
             if (this._currentInput) this._currentInput.value = r.department.name;
             this._markMatched(this._currentInput, true);
-            App.closeModal();
+            this._hideOverlay();
             this._hide();
             App.toast(`已添加科室：${r.department.name}（${r.department.pinyinAbbr || '-'}）`);
             const cb = this._addOnSuccess; this._addOnSuccess = null; this._addOnCancel = null;
@@ -1025,7 +1122,7 @@ const DeptSuggest = {
     },
 
     _cancelAdd() {
-        App.closeModal();
+        this._hideOverlay();
         const cb = this._addOnCancel; this._addOnSuccess = null; this._addOnCancel = null;
         if (cb) cb();
     },
@@ -1044,7 +1141,7 @@ const DeptSuggest = {
                 const simHtml = (r.similar || []).map((s, i) =>
                     `<div class="dept-suggest-item" onclick="DeptSuggest._pickSimilar(${i})">${this._esc(s.name)}${s.alias ? `<span style="color:#94a3b8;font-size:12px;margin-left:6px;">${this._esc(s.alias)}</span>` : ''}</div>`
                 ).join('') || '<div style="color:#94a3b8;padding:12px;text-align:center;">无相似科室</div>';
-                App.openModal(`
+                this._showOverlay(`
                     <h3 style="margin:0 0 8px;">科室"${this._esc(name)}"未找到</h3>
                     <p style="color:#64748b;font-size:13px;margin:0 0 12px;">请选择已有科室，或创建新科室后保存：</p>
                     <div style="max-height:240px;overflow:auto;border:1px solid #e2e8f0;border-radius:8px;margin-bottom:12px;">${simHtml}</div>
@@ -1057,7 +1154,7 @@ const DeptSuggest = {
         const s = (this._lastSimilar || [])[i];
         if (s && this._ensureInput) this._ensureInput.value = s.name;
         if (s) this._markMatched(this._ensureInput, true);
-        App.closeModal();
+        this._hideOverlay();
         const r = this._ensureResolve; this._ensureResolve = null; this._ensureInput = null;
         if (r) r(true);
     },
@@ -1065,20 +1162,21 @@ const DeptSuggest = {
         const name = (this._ensureInput?.value || '').trim();
         this._currentInput = this._ensureInput || this._currentInput;
         const resolve = this._ensureResolve;
-        this._ensureResolve = null; this._ensureInput = null;
-        App.closeModal();
+        const ret = this._ensureReturnAfterCreate;
+        this._ensureResolve = null; this._ensureInput = null; this._ensureReturnAfterCreate = false;
+        this._hideOverlay();
         this._openAddDialog(name,
-            () => { if (resolve) resolve(true); },
+            () => { if (resolve) resolve(!ret); },
             () => { if (resolve) resolve(false); }
         );
     },
     _confirmKeep() {
-        App.closeModal();
+        this._hideOverlay();
         const r = this._ensureResolve; this._ensureResolve = null; this._ensureInput = null;
         if (r) r(true);
     },
     _cancelEnsure() {
-        App.closeModal();
+        this._hideOverlay();
         const r = this._ensureResolve; this._ensureResolve = null; this._ensureInput = null;
         if (r) r(false);
     },
@@ -1761,9 +1859,9 @@ const App = {
         // 医院/科室必填
         if (!document.getElementById('ocr-hospital')?.value.trim()) { this.toast('请填写医院'); return; }
         if (!document.getElementById('ocr-department')?.value.trim()) { this.toast('请填写科室'); return; }
-        // 保存前校验医院/科室是否存在，不存在提示选择或添加
-        if (false === await HospitalSuggest.ensure(document.getElementById('ocr-hospital'))) return;
-        if (false === await DeptSuggest.ensure(document.getElementById('ocr-department'))) return;
+        // 保存前校验医院/科室是否存在，不存在提示选择或添加（OCR modal 表单传 true：创建后回表单手动提交）
+        if (false === await HospitalSuggest.ensure(document.getElementById('ocr-hospital'), true)) return;
+        if (false === await DeptSuggest.ensure(document.getElementById('ocr-department'), true)) return;
         try {
             const fileIds = await this._uploadOcrFiles();
             const type = document.getElementById('ocr-record-type')?.value || '病历';
@@ -1857,9 +1955,9 @@ const App = {
         // 医院/科室必填
         if (!document.getElementById('ocr-med-hospital')?.value.trim()) { this.toast('请填写医院'); return; }
         if (!document.getElementById('ocr-med-dept')?.value.trim()) { this.toast('请填写科室'); return; }
-        // 保存前校验医院/科室是否存在，不存在提示选择或添加
-        if (false === await HospitalSuggest.ensure(document.getElementById('ocr-med-hospital'))) return;
-        if (false === await DeptSuggest.ensure(document.getElementById('ocr-med-dept'))) return;
+        // 保存前校验医院/科室是否存在，不存在提示选择或添加（OCR modal 表单传 true：创建后回表单手动提交）
+        if (false === await HospitalSuggest.ensure(document.getElementById('ocr-med-hospital'), true)) return;
+        if (false === await DeptSuggest.ensure(document.getElementById('ocr-med-dept'), true)) return;
         // 保存前校验每个药品是否存在，不存在提示选择或新建（与医院逻辑一致）
         const _preMedCount = App._ocrMeds ? App._ocrMeds.length : 0;
         // 必填字段（除生产厂家、有效期、备注外）
@@ -1883,7 +1981,8 @@ const App = {
                 this.toast(`请选择药品“${_name}”的服用时间段`);
                 return;
             }
-            if (false === await DrugSuggest.ensure(_nameEl)) return;
+            if (false === await DrugSuggest.ensure(_nameEl, true)) return;
+            console.log(`[saveOcrMeds] 药品${i} ensure通过`);
         }
         this._ocrMedsSaving = true;
         try {
@@ -1966,7 +2065,8 @@ const App = {
             if (!document.getElementById('ocr-drug-qty').value.trim()) { this.toast('请填写数量'); return; }
             if (!document.getElementById('ocr-drug-exp').value.trim()) { this.toast('请填写有效期'); return; }
             // 保存前校验药品是否存在，不存在提示选择或新建（与医院逻辑一致）
-            if (false === await DrugSuggest.ensure(document.getElementById('ocr-drug-name'))) return;
+            if (false === await DrugSuggest.ensure(document.getElementById('ocr-drug-name'), true)) return;
+            console.log('[saveOcrDrug] ensure通过, 准备保存到药箱, drugCode=', (document.getElementById('drugCodeHidden') || {}).value);
             const fileIds = await this._uploadOcrFiles();
             const specDosageVal = document.getElementById('ocr-drug-specdosage')?.value;
             const unitCapVal = document.getElementById('ocr-drug-unitcap')?.value;

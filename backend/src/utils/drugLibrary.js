@@ -77,6 +77,8 @@ async function resolveDrugCode(params) {
     throw new Error('药品名称不能为空');
   }
 
+  const specFields = { specDosage, specDosageUnit, unitCapacity, unitCapacityUnit, manufacturer };
+
   // 1) 前端传入 drugCode：校验存在性（限定可见范围）
   if (drugCode) {
     const [rows] = await pool.query(
@@ -84,34 +86,7 @@ async function resolveDrugCode(params) {
       [drugCode, ...scopeParams]
     );
     if (rows.length > 0) {
-      const r = rows[0];
-      let specDosageVal = r.spec_dosage != null ? Number(r.spec_dosage) : null;
-      let specDosageUnitVal = r.spec_dosage_unit || '';
-      // 若 spec_dosage 为空，尝试从 specification 解析并回写
-      if (specDosageVal === null && r.specification) {
-        const parsed = parseSpecification(r.specification);
-        if (parsed.specDosage !== null) {
-          specDosageVal = parsed.specDosage;
-          specDosageUnitVal = parsed.specDosageUnit || '';
-          await pool.query(
-            'UPDATE drugs SET spec_dosage = ?, spec_dosage_unit = ? WHERE code = ? AND spec_dosage IS NULL',
-            [specDosageVal, specDosageUnitVal, r.code]
-          );
-        }
-      }
-      return {
-        code: r.code,
-        name: r.name,
-        specification: r.specification || '',
-        manufacturer: r.manufacturer || '',
-        dosageForm: r.dosage_form || '',
-        approvalNumber: r.approval_number || '',
-        specDosage: specDosageVal,
-        specDosageUnit: specDosageUnitVal,
-        unitCapacity: r.unit_capacity != null ? Number(r.unit_capacity) : null,
-        unitCapacityUnit: r.unit_capacity_unit || '',
-        created: false
-      };
+      return await _resolveExisting(pool, rows[0], specFields);
     }
     // drugCode 无效则继续走名称匹配
   }
@@ -123,33 +98,7 @@ async function resolveDrugCode(params) {
       [trimmedName, ...scopeParams]
     );
     if (rows.length > 0) {
-      const r = rows[0];
-      let specDosageVal = r.spec_dosage != null ? Number(r.spec_dosage) : null;
-      let specDosageUnitVal = r.spec_dosage_unit || '';
-      if (specDosageVal === null && r.specification) {
-        const parsed = parseSpecification(r.specification);
-        if (parsed.specDosage !== null) {
-          specDosageVal = parsed.specDosage;
-          specDosageUnitVal = parsed.specDosageUnit || '';
-          await pool.query(
-            'UPDATE drugs SET spec_dosage = ?, spec_dosage_unit = ? WHERE code = ? AND spec_dosage IS NULL',
-            [specDosageVal, specDosageUnitVal, r.code]
-          );
-        }
-      }
-      return {
-        code: r.code,
-        name: r.name,
-        specification: r.specification || '',
-        manufacturer: r.manufacturer || '',
-        dosageForm: r.dosage_form || '',
-        approvalNumber: r.approval_number || '',
-        specDosage: specDosageVal,
-        specDosageUnit: specDosageUnitVal,
-        unitCapacity: r.unit_capacity != null ? Number(r.unit_capacity) : null,
-        unitCapacityUnit: r.unit_capacity_unit || '',
-        created: false
-      };
+      return await _resolveExisting(pool, rows[0], specFields);
     }
   }
 
@@ -174,6 +123,70 @@ async function resolveDrugCode(params) {
     unitCapacity: unitCapacity,
     unitCapacityUnit: unitCapacityUnit || '',
     created: true
+  };
+}
+
+/**
+ * 处理已存在的药品：补全空的规格字段（不覆盖已有值），返回规范化记录。
+ * spec_dosage 为空时优先从 specification 解析，再用前端传入值补全 unit_capacity/unit_capacity_unit 等。
+ * 这样处方/药箱保存时前端传入的规格字段能写回 drugs 表（仅补全空字段，已有值不覆盖）。
+ */
+async function _resolveExisting(pool, r, { specDosage, specDosageUnit, unitCapacity, unitCapacityUnit, manufacturer }) {
+  let specDosageVal = r.spec_dosage != null ? Number(r.spec_dosage) : null;
+  let specDosageUnitVal = r.spec_dosage_unit || '';
+  let unitCapacityVal = r.unit_capacity != null ? Number(r.unit_capacity) : null;
+  let unitCapacityUnitVal = r.unit_capacity_unit || '';
+  let manuVal = r.manufacturer || '';
+
+  // spec_dosage 为空时优先从 specification 解析
+  if (specDosageVal === null && r.specification) {
+    const parsed = parseSpecification(r.specification);
+    if (parsed.specDosage !== null) {
+      specDosageVal = parsed.specDosage;
+      specDosageUnitVal = parsed.specDosageUnit || '';
+    }
+  }
+
+  // 前端传入值补全空字段（不覆盖已有值）
+  const updates = [];
+  const params = [];
+  if (specDosageVal === null && specDosage != null) {
+    specDosageVal = Number(specDosage);
+    updates.push('spec_dosage = ?'); params.push(specDosageVal);
+  }
+  if (!specDosageUnitVal && specDosageUnit) {
+    specDosageUnitVal = specDosageUnit;
+    updates.push('spec_dosage_unit = ?'); params.push(specDosageUnitVal);
+  }
+  if (unitCapacityVal === null && unitCapacity != null) {
+    unitCapacityVal = Number(unitCapacity);
+    updates.push('unit_capacity = ?'); params.push(unitCapacityVal);
+  }
+  if (!unitCapacityUnitVal && unitCapacityUnit) {
+    unitCapacityUnitVal = unitCapacityUnit;
+    updates.push('unit_capacity_unit = ?'); params.push(unitCapacityUnitVal);
+  }
+  if (!manuVal && manufacturer) {
+    manuVal = manufacturer;
+    updates.push('manufacturer = ?'); params.push(manuVal);
+  }
+  if (updates.length > 0) {
+    params.push(r.code);
+    await pool.query(`UPDATE drugs SET ${updates.join(', ')} WHERE code = ?`, params);
+  }
+
+  return {
+    code: r.code,
+    name: r.name,
+    specification: r.specification || '',
+    manufacturer: manuVal,
+    dosageForm: r.dosage_form || '',
+    approvalNumber: r.approval_number || '',
+    specDosage: specDosageVal,
+    specDosageUnit: specDosageUnitVal,
+    unitCapacity: unitCapacityVal,
+    unitCapacityUnit: unitCapacityUnitVal,
+    created: false
   };
 }
 
