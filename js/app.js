@@ -210,7 +210,7 @@ const DrugSuggest = {
     _timer: null,
     _currentInput: null,
     _autoFillMap: null,
-    _lockedIds: [], // 被置灰的字段 ID 列表
+    _lockedIds: [], // 已废弃：改用 inputEl._dsLockedIds 每个输入框独立管理
 
     onInput(inputEl, hiddenCodeId, autoFillMap) {
         this._currentInput = inputEl;
@@ -223,14 +223,15 @@ const DrugSuggest = {
             inputEl._dsHiddenId = hiddenCodeId || null;
             inputEl._dsAutoFillMap = autoFillMap || null;
         }
-        // 用户改了名称视为未选中，解锁字段
+        // 用户改了名称视为未选中，解锁该输入框关联的字段
         if (hiddenCodeId) {
             const h = document.getElementById(hiddenCodeId);
             if (h) h.value = '';
         }
-        this._unlockFields();
-        if (this._autoFillMap) {
-            Object.values(this._autoFillMap).forEach(id => {
+        this._unlockFields(inputEl);
+        const am = (inputEl && inputEl._dsAutoFillMap) || this._autoFillMap;
+        if (am) {
+            Object.values(am).forEach(id => {
                 const el = document.getElementById(id);
                 if (el) el.value = '';
             });
@@ -245,6 +246,7 @@ const DrugSuggest = {
     // 点击药品名称输入框时，若已有内容则直接显示匹配下拉（不清除已选 code、不解锁字段）
     showSuggestions(inputEl) {
         if (!inputEl) return;
+        if (inputEl.readOnly) return; // 关联病历锁定后不允许弹出下拉
         this._currentInput = inputEl;
         this._autoFillMap = (inputEl._dsAutoFillMap) || null;
         const q = inputEl.value.trim();
@@ -397,7 +399,7 @@ const DrugSuggest = {
     // 将药品的规格/单位容量/厂商等字段填充到 autoFillMap 指定的表单字段并置灰
     _applyAutoFill(inputEl, drug) {
         const autoFillMap = (inputEl && inputEl._dsAutoFillMap) || this._autoFillMap;
-        this._unlockFields();
+        this._unlockFields(inputEl);
         const lockIds = [];
         if (autoFillMap) {
             const fieldMap = {
@@ -414,11 +416,13 @@ const DrugSuggest = {
                 if (el && val != null && val !== '') {
                     el.value = val;
                     el.disabled = true;
+                    el.style.backgroundColor = '#f1f5f9';
+                    el.style.color = '#64748b';
                     lockIds.push(elId);
                 }
             });
         }
-        this._lockedIds = lockIds;
+        if (inputEl) inputEl._dsLockedIds = lockIds;
     },
 
     _setHiddenCode(inputEl, code) {
@@ -600,12 +604,13 @@ const DrugSuggest = {
         if (r) r(false);
     },
 
-    _unlockFields() {
-        this._lockedIds.forEach(id => {
+    _unlockFields(inputEl) {
+        if (!inputEl || !inputEl._dsLockedIds) return;
+        inputEl._dsLockedIds.forEach(id => {
             const el = document.getElementById(id);
-            if (el) el.disabled = false;
+            if (el) { el.disabled = false; el.style.backgroundColor = ''; el.style.color = ''; }
         });
-        this._lockedIds = [];
+        inputEl._dsLockedIds = [];
     },
 
     _hide() {
@@ -636,6 +641,7 @@ const HospitalSuggest = {
     // 点击输入框时显示匹配下拉（不修改值、不解除已建立的关联，保持灰色背景）
     showSuggestions(inputEl) {
         if (!inputEl) return;
+        if (inputEl.readOnly) return; // 关联病历锁定后不允许弹出下拉
         this._currentInput = inputEl;
         this._bindBlur(inputEl);
         const q = inputEl.value.trim();
@@ -938,6 +944,7 @@ const DeptSuggest = {
     // 点击输入框时显示匹配下拉（不修改值、不解除已建立的关联，保持灰色背景）
     showSuggestions(inputEl) {
         if (!inputEl) return;
+        if (inputEl.readOnly) return; // 关联病历锁定后不允许弹出下拉
         this._currentInput = inputEl;
         this._bindBlur(inputEl);
         const q = inputEl.value.trim();
@@ -1723,7 +1730,7 @@ const App = {
                 <div class="form-group"><label>检查项目</label><input id="ocr-diagnosis" value="${this._escAttr(parsed.examName)}"></div>
                 <div class="form-group"><label>检查所见</label><textarea id="ocr-findings" rows="4">${this._escAttr(parsed.findings)}</textarea></div>
                 <div class="form-group"><label>报告结论</label><textarea id="ocr-conclusion" rows="3">${this._escAttr(parsed.conclusion)}</textarea></div>
-                <div class="form-group"><label>关联病历</label><select id="ocr-record-related"><option value="">不关联</option></select><div style="font-size:12px;color:#94a3b8;margin-top:4px;">如未选择病历记录，在保存时，将自动创建一条病历记录。</div></div>
+                <div class="form-group"><label>关联病历</label><select id="ocr-record-related"><option value=""></option></select><div style="font-size:12px;color:#ea7e2c;margin-top:4px;">如未选择病历记录，在保存时，将自动创建一条病历记录。</div></div>
                 <button class="btn-primary" onclick="App.saveOcrRecord()">保存报告</button>
                 <button class="btn-outline" style="margin-top:8px;" onclick="App.closeModal()">取消</button>
             `);
@@ -1774,7 +1781,7 @@ const App = {
                 <div class="form-group"><label>科室 *</label><input id="ocr-med-dept" value="${this._escAttr(parsed.department)}" placeholder="科室" autocomplete="off" onclick="DeptSuggest.showSuggestions(this)" oninput="DeptSuggest.onInput(this)"></div>
                 <div class="form-group"><label>诊断</label><input id="ocr-med-diagnosis" value="${this._escAttr(parsed.diagnosis)}" placeholder="诊断"></div>
                 <div class="form-group"><label>医生</label><input id="ocr-med-doctor" value="${this._escAttr(parsed.doctor)}" placeholder="主治医生"></div>
-                <div class="form-group"><label>关联病历</label><select id="ocr-med-related"><option value="">不关联</option></select><div style="font-size:12px;color:#94a3b8;margin-top:4px;">如未选择病历记录，在保存时，将自动创建一条病历记录。</div></div>
+                <div class="form-group"><label>关联病历</label><select id="ocr-med-related"><option value=""></option></select><div style="font-size:12px;color:#ea7e2c;margin-top:4px;">如未选择病历记录，在保存时，将自动创建一条病历记录。</div></div>
                 ${medBlocks}
                 <button class="btn-primary" onclick="App.saveOcrMeds()">添加用药</button>
                 <button class="btn-outline" style="margin-top:8px;" onclick="App.closeModal()">取消</button>
@@ -1866,15 +1873,24 @@ const App = {
             const fileIds = await this._uploadOcrFiles();
             const type = document.getElementById('ocr-record-type')?.value || '病历';
             const visitDate = document.getElementById('ocr-record-date')?.value || new Date().toISOString().slice(0, 10);
-            // 报告类型且未选择关联病历时，自动创建一条病历记录并关联
+            // 报告类型且未选择关联病历时，检测是否存在匹配的病历并提示
             let relatedId = document.getElementById('ocr-record-related')?.value || '';
             if (type !== '病历' && !relatedId) {
-                relatedId = await this._ensureRelatedRecord('', {
-                    elderId,
-                    visitDate,
-                    hospital: document.getElementById('ocr-hospital')?.value,
-                    department: document.getElementById('ocr-department')?.value,
-                });
+                const autoMatch = await this._checkDuplicateRecord(
+                    elderId, visitDate,
+                    document.getElementById('ocr-hospital')?.value,
+                    document.getElementById('ocr-department')?.value
+                );
+                if (autoMatch === 'cancel') { this.toast('已取消保存'); return; }
+                if (autoMatch) relatedId = autoMatch;
+                else {
+                    relatedId = await this._ensureRelatedRecord('', {
+                        elderId,
+                        visitDate,
+                        hospital: document.getElementById('ocr-hospital')?.value,
+                        department: document.getElementById('ocr-department')?.value,
+                    });
+                }
             }
             await Api.records.add({
                 elderId,
@@ -1923,10 +1939,56 @@ const App = {
             const select = document.getElementById(selectId);
             if (!select) return;
             const curVal = select.value;
-            select.innerHTML = '<option value="">不关联</option>' +
+            select.innerHTML = '<option value=""></option>' +
                 records.map(r => `<option value="${r.id}">${r.visitDate || ''} ${r.diagnosis || '未填写'}</option>`).join('');
             if (curVal) select.value = curVal;
         } catch (e) { /* 静默失败 */ }
+    },
+
+    // 保存前检测是否已存在相同就诊日期+医院+科室的病历，如有则提示关联
+    // 返回: null=无匹配; 'cancel'=用户取消操作; 记录ID=用户确认关联
+    async _checkDuplicateRecord(elderId, visitDate, hospital, department) {
+        if (!elderId || !visitDate || !hospital || !department) return null;
+        try {
+            const res = await Api.records.getAll(elderId);
+            const records = (res.records || []).filter(r => r.type === '病历');
+            const matched = records.find(r =>
+                r.visitDate === visitDate &&
+                r.hospital && hospital && r.hospital.trim() === hospital.trim() &&
+                r.department && department && r.department.trim() === department.trim()
+            );
+            if (!matched) return null;
+            const choice = await this._confirmDialog(
+                `检测到已存在一条相同日期、医院和科室的病历记录：\n「${visitDate} ${matched.diagnosis || '未填写诊断'}」\n\n是否关联该病历？`
+            );
+            if (choice === 'cancel') return 'cancel';
+            if (choice === 'link') return matched.id;
+            return null; // 用户选"否，新建"
+        } catch (e) {
+            return null;
+        }
+    },
+
+    // 通用确认对话框（返回 Promise<'link'|'new'|'cancel'>）
+    _confirmDialog(message) {
+        return new Promise(resolve => {
+            const overlay = document.createElement('div');
+            overlay.style.cssText = 'position:fixed;inset:0;z-index:10001;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;';
+            overlay.innerHTML = `
+                <div style="background:#fff;border-radius:12px;padding:24px;max-width:320px;width:90%;text-align:center;">
+                    <div style="font-size:16px;font-weight:600;margin-bottom:16px;color:#ea7e2c;"><i class="fas fa-exclamation-triangle"></i> 提示</div>
+                    <div style="font-size:14px;color:#333;white-space:pre-wrap;margin-bottom:20px;line-height:1.6;">${message}</div>
+                    <div style="display:flex;gap:10px;">
+                        <button id="confirmNew" style="flex:1;padding:10px;border:1px solid #ddd;border-radius:8px;background:#fff;cursor:pointer;font-size:14px;">否，新建</button>
+                        <button id="confirmLink" style="flex:1;padding:10px;border:none;border-radius:8px;background:#2b7a78;color:#fff;cursor:pointer;font-size:14px;">是，关联</button>
+                    </div>
+                </div>`;
+            document.body.appendChild(overlay);
+            const cleanup = (result) => { overlay.remove(); resolve(result); };
+            overlay.querySelector('#confirmLink').onclick = () => cleanup('link');
+            overlay.querySelector('#confirmNew').onclick = () => cleanup('new');
+            overlay.onclick = (e) => { if (e.target === overlay) cleanup('cancel'); };
+        });
     },
 
     // 保存处方/报告时，若未选择关联病历则自动创建一条病历记录并返回其ID；已选择则原样返回
@@ -1991,15 +2053,37 @@ const App = {
 
             // 1. 创建处方记录（type='药方'）
             const visitDate = document.getElementById('ocrMed0Start')?.value || new Date().toISOString().slice(0, 10);
-            // 未选择关联病历则自动创建一条病历记录
-            const relatedId = await this._ensureRelatedRecord(document.getElementById('ocr-med-related')?.value || '', {
-                elderId,
-                visitDate,
-                hospital: document.getElementById('ocr-med-hospital')?.value,
-                department: document.getElementById('ocr-med-dept')?.value,
-                diagnosis: document.getElementById('ocr-med-diagnosis')?.value,
-                doctor: document.getElementById('ocr-med-doctor')?.value,
-            });
+            const existingRelated = document.getElementById('ocr-med-related')?.value || '';
+            // 若未手动选择关联病历，检测是否存在匹配的病历并提示
+            let relatedId = existingRelated;
+            if (!existingRelated) {
+                const autoMatch = await this._checkDuplicateRecord(
+                    elderId, visitDate,
+                    document.getElementById('ocr-med-hospital')?.value,
+                    document.getElementById('ocr-med-dept')?.value
+                );
+                if (autoMatch === 'cancel') { this._ocrMedsSaving = false; this.toast('已取消保存'); return; }
+                if (autoMatch) relatedId = autoMatch;
+                else {
+                    relatedId = await this._ensureRelatedRecord('', {
+                        elderId,
+                        visitDate,
+                        hospital: document.getElementById('ocr-med-hospital')?.value,
+                        department: document.getElementById('ocr-med-dept')?.value,
+                        diagnosis: document.getElementById('ocr-med-diagnosis')?.value,
+                        doctor: document.getElementById('ocr-med-doctor')?.value,
+                    });
+                }
+            } else {
+                relatedId = await this._ensureRelatedRecord(relatedId, {
+                    elderId,
+                    visitDate,
+                    hospital: document.getElementById('ocr-med-hospital')?.value,
+                    department: document.getElementById('ocr-med-dept')?.value,
+                    diagnosis: document.getElementById('ocr-med-diagnosis')?.value,
+                    doctor: document.getElementById('ocr-med-doctor')?.value,
+                });
+            }
             const recResp = await Api.records.add({
                 elderId,
                 type: '药方',
@@ -2310,10 +2394,23 @@ const App = {
                 });
             }
             if (medsToSave.length === 0) { this.toast('请至少添加一个药品'); return; }
+            const visitDate = document.getElementById('recordDate3').value;
+            if (!visitDate) { this.toast('请选择就诊日期'); return; }
+            const existingRelated = document.getElementById('recordRelated')?.value || '';
+            // 若未手动选择关联病历，检测是否存在匹配的病历并提示
+            let relatedId = existingRelated;
+            if (!existingRelated) {
+                const autoMatch = await this._checkDuplicateRecord(
+                    elderId, visitDate,
+                    document.getElementById('recordMedHospital')?.value,
+                    document.getElementById('recordMedDept')?.value
+                );
+                if (autoMatch === 'cancel') { this.toast('已取消保存'); return; }
+                if (autoMatch) relatedId = autoMatch;
+            }
             try {
-                const visitDate = document.getElementById('recordDate3').value || new Date().toISOString().slice(0, 10);
                 // 未选择关联病历则自动创建一条病历记录
-                const relatedId = await this._ensureRelatedRecord(document.getElementById('recordRelated')?.value || '', {
+                relatedId = await this._ensureRelatedRecord(relatedId, {
                     elderId,
                     visitDate,
                     hospital: document.getElementById('recordMedHospital')?.value,
@@ -2364,10 +2461,22 @@ const App = {
         } else if (isReport) {
             const examName = document.getElementById('recordExamName').value.trim();
             if (!examName) { this.toast('请输入检查项目'); return; }
+            const visitDate = document.getElementById('recordDate2').value || new Date().toISOString().slice(0, 10);
+            const existingRelated = document.getElementById('recordRelated')?.value || '';
+            // 若未手动选择关联病历，检测是否存在匹配的病历并提示
+            let relatedId = existingRelated;
+            if (!existingRelated) {
+                const autoMatch = await this._checkDuplicateRecord(
+                    elderId, visitDate,
+                    document.getElementById('recordHospital2')?.value,
+                    document.getElementById('recordDept2')?.value
+                );
+                if (autoMatch === 'cancel') { this.toast('已取消保存'); return; }
+                if (autoMatch) relatedId = autoMatch;
+            }
             try {
-                const visitDate = document.getElementById('recordDate2').value || new Date().toISOString().slice(0, 10);
                 // 未选择关联病历则自动创建一条病历记录
-                const relatedId = await this._ensureRelatedRecord(document.getElementById('recordRelated')?.value || '', {
+                relatedId = await this._ensureRelatedRecord(relatedId, {
                     elderId,
                     visitDate,
                     hospital: document.getElementById('recordHospital2')?.value,

@@ -13,6 +13,8 @@ router.get('/check', drugLibraryController.check);
 router.get('/match', drugLibraryController.match);
 // 添加新药品（自动生成拼音首字母，标记 owner_user_id 私有数据）
 router.post('/add', drugLibraryController.add);
+// 获取/同步药品说明书（先查库，缺失则从 ShowAPI 获取）——必须在 /:code 之前
+router.get('/fetch-info', drugLibraryController.fetchInfo);
 // 按编码获取药品
 router.get('/:code', drugLibraryController.getDrug);
 

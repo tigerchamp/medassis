@@ -1,3 +1,28 @@
+// ========== 辅助函数 ==========
+
+// 格式化数值：去除多余的0（5.000 → 5, 2.500 → 2.5）
+function cleanNumber(n) {
+    if (n == null) return '';
+    const num = Number(n);
+    return num % 1 === 0 ? String(num) : String(parseFloat(num.toFixed(3)));
+}
+
+// 格式化药品用量显示：5mg + 1次/日 → "5mg 1次/日"
+function formatMedUsage(m) {
+    const parts = [];
+    if (m.doseAmount) {
+        const unit = m.doseUnit || '';
+        parts.push(cleanNumber(m.doseAmount) + unit);
+    }
+    if (m.frequency != null) {
+        const freq = Number(m.frequency);
+        if (freq > 0) {
+            parts.push(freq + '次/日');
+        }
+    }
+    return parts.join(' ') || '';
+}
+
 // ========== 页面渲染器 ==========
 
 // ---------- 登录页 ----------
@@ -37,17 +62,14 @@ const PageHome = {
         return `
         <div class="card">
             <div class="card-title" style="display:flex;align-items:center;">
-                <span style="flex:1;"><i class="fas fa-pills"></i> 今日用药安排</span>
+                <span style="flex:1;"><i class="fas fa-pills"></i> 最新用药安排</span>
                 <button class="btn-outline" style="width:auto;padding:3px 10px;font-size:12px;margin-left:8px;" onclick="App.switchPage('medEdit')"><i class="fas fa-edit"></i> 编辑</button>
                 <button class="btn-outline" style="width:auto;padding:3px 10px;font-size:12px;margin-left:4px;" onclick="App.switchPage('medHistory')"><i class="fas fa-history"></i> 历史</button>
             </div>
             <div id="homeMeds"><p class="text-muted" style="text-align:center;padding:12px;">加载中...</p></div>
         </div>
         <div id="homeRefill"></div>
-        <div class="card" style="cursor:pointer;" onclick="App.switchPage('records')">
-            <div class="card-title"><i class="fas fa-notes-medical"></i> 最近病历 <i class="fas fa-chevron-right" style="margin-left:auto;color:#94a3b8;"></i></div>
-            <p class="text-muted">点击查看病历记录和检查报告</p>
-        </div>`;
+        <div id="homeRecent"></div>`;
     },
 
     async loadContent(memberId) {
@@ -63,22 +85,51 @@ const PageHome = {
             }
 
             if (medsEl) {
-                medsEl.innerHTML = meds.map(m => {
-                    const times = m.times || ['08:00'];
-                    const timeStr = times[0] || '08:00';
-                    const hour = parseInt(timeStr.split(':')[0]);
-                    let tagClass = 'morning', tagText = '早';
-                    if (hour >= 12 && hour < 18) { tagClass = 'noon'; tagText = '中'; }
-                    else if (hour >= 18) { tagClass = 'night'; tagText = '晚'; }
-                    return `<div class="med-schedule-item">
-                        <span class="time-tag ${tagClass}">${tagText} ${timeStr}</span>
-                        <div class="med-info">
-                            <div class="name" style="cursor:pointer;color:#2b7a78;" onclick="App.viewDrugInfo('${m.name.replace(/'/g, "\\'")}','','','')">${m.name}</div>
-                            <div class="dosage">${m.dose || ''} · ${m.frequency || ''}</div>
-                        </div>
-                        <button class="med-status" onclick="App.toggleMedTaken(this)">待服</button>
-                    </div>`;
-                }).join('');
+                // 时间段分组（与处方表单 MedTimesUI.slots 一致：早/中/晚/睡前）
+                const timeSlots = [
+                    { key: 'morning', label: '早上', time: '08:00', meds: [] },
+                    { key: 'noon',    label: '中午', time: '12:00', meds: [] },
+                    { key: 'evening', label: '晚上', time: '18:00', meds: [] },
+                    { key: 'night',   label: '睡前', time: '21:00', meds: [] },
+                ];
+                // 按小时归类到时间段（兜底，处理自定义时间）
+                const slotByHour = (hour) => {
+                    if (hour >= 5 && hour < 11) return 'morning';
+                    if (hour >= 11 && hour < 14) return 'noon';
+                    if (hour >= 14 && hour < 20) return 'evening';
+                    return 'night';
+                };
+                // 用量文本：doseAmount+doseUnit，无则退回 dose（不显示频次）
+                const doseText = (m) => {
+                    if (m.doseAmount != null) return cleanNumber(m.doseAmount) + (m.doseUnit || '');
+                    return m.dose || '';
+                };
+                // 将每个药品按其 times 数组放入对应时间段（一天 N 次则出现在 N 个时段）
+                meds.forEach(m => {
+                    const times = (m.times && m.times.length > 0) ? m.times : ['08:00'];
+                    times.forEach(t => {
+                        let key = null;
+                        for (const s of timeSlots) { if (t === s.time) { key = s.key; break; } }
+                        if (!key) key = slotByHour(parseInt(String(t).split(':')[0]) || 8);
+                        const group = timeSlots.find(g => g.key === key);
+                        if (group) group.meds.push(m);
+                    });
+                });
+                const hasAny = timeSlots.some(g => g.meds.length > 0);
+                if (!hasAny) {
+                    medsEl.innerHTML = '<p class="text-muted" style="text-align:center;padding:12px;">暂无用药计划</p>';
+                } else {
+                    medsEl.innerHTML = timeSlots.map(g => {
+                        if (g.meds.length === 0) return '';
+                        return `<div class="time-group">
+                            <div class="time-group-title"><span class="time-tag ${g.key}">${g.label} ${g.time}</span></div>
+                            ${g.meds.map(m => `<div class="med-item">
+                                <span class="med-name" style="cursor:pointer;color:#2b7a78;" onclick="App.viewDrugInfo('${m.name.replace(/'/g, "\\'")}','','','')">${m.name}</span>
+                                <span class="med-usage">${doseText(m)}</span>
+                            </div>`).join('')}
+                        </div>`;
+                    }).join('');
+                }
             }
 
             const firstMed = meds[0];
@@ -98,6 +149,41 @@ const PageHome = {
             }
         } catch (err) {
             console.error('加载首页失败:', err);
+        }
+
+        // 加载最近病历和检查报告（最多3条）
+        try {
+            const recentEl = document.getElementById('homeRecent');
+            if (!recentEl) return;
+            const recordsRes = await Api.records.getAll(memberId);
+            const allRecords = recordsRes.records || [];
+            // 只保留病历和检查报告，过滤掉处方
+            const filteredRecords = allRecords.filter(r => r.type === '病历' || r.type === '检查报告');
+            const recentRecords = filteredRecords.slice(0, 3);
+            
+            if (recentRecords.length === 0) {
+                recentEl.innerHTML = `<div class="card"><div class="card-title"><i class="fas fa-notes-medical"></i> 最近病历 <span style="margin-left:auto;font-size:13px;color:#2b7a78;cursor:pointer;" onclick="App.switchPage('records')">更多 <i class="fas fa-chevron-right"></i></span></div><p class="text-muted" style="text-align:center;padding:12px;">暂无病历记录</p></div>`;
+            } else {
+                recentEl.innerHTML = `
+                <div class="card">
+                    <div class="card-title"><i class="fas fa-notes-medical"></i> 最近病历 <span style="margin-left:auto;font-size:13px;color:#2b7a78;cursor:pointer;" onclick="App.switchPage('records')">更多 <i class="fas fa-chevron-right"></i></span></div>
+                    ${recentRecords.map(r => `
+                        <div class="record-item" onclick="App.viewRecord('${r.id}')">
+                            ${r.type === '病历' ? `
+                                <span class="right-info">${[r.department, r.doctor].filter(Boolean).join(' · ')}</span>
+                                <div class="record-no">${r.recordNo || ''}</div>
+                                <div class="sub">${r.hospital || '未填写'}</div>
+                                <div class="title">${r.diagnosis || '未填写诊断'}</div>
+                            ` : `
+                                <div><span class="record-no">${r.recordNo || ''}</span>${r.relatedRecordNo ? `　<span class="record-no-link" onclick="event.stopPropagation();App.viewRecord('${r.relatedRecordId}')">病历：${r.relatedRecordNo}</span>` : ''}</div>
+                                <div class="title">${r.diagnosis || '未填写'}</div>
+                            `}
+                        </div>
+                    `).join('')}
+                </div>`;
+            }
+        } catch (err) {
+            console.error('加载最近病历失败:', err);
         }
     }
 };
@@ -146,9 +232,10 @@ const PageRecords = {
             } else {
                 recordsEl.innerHTML = medicalRecords.map(r => `
                     <div class="record-item" onclick="App.viewRecord('${r.id}')">
-                        <span class="date">${r.visitDate || ''}</span>
-                        <div class="title">病历 · ${r.diagnosis || '未填写'}</div>
-                        <div class="sub">${r.hospital || ''} ${r.department ? '· ' + r.department : ''}</div>
+                        <span class="right-info">${[r.department, r.doctor].filter(Boolean).join(' · ')}</span>
+                        <div class="record-no">${r.recordNo || ''}</div>
+                        <div class="sub">${r.hospital || '未填写'}</div>
+                        <div class="title">${r.diagnosis || '未填写诊断'}</div>
                     </div>`).join('');
             }
 
@@ -157,10 +244,8 @@ const PageRecords = {
             } else {
                 reportsEl.innerHTML = reports.map(r => `
                     <div class="record-item" onclick="App.viewRecord('${r.id}')">
-                        <span class="date">${r.visitDate || ''}</span>
-                        <div class="title">检查报告 · ${r.diagnosis || '未填写'}</div>
-                        <div class="sub">${r.hospital || ''} ${r.department ? '· ' + r.department : ''}</div>
-                        ${r.conclusion ? `<div class="sub" style="color:#2b7a78;">结论：${r.conclusion.substring(0, 40)}${r.conclusion.length > 40 ? '...' : ''}</div>` : ''}
+                        <div><span class="record-no">${r.recordNo || ''}</span>${r.relatedRecordNo ? `　<span class="record-no-link" onclick="event.stopPropagation();App.viewRecord('${r.relatedRecordId}')">病历：${r.relatedRecordNo}</span>` : ''}</div>
+                        <div class="title">${r.diagnosis || '未填写'}</div>
                     </div>`).join('');
             }
 
@@ -169,9 +254,11 @@ const PageRecords = {
             } else {
                 prescriptionsEl.innerHTML = prescriptions.map(r => `
                     <div class="record-item" onclick="App.viewRecord('${r.id}')">
-                        <span class="date">${r.visitDate || ''}</span>
-                        <div class="title">处方 · ${r.diagnosis || '未填写'}</div>
-                        <div class="sub">${r.hospital || ''} ${r.department ? '· ' + r.department : ''}${r.doctor ? ' · ' + r.doctor : ''}</div>
+                        <div style="display:flex;justify-content:space-between;align-items:center;">
+                            <span class="record-no">${r.recordNo || ''}</span>
+                            ${r.relatedRecordNo ? `<span class="record-no-link" onclick="event.stopPropagation();App.viewRecord('${r.relatedRecordId}')">病历：${r.relatedRecordNo}</span>` : ''}
+                        </div>
+                        ${r.medications && r.medications.length > 0 ? r.medications.map(m => `<div class="med-item"><span class="med-name">${m.name}</span><span class="med-usage">${formatMedUsage(m)}</span></div>`).join('') : '<div class="sub">无药品明细</div>'}
                     </div>`).join('');
             }
         } catch (err) {
@@ -228,9 +315,12 @@ const PageRecordDetail = {
                 // 报告类型：显示检查所见、报告结论
                 el.innerHTML = `
                 <div class="card">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+                        ${r.recordNo ? `<span class="record-no">${r.recordNo}</span>` : ''}
+                        ${r.relatedRecordNo ? `<span class="record-no-link" onclick="App.viewRecord('${r.relatedRecordId}')">病历：${r.relatedRecordNo}</span>` : ''}
+                    </div>
                     <div style="font-size:18px;font-weight:700;margin-bottom:8px;">${r.diagnosis || '未填写'}</div>
-                    <div class="text-muted">检查报告 · ${r.visitDate || ''}</div>
-                    <div class="text-muted" style="margin-top:4px;">${r.hospital || ''} ${r.department ? '· ' + r.department : ''}</div>
+                    <div class="text-muted">${r.hospital || ''} ${r.department ? '· ' + r.department : ''}</div>
                 </div>
                 ${r.findings ? `<div class="card"><div class="card-title"><i class="fas fa-microscope"></i> 检查所见</div><p style="white-space:pre-wrap;line-height:1.8;">${r.findings}</p></div>` : ''}
                 ${r.conclusion ? `<div class="card"><div class="card-title"><i class="fas fa-clipboard-check"></i> 报告结论</div><p style="white-space:pre-wrap;line-height:1.8;">${r.conclusion}</p></div>` : ''}
@@ -243,23 +333,25 @@ const PageRecordDetail = {
                 const medsHtml = meds.length === 0
                     ? '<p class="text-muted" style="text-align:center;padding:10px;">暂无用药明细</p>'
                     : meds.map(m => `
-                        <div style="padding:10px 0;border-bottom:1px solid #f1f5f9;">
-                            <div style="display:flex;justify-content:space-between;align-items:center;">
-                                <span style="font-weight:600;color:#2b7a78;">${m.name || '未命名'}</span>
-                                <span style="font-size:0.85em;color:#94a3b8;">${m.startDate || ''}</span>
-                            </div>
-                            ${m.specification ? `<div style="font-size:0.85em;color:#64748b;margin-top:2px;">规格: ${m.specification}</div>` : ''}
-                            <div style="font-size:0.9em;color:#64748b;margin-top:4px;">
-                                ${m.dose ? `剂量: ${m.dose}` : ''}${m.dose && m.frequency ? ' · ' : ''}${m.frequency ? `频次: ${m.frequency}次/日` : ''}
-                                ${m.quantity ? ` · 数量: ${m.quantity}${m.quantityUnit || ''}` : ''}
-                            </div>
-                            ${m.note ? `<div style="font-size:0.85em;color:#94a3b8;margin-top:2px;">备注: ${m.note}</div>` : ''}
-                        </div>`).join('');
+                        <div class="med-item" style="padding:10px 0;border-bottom:1px solid #f1f5f9;">
+                            <span class="med-name" style="font-weight:600;color:#2b7a78;">${m.name || '未命名'}</span>
+                            <span class="med-usage">${formatMedUsage({doseAmount: m.doseAmount, doseUnit: m.doseUnit, frequency: m.frequency})}</span>
+                        </div>
+                        ${m.specification ? `<div style="font-size:0.85em;color:#64748b;margin-bottom:6px;">规格: ${m.specification}</div>` : ''}
+                        ${m.note ? `<div style="font-size:0.85em;color:#94a3b8;margin-bottom:6px;">备注: ${m.note}</div>` : ''}
+                        ${(m.quantity || m.startDate) ? `<div style="display:flex;justify-content:space-between;font-size:0.85em;color:#94a3b8;margin-bottom:6px;">
+                            <span>${m.quantity ? '数量: ' + m.quantity + (m.quantityUnit || '') : ''}</span>
+                            <span>${m.startDate ? '开始日期: ' + m.startDate : ''}</span>
+                        </div>` : ''}
+                    `).join('');
                 el.innerHTML = `
                 <div class="card">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+                        ${r.recordNo ? `<span class="record-no">${r.recordNo}</span>` : ''}
+                        ${r.relatedRecordNo ? `<span style="font-size:13px;color:#2b7a78;text-decoration:underline;cursor:pointer;" onclick="App.viewRecord('${r.relatedRecordId}')">病历：${r.relatedRecordNo}</span>` : ''}
+                    </div>
                     <div style="font-size:18px;font-weight:700;margin-bottom:8px;">${r.diagnosis || '未填写'}</div>
-                    <div class="text-muted">处方 · ${r.visitDate || ''}</div>
-                    <div class="text-muted" style="margin-top:4px;">${r.hospital || ''} ${r.department ? '· ' + r.department : ''}${r.doctor ? ' · ' + r.doctor : ''}</div>
+                    <div class="text-muted">${r.hospital || ''} ${r.department ? '· ' + r.department : ''}${r.doctor ? ' · ' + r.doctor : ''}</div>
                 </div>
                 <div class="card">
                     <div class="card-title"><i class="fas fa-prescription-bottle-medical"></i> 用药明细</div>
@@ -276,20 +368,21 @@ const PageRecordDetail = {
                     <div class="card-title"><i class="fas fa-link"></i> 关联记录</div>
                     ${related.map(rr => `
                         <div class="record-item" onclick="App.viewRecord('${rr.id}')">
-                            <span class="date">${rr.visitDate || ''}</span>
-                            <div class="title">${rr.type === '药方' ? '处方' : '检查报告'} · ${rr.diagnosis || '未填写'}</div>
-                            <div class="sub">${rr.hospital || ''} ${rr.department ? '· ' + rr.department : ''}</div>
+                            <div class="title">${rr.recordNo || ''} · ${rr.type === '药方' ? '处方' : '检查报告'}</div>
                             ${rr.type === '药方' && rr.medications && rr.medications.length > 0
-                                ? `<div class="sub" style="color:#2b7a78;">药品: ${rr.medications.map(m => m.name).filter(Boolean).join('、')}</div>` : ''}
+                                ? rr.medications.map(m => `<div class="med-item" style="padding:4px 0;"><span class="med-name">${m.name}</span><span class="med-usage">${formatMedUsage({doseAmount: m.doseAmount, doseUnit: m.doseUnit, frequency: m.frequency})}</span></div>`).join('') : ''}
                             ${rr.type === '检查报告' && rr.conclusion
                                 ? `<div class="sub" style="color:#2b7a78;">结论：${rr.conclusion.substring(0, 40)}${rr.conclusion.length > 40 ? '...' : ''}</div>` : ''}
                         </div>`).join('')}
                 </div>`;
                 el.innerHTML = `
                 <div class="card">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+                        ${r.recordNo ? `<span class="record-no">${r.recordNo}</span>` : ''}
+                        <span class="right-info">${[r.department, r.doctor].filter(Boolean).join(' · ')}</span>
+                    </div>
                     <div style="font-size:18px;font-weight:700;margin-bottom:8px;">${r.diagnosis || '未填写'}</div>
-                    <div class="text-muted">${r.visitDate || ''}</div>
-                    <div class="text-muted" style="margin-top:4px;">${r.hospital || ''} ${r.department ? '· ' + r.department : ''}${r.doctor ? ' · ' + r.doctor : ''}</div>
+                    <div class="text-muted">${r.hospital || '未填写'}</div>
                     ${r.chiefComplaint ? `<div style="margin-top:12px;"><strong>主诉：</strong>${r.chiefComplaint}</div>` : ''}
                 </div>
                 ${r.orders ? `<div class="card"><div class="card-title"><i class="fas fa-stethoscope"></i> 医嘱</div><p>${r.orders}</p></div>` : ''}
@@ -641,8 +734,9 @@ const PageAddRecord = {
             <button style="background:none;border:none;cursor:pointer;font-size:20px;color:#2b7a78;margin-left:auto;padding:8px;" onclick="App.startScan(document.getElementById('recordType')?.value || '病历')" title="拍照识别"><i class="fas fa-camera"></i></button>
         </div>
         <div class="card">
-            <div class="form-group" style="background:#f0f7ff;border-radius:8px;padding:10px;border:1px dashed #2b7a78;">
+            <div class="form-group" style="background:#f0f7ff;border-radius:8px;padding:10px;border:1px dashed #2b7a78;position:relative;">
                 <label style="font-size:13px;color:#2b7a78;display:flex;align-items:center;gap:4px;"><i class="fas fa-paste"></i> 粘贴文本自动识别</label>
+                <button type="button" onclick="PageAddRecord.showPasteFullscreen()" style="position:absolute;top:8px;right:8px;background:none;border:none;cursor:pointer;color:#94a3b8;font-size:14px;padding:4px;" title="全屏编辑"><i class="fas fa-expand"></i></button>
                 <textarea id="pasteRecognizeBox" placeholder="将病历/处方/检查报告的文字内容粘贴到此处，自动识别并填写表单字段" style="width:100%;min-height:50px;max-height:100px;font-size:13px;border:1px solid #ddd;border-radius:6px;padding:8px;box-sizing:border-box;" onpaste="PageAddRecord.onPasteRecognize(event)"></textarea>
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;">
                     <span style="font-size:11px;color:#94a3b8;">按当前类型识别，粘贴后自动填写</span>
@@ -650,8 +744,8 @@ const PageAddRecord = {
                 </div>
             </div>
             <div class="form-group"><label>关联成员 *</label><select id="recordElderId" onchange="PageAddRecord.onElderChange(this.value)">${memberOptions}</select></div>
+            <div id="recordRelatedGroup" class="form-group" style="display:none;"><label>关联病历</label><select id="recordRelated" onchange="PageAddRecord.onRelatedChange(this.value)"><option value=""></option></select><div style="font-size:12px;color:#ea7e2c;margin-top:4px;">如未选择病历记录，在保存时，将自动创建一条病历记录。</div></div>
             <div class="form-group"><label>类型</label><select id="recordType" onchange="PageAddRecord.onTypeChange(this.value)"><option value="病历">病历</option><option value="检查报告">检查报告</option><option value="处方">处方</option></select></div>
-            <div id="recordRelatedGroup" class="form-group" style="display:none;"><label>关联病历</label><select id="recordRelated" onchange="PageAddRecord.onRelatedChange(this.value)"><option value="">不关联</option></select><div style="font-size:12px;color:#94a3b8;margin-top:4px;">如未选择病历记录，在保存时，将自动创建一条病历记录。</div></div>
             <div id="recordFieldsMedical">
                 <div class="form-group"><label id="recordDateLabel">就诊日期</label><input id="recordDate" type="text" readonly onclick="CalendarPicker.attach(this,{max:'today'})" placeholder="点击选择日期" style="background:#fff;"></div>
                 <div class="form-group"><label>医院 *</label><input id="recordHospital" placeholder="输入医院名称或拼音首字母" autocomplete="off" onclick="HospitalSuggest.showSuggestions(this)" oninput="HospitalSuggest.onInput(this)"></div>
@@ -670,7 +764,7 @@ const PageAddRecord = {
                 <div class="form-group"><label>报告结论</label><textarea id="recordConclusion" rows="3" placeholder="报告结论内容"></textarea></div>
             </div>
             <div id="recordFieldsPrescription" style="display:none;">
-                <div class="form-group"><label>开始日期</label><input id="recordDate3" type="text" readonly onclick="CalendarPicker.attach(this,{max:'today'})" placeholder="点击选择日期" style="background:#fff;"></div>
+                <div class="form-group"><label>就诊日期 *</label><input id="recordDate3" type="text" readonly onclick="CalendarPicker.attach(this,{max:'today'})" placeholder="点击选择日期" style="background:#fff;"></div>
                 <div class="form-group"><label>医院 *</label><input id="recordMedHospital" placeholder="输入医院名称或拼音首字母" autocomplete="off" onclick="HospitalSuggest.showSuggestions(this)" oninput="HospitalSuggest.onInput(this)"></div>
                 <div class="form-group"><label>科室 *</label><input id="recordMedDept" placeholder="输入科室名称或拼音首字母" autocomplete="off" onclick="DeptSuggest.showSuggestions(this)" oninput="DeptSuggest.onInput(this)"></div>
                 <div class="form-group"><label>诊断</label><input id="recordMedDiagnosis" placeholder="诊断结果"></div>
@@ -725,8 +819,8 @@ const PageAddRecord = {
         this._medBlocks = [];
         this._medExpandedUid = null;
         const today = new Date().toISOString().slice(0,10);
-        // 设置就诊/检查/开始日期缺省为当天
-        ['recordDate','recordDate2','recordDate3'].forEach(id => {
+        // 设置就诊/检查日期缺省为当天（处方的就诊日期不预填，保持用户手动选择）
+        ['recordDate','recordDate2'].forEach(id => {
             const el = document.getElementById(id);
             if (el && !el.value) el.value = today;
         });
@@ -893,6 +987,41 @@ const PageAddRecord = {
         return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     },
 
+    // 全屏编辑粘贴文本
+    showPasteFullscreen() {
+        const source = document.getElementById('pasteRecognizeBox');
+        const text = source ? source.value : '';
+        let overlay = document.getElementById('pasteFullscreenOverlay');
+        if (!overlay) {
+            overlay = document.createElement('div');
+            overlay.id = 'pasteFullscreenOverlay';
+            document.body.appendChild(overlay);
+        }
+        overlay.innerHTML = `
+            <div style="position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;padding:16px;" onclick="if(event.target===this)PageAddRecord.closePasteFullscreen()">
+                <div style="background:#fff;border-radius:12px;width:100%;max-width:820px;height:92vh;display:flex;flex-direction:column;overflow:hidden;">
+                    <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid #eee;">
+                        <span style="font-weight:600;"><i class="fas fa-paste" style="color:#2b7a78;margin-right:6px;"></i> 粘贴文本编辑</span>
+                        <button type="button" onclick="PageAddRecord.closePasteFullscreen(true)" style="background:none;border:none;font-size:18px;cursor:pointer;color:#666;line-height:1;" title="退出全屏"><i class="fas fa-compress"></i></button>
+                    </div>
+                    <textarea id="pasteFullscreenText" style="flex:1;width:100%;border:none;padding:16px;font-size:14px;line-height:1.7;white-space:pre-wrap;resize:none;outline:none;font-family:inherit;color:#333;" placeholder="粘贴或输入病历/处方/检查报告文本...">${this._escHtml(text)}</textarea>
+                </div>
+            </div>`;
+    },
+
+    // 关闭全屏编辑器
+    closePasteFullscreen(syncBack) {
+        if (syncBack !== false) {
+            const ta = document.getElementById('pasteFullscreenText');
+            if (ta) {
+                const source = document.getElementById('pasteRecognizeBox');
+                if (source) source.value = ta.value;
+            }
+        }
+        const overlay = document.getElementById('pasteFullscreenOverlay');
+        if (overlay) overlay.innerHTML = '';
+    },
+
     // 粘贴文本自动识别：event 来自 onpaste，传 null 时从文本框读取（手动点"识别"按钮）
     async onPasteRecognize(event) {
         let text;
@@ -948,6 +1077,49 @@ const PageAddRecord = {
                 await this._applyMedsToBlocks(parsed.medications);
             }
         }
+        // OCR 完成后，尝试自动匹配关联病历（针对检查报告/处方）
+        if (type === '检查报告' || type === '处方') {
+            await this._tryAutoMatchRelatedRecord(type);
+        }
+    },
+
+    // 根据就诊日期+医院+科室自动匹配关联病历
+    async _tryAutoMatchRelatedRecord(type) {
+        const elderId = document.getElementById('recordElderId')?.value;
+        if (!elderId) return;
+
+        const dateId = type === '检查报告' ? 'recordDate2' : 'recordDate3';
+        const hospId = type === '检查报告' ? 'recordHospital2' : 'recordMedHospital';
+        const deptId = type === '检查报告' ? 'recordDept2' : 'recordMedDept';
+
+        const visitDate = document.getElementById(dateId)?.value;
+        const hospital = document.getElementById(hospId)?.value;
+        const department = document.getElementById(deptId)?.value;
+
+        if (!visitDate || !hospital || !department) return;
+
+        try {
+            const res = await Api.records.getAll(elderId);
+            const records = (res.records || []).filter(r => r.type === '病历');
+            const matched = records.find(r =>
+                r.visitDate === visitDate &&
+                r.hospital && hospital && r.hospital.trim() === hospital.trim() &&
+                r.department && department && r.department.trim() === department.trim()
+            );
+            if (matched) {
+                const sel = document.getElementById('recordRelated');
+                if (sel) {
+                    // 确保下拉框已加载该选项
+                    const exists = Array.from(sel.options).some(o => o.value === matched.id);
+                    if (!exists) {
+                        sel.innerHTML += `<option value="${matched.id}">${matched.visitDate || ''} ${matched.diagnosis || '未填写'}</option>`;
+                    }
+                    sel.value = matched.id;
+                    this.onRelatedChange(matched.id);
+                    App.toast(`已自动匹配关联病历：${matched.diagnosis || '未填写'}`);
+                }
+            }
+        } catch (e) { /* 静默失败 */ }
     },
 
     // 将解析的药品列表填入多药品区块
@@ -1228,27 +1400,52 @@ const PageDrugInfo = {
     async afterRender() {
         const drugCode = App.state.currentDrugCode || '';
         const drugName = App.state.currentDrugName || '';
+        let d = null;
+
         if (drugCode) {
             try {
                 const res = await Api.drugLibrary.get(drugCode);
-                const d = res.drug || {};
-                this._showInfo(d);
+                d = res.drug || {};
             } catch (err) {
                 this._showEmpty(drugName);
+                return;
             }
         } else {
-            // 无 drugCode 时尝试按名称搜索
             try {
                 const res = await Api.drugLibrary.search(drugName, 1);
                 const drugs = res.drugs || [];
                 if (drugs.length > 0) {
-                    const d = drugs[0];
-                    this._showInfo(d);
+                    d = drugs[0];
                 } else {
                     this._showEmpty(drugName);
+                    return;
                 }
             } catch (err) {
                 this._showEmpty(drugName);
+                return;
+            }
+        }
+
+        // 显示已有数据
+        this._showInfo(d);
+
+        // 如果没有说明书内容，尝试从 ShowAPI 获取
+        const hasNoInfo = !d.description || d.description.trim() === '';
+        if (hasNoInfo && (d.code || d.name)) {
+            try {
+                const params = {};
+                if (d.code) params.code = d.code;
+                else if (d.name) params.name = d.name;
+                App.toast('正在获取药品说明书...');
+                const fetchRes = await Api.drugLibrary.fetchInfo(params);
+                if (fetchRes && fetchRes.drug) {
+                    this._showInfo(fetchRes.drug);
+                    if (fetchRes.fetched) {
+                        App.toast('说明书已更新');
+                    }
+                }
+            } catch (err) {
+                console.warn('[fetchInfo] 获取失败:', err.message);
             }
         }
     },
@@ -1258,12 +1455,17 @@ const PageDrugInfo = {
         const bodyEl = document.getElementById('drugInfoBody');
         if (extraEl) {
             const parts = [];
+            if (d.type1) parts.push(d.type1);
+            if (d.jx) parts.push(d.jx);
+            if (d.fl) parts.push(d.fl);
+            if (d.wyy) parts.push('外用');
             if (d.genericName) parts.push('通用名: ' + d.genericName);
             if (d.category) parts.push('类别: ' + d.category);
-            extraEl.textContent = parts.join(' | ');
+            extraEl.innerHTML = parts.map(p => `<span class="badge" style="margin-right:4px;">${p}</span>`).join('');
         }
         if (!bodyEl) return;
         const sections = [];
+        if (d.syz) sections.push(`<div class="card"><div class="card-title"><i class="fas fa-stethoscope"></i> 适应症</div><p style="white-space:pre-wrap;">${d.syz}</p></div>`);
         if (d.indication) sections.push(`<div class="card"><div class="card-title"><i class="fas fa-stethoscope"></i> 适应症</div><p style="white-space:pre-wrap;">${d.indication}</p></div>`);
         if (d.contraindication) sections.push(`<div class="card"><div class="card-title" style="color:#dc2626;"><i class="fas fa-ban"></i> 禁忌</div><p style="white-space:pre-wrap;color:#dc2626;">${d.contraindication}</p></div>`);
         if (d.dosageInstruction) sections.push(`<div class="card"><div class="card-title"><i class="fas fa-prescription-bottle-alt"></i> 用法用量</div><p style="white-space:pre-wrap;">${d.dosageInstruction}</p></div>`);
@@ -1271,6 +1473,13 @@ const PageDrugInfo = {
         if (d.drugInteraction) sections.push(`<div class="card"><div class="card-title"><i class="fas fa-exchange-alt"></i> 药物相互作用</div><p style="white-space:pre-wrap;">${d.drugInteraction}</p></div>`);
         if (d.precaution) sections.push(`<div class="card"><div class="card-title"><i class="fas fa-info-circle"></i> 注意事项</div><p style="white-space:pre-wrap;">${d.precaution}</p></div>`);
         if (d.storage) sections.push(`<div class="card"><div class="card-title"><i class="fas fa-temperature-low"></i> 贮藏</div><p style="white-space:pre-wrap;">${d.storage}</p></div>`);
+        // 显示从 ShowAPI 获取的完整说明文本
+        if (d.description) {
+            const descLines = d.description.split('\n').filter(line => line.trim());
+            if (descLines.length > 0) {
+                sections.push(`<div class="card"><div class="card-title" style="color:#2b7a78;"><i class="fas fa-file-alt"></i> 药品说明书</div><div style="white-space:pre-wrap;font-size:0.92em;line-height:1.9;">${descLines.join('\n')}</div></div>`);
+            }
+        }
         if (sections.length === 0) {
             sections.push(`<div class="card"><p class="text-muted" style="text-align:center;padding:20px;">暂无「${d.name || ''}」的说明书数据<br><span style="font-size:0.85em;">持续补充中</span></p></div>`);
         }
@@ -1378,20 +1587,27 @@ const PageMedEdit = {
                 return;
             }
 
+            const timeLabelMap = { '08:00': ['morning', '早'], '12:00': ['noon', '中'], '18:00': ['evening', '晚'], '21:00': ['night', '睡'] };
+            const formatTimes = (tArr) => (tArr || []).map(t => {
+                const [cls, txt] = timeLabelMap[t] || ['', t];
+                return cls ? `<span class="time-tag ${cls}">${txt}</span>` : txt;
+            }).join(' ');
+
             el.innerHTML = meds.map(m => {
-                const times = (m.times || []).join(', ');
-                return `<div class="card" style="margin-bottom:8px;">
-                <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
-                    <div style="flex:1;">
-                        <div style="font-weight:700;font-size:16px;">${m.name}</div>
-                        <div class="text-muted" style="font-size:13px;">${m.dose || ''} · ${m.frequency || ''}</div>
-                        <div class="text-muted" style="font-size:13px;">时间: ${times || '未设置'}${m.note ? ' · ' + m.note : ''}</div>
-                    </div>
+                const timesHtml = formatTimes(m.times);
+                const doseText = [m.doseAmount != null ? cleanNumber(m.doseAmount) + (m.doseUnit || '') : (m.dose || ''), m.frequency ? m.frequency + '次/日' : ''].filter(Boolean).join(' ');
+                return `<div class="med-edit-card">
+                <div class="med-edit-header">
+                    <div class="med-edit-name">${m.name}</div>
+                    <div class="med-edit-dose">${doseText}</div>
                 </div>
-                <div style="display:flex;gap:6px;flex-wrap:wrap;">
-                    <button class="btn-outline" style="width:auto;padding:4px 10px;font-size:12px;" onclick="PageMedEdit.showEditForm('${m.id}')"><i class="fas fa-edit"></i> 修改</button>
-                    <button class="btn-outline" style="width:auto;padding:4px 10px;font-size:12px;color:#d97706;border-color:#d97706;" onclick="PageMedEdit.endMed('${m.id}','${m.name.replace(/'/g, "\\'")}')"><i class="fas fa-stop-circle"></i> 结束用药</button>
-                    <button class="btn-outline" style="width:auto;padding:4px 10px;font-size:12px;color:#dc2626;border-color:#dc2626;" onclick="PageMedEdit.deleteMed('${m.id}','${m.name.replace(/'/g, "\\'")}')"><i class="fas fa-trash"></i> 删除</button>
+                <div class="med-edit-footer">
+                    <div class="med-edit-time">${timesHtml || '<span class="text-muted">未设置</span>'}${m.note ? ' · ' + m.note : ''}</div>
+                    <div class="med-edit-actions">
+                        <button class="med-edit-btn btn-edit" onclick="PageMedEdit.showEditForm('${m.id}')"><i class="fas fa-edit"></i> 修改</button>
+                        <button class="med-edit-btn btn-end" onclick="PageMedEdit.endMed('${m.id}','${m.name.replace(/'/g, "\\'")}')"><i class="fas fa-stop-circle"></i> 结束用药</button>
+                        <button class="med-edit-btn btn-delete" onclick="PageMedEdit.deleteMed('${m.id}','${m.name.replace(/'/g, "\\'")}')"><i class="fas fa-trash"></i> 删除</button>
+                    </div>
                 </div>
                 <div id="editForm-${m.id}" style="display:none;margin-top:10px;"></div>
             </div>`;
@@ -1584,16 +1800,23 @@ const PageMedHistory = {
                     return 0;
                 });
                 monthMeds.forEach(m => {
-                    const times = (m.times || []).join(', ');
                     const ended = m.status === 'ended';
                     const noteDisplay = m.note && m.note.startsWith('[历史]') ? m.note.replace('[历史] ', '') : m.note;
-                    html += `<div class="card" style="margin-bottom:6px;padding:10px 14px;${ended ? 'background:#f8fafc;' : ''}">
-                        <div style="font-weight:600;${ended ? 'color:#64748b;' : ''}">${m.name}
-                            ${ended ? '<span class="badge" style="background:#e2e8f0;color:#64748b;">已结束</span>' : '<span class="badge" style="background:#d1fae5;color:#059669;">服用中</span>'}
+                    const timeLabelMap = { '08:00': ['morning', '早'], '12:00': ['noon', '中'], '18:00': ['evening', '晚'], '21:00': ['night', '睡'] };
+                    const timesHtml = (m.times || []).map(t => {
+                        const [cls, txt] = timeLabelMap[t] || ['', t];
+                        return cls ? `<span class="time-tag ${cls}">${txt}</span>` : txt;
+                    }).join(' ');
+                    const doseText = [m.doseAmount != null ? cleanNumber(m.doseAmount) + (m.doseUnit || '') : (m.dose || ''), m.frequency ? m.frequency + '次/日' : ''].filter(Boolean).join(' ');
+                    html += `<div class="med-edit-card"${ended ? ' style="background:#f8fafc;"' : ''}>
+                        <div class="med-edit-header">
+                            <div class="med-edit-name"${ended ? ' style="color:#64748b;"' : ''}>${m.name}${ended ? ' <span class="badge" style="background:#e2e8f0;color:#64748b;">已结束</span>' : ''}</div>
+                            <div class="med-edit-dose">${doseText}</div>
                         </div>
-                        <div class="text-muted" style="font-size:12px;">${m.dose || ''} · ${m.frequency || ''} · ${times || '未设置'}</div>
-                        <div class="text-muted" style="font-size:12px;">${m.startDate ? '开始: ' + m.startDate : ''}${m.endDate ? ' → 结束: ' + m.endDate : ''}</div>
-                        ${noteDisplay ? `<div class="text-muted" style="font-size:12px;">备注: ${noteDisplay}</div>` : ''}
+                        <div class="med-edit-footer">
+                            <div class="med-edit-time">${timesHtml || '<span class="text-muted">未设置</span>'}${noteDisplay ? ' · ' + noteDisplay : ''}</div>
+                            <div class="med-edit-date">${m.startDate ? m.startDate : ''}${m.endDate ? ' → ' + m.endDate : ' 开始'}</div>
+                        </div>
                     </div>`;
                 });
             }

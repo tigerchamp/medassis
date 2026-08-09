@@ -1,6 +1,7 @@
 const { getPool } = require('../config/database');
 const { v4: uuidv4 } = require('uuid');
 const { getPinyinAbbr, parseSpecification } = require('../utils/drugLibrary');
+const { fetchDrugInfo, parseDrugInfo, isConfigured } = require('../services/drugInfo');
 
 /**
  * 获取当前用户及其所在家庭组的全部用户ID（用于私有数据隔离）
@@ -36,7 +37,7 @@ async function search(req, res) {
     const familyUserIds = await _getFamilyUserIds(req);
 
     const [rows] = await getPool().query(
-      `SELECT code, name, pinyin_abbr, generic_name, category, dosage_form, specification, spec_dosage, spec_dosage_unit, unit_capacity, unit_capacity_unit, manufacturer, approval_number, indication, contraindication, dosage_instruction, adverse_reaction, drug_interaction, precaution, storage
+      `SELECT code, name, pinyin_abbr, generic_name, category, dosage_form, specification, spec_dosage, spec_dosage_unit, unit_capacity, unit_capacity_unit, manufacturer, approval_number, indication, contraindication, dosage_instruction, adverse_reaction, drug_interaction, precaution, storage, type1, syz, jx, wyy, fl, description, description_fetched_at
        FROM drugs
        WHERE (owner_user_id IS NULL OR owner_user_id IN (?))
          AND (name LIKE ? OR ? LIKE CONCAT('%', name, '%') OR pinyin_abbr LIKE ?)
@@ -53,40 +54,7 @@ async function search(req, res) {
     );
 
     res.json({
-      drugs: rows.map(r => {
-        let specDosageVal = r.spec_dosage != null ? Number(r.spec_dosage) : null;
-        let specDosageUnitVal = r.spec_dosage_unit || '';
-        // 若 spec_dosage 为空，尝试从 specification 解析
-        if (specDosageVal === null && r.specification) {
-          const parsed = parseSpecification(r.specification);
-          if (parsed.specDosage !== null) {
-            specDosageVal = parsed.specDosage;
-            specDosageUnitVal = parsed.specDosageUnit || '';
-          }
-        }
-        return {
-          code: r.code,
-          name: r.name,
-          pinyinAbbr: r.pinyin_abbr,
-          genericName: r.generic_name || '',
-          category: r.category || '',
-          dosageForm: r.dosage_form,
-          specification: r.specification,
-          specDosage: specDosageVal,
-          specDosageUnit: specDosageUnitVal,
-          unitCapacity: r.unit_capacity != null ? Number(r.unit_capacity) : null,
-          unitCapacityUnit: r.unit_capacity_unit || '',
-          manufacturer: r.manufacturer,
-          approvalNumber: r.approval_number,
-          indication: r.indication || '',
-          contraindication: r.contraindication || '',
-          dosageInstruction: r.dosage_instruction || '',
-          adverseReaction: r.adverse_reaction || '',
-          drugInteraction: r.drug_interaction || '',
-          precaution: r.precaution || '',
-          storage: r.storage || ''
-        };
-      })
+      drugs: rows.map(_formatDrugFields)
     });
   } catch (err) {
     console.error('Drug library search error:', err);
@@ -102,46 +70,13 @@ async function getDrug(req, res) {
   try {
     const { code } = req.params;
     const [rows] = await getPool().query(
-      'SELECT code, name, pinyin_abbr, generic_name, category, dosage_form, specification, spec_dosage, spec_dosage_unit, unit_capacity, unit_capacity_unit, manufacturer, approval_number, indication, contraindication, dosage_instruction, adverse_reaction, drug_interaction, precaution, storage FROM drugs WHERE code = ? LIMIT 1',
+      'SELECT code, name, pinyin_abbr, generic_name, category, dosage_form, specification, spec_dosage, spec_dosage_unit, unit_capacity, unit_capacity_unit, manufacturer, approval_number, indication, contraindication, dosage_instruction, adverse_reaction, drug_interaction, precaution, storage, type1, syz, jx, wyy, fl, description, description_fetched_at FROM drugs WHERE code = ? LIMIT 1',
       [code]
     );
     if (rows.length === 0) {
       return res.status(404).json({ error: '药品不存在' });
     }
-    const r = rows[0];
-    let specDosageVal = r.spec_dosage != null ? Number(r.spec_dosage) : null;
-    let specDosageUnitVal = r.spec_dosage_unit || '';
-    if (specDosageVal === null && r.specification) {
-      const parsed = parseSpecification(r.specification);
-      if (parsed.specDosage !== null) {
-        specDosageVal = parsed.specDosage;
-        specDosageUnitVal = parsed.specDosageUnit || '';
-      }
-    }
-    res.json({
-      drug: {
-        code: r.code,
-        name: r.name,
-        pinyinAbbr: r.pinyin_abbr,
-        genericName: r.generic_name || '',
-        category: r.category || '',
-        dosageForm: r.dosage_form,
-        specification: r.specification,
-        specDosage: specDosageVal,
-        specDosageUnit: specDosageUnitVal,
-        unitCapacity: r.unit_capacity != null ? Number(r.unit_capacity) : null,
-        unitCapacityUnit: r.unit_capacity_unit || '',
-        manufacturer: r.manufacturer,
-        approvalNumber: r.approval_number,
-        indication: r.indication || '',
-        contraindication: r.contraindication || '',
-        dosageInstruction: r.dosage_instruction || '',
-        adverseReaction: r.adverse_reaction || '',
-        drugInteraction: r.drug_interaction || '',
-        precaution: r.precaution || '',
-        storage: r.storage || ''
-      }
-    });
+    res.json({ drug: _formatDrugFields(rows[0]) });
   } catch (err) {
     console.error('Drug library get error:', err);
     res.status(500).json({ error: '获取药品失败' });
@@ -339,6 +274,93 @@ async function match(req, res) {
   }
 }
 
+/**
+ * 获取/同步药品说明书：先查数据库，缺失则从 ShowAPI 获取并存入数据库
+ * GET /api/drug-library/fetch-info?code=xxx  或  GET /api/drug-library/fetch-info?name=xxx
+ * 返回: { drug: {...}, fetched: bool }
+ */
+async function fetchInfo(req, res) {
+  try {
+    const { code, name } = req.query;
+    let drugCode = code;
+    let drugName = name;
+
+    // 1. 先按 code 或 name 查数据库
+    let row = null;
+    if (drugCode) {
+      const [rows] = await getPool().query(
+        'SELECT * FROM drugs WHERE code = ? LIMIT 1',
+        [drugCode]
+      );
+      row = rows.length > 0 ? rows[0] : null;
+    } else if (drugName) {
+      const [rows] = await getPool().query(
+        'SELECT * FROM drugs WHERE name = ? LIMIT 1',
+        [drugName]
+      );
+      row = rows.length > 0 ? rows[0] : null;
+      if (row) drugCode = row.code;
+    }
+
+    if (!row) {
+      return res.status(404).json({ error: '药品不存在' });
+    }
+
+    // 2. 检查是否已有说明书数据（description 不为空且有内容）
+    const hasInfo = row.description && row.description.trim().length > 0;
+
+    if (hasInfo) {
+      // 数据库已有数据，直接返回
+      return res.json({ drug: _formatDrugFields(row), fetched: false });
+    }
+
+    // 3. 从 ShowAPI 获取
+    if (!isConfigured()) {
+      return res.json({
+        drug: _formatDrugFields(row),
+        fetched: false,
+        note: 'ShowAPI 未配置'
+      });
+    }
+
+    const fetchName = row.name;
+    const fetchApproval = row.approval_number || '';
+    console.log(`[fetchInfo] 从 ShowAPI 获取药品: ${fetchName}, 批准文号: ${fetchApproval}`);
+    const apiData = await fetchDrugInfo({ drugName: fetchName, approvalNumber: fetchApproval });
+
+    if (!apiData) {
+      return res.json({
+        drug: _formatDrugFields(row),
+        fetched: false,
+        note: 'ShowAPI 未找到该药品数据'
+      });
+    }
+
+    // 4. 解析并写入数据库
+    const parsed = parseDrugInfo(apiData);
+    const now = new Date();
+    await getPool().query(
+      `UPDATE drugs
+       SET type1 = ?, syz = ?, jx = ?, wyy = ?, fl = ?, description = ?, description_fetched_at = ?
+       WHERE code = ?`,
+      [parsed.type1, parsed.syz, parsed.jx, parsed.wyy, parsed.fl, parsed.description, now, row.code]
+    );
+
+    // 5. 返回更新后的数据
+    const [updatedRows] = await getPool().query(
+      'SELECT * FROM drugs WHERE code = ? LIMIT 1',
+      [row.code]
+    );
+
+    console.log(`[fetchInfo] 成功获取并保存: ${fetchName}, type1=${parsed.type1}, description=${parsed.description ? '已获取' : '空'}`);
+    res.json({ drug: _formatDrugFields(updatedRows[0]), fetched: true });
+
+  } catch (err) {
+    console.error('fetchInfo error:', err);
+    res.status(500).json({ error: '获取药品说明书失败: ' + (err.message || err) });
+  }
+}
+
 // 格式化药品记录（解析 spec_dosage）
 function _formatDrug(r) {
   let specDosageVal = r.spec_dosage != null ? Number(r.spec_dosage) : null;
@@ -363,4 +385,47 @@ function _formatDrug(r) {
   };
 }
 
-module.exports = { search, getDrug, check, add, match };
+module.exports = { search, getDrug, check, add, match, fetchInfo };
+
+// ============ 格式化辅助 ============
+
+function _formatDrugFields(r) {
+  let specDosageVal = r.spec_dosage != null ? Number(r.spec_dosage) : null;
+  let specDosageUnitVal = r.spec_dosage_unit || '';
+  if (specDosageVal === null && r.specification) {
+    const parsed = parseSpecification(r.specification);
+    if (parsed.specDosage !== null) {
+      specDosageVal = parsed.specDosage;
+      specDosageUnitVal = parsed.specDosageUnit || '';
+    }
+  }
+  return {
+    code: r.code,
+    name: r.name,
+    pinyinAbbr: r.pinyin_abbr,
+    genericName: r.generic_name || '',
+    category: r.category || '',
+    dosageForm: r.dosage_form,
+    specification: r.specification,
+    specDosage: specDosageVal,
+    specDosageUnit: specDosageUnitVal,
+    unitCapacity: r.unit_capacity != null ? Number(r.unit_capacity) : null,
+    unitCapacityUnit: r.unit_capacity_unit || '',
+    manufacturer: r.manufacturer,
+    approvalNumber: r.approval_number,
+    indication: r.indication || '',
+    contraindication: r.contraindication || '',
+    dosageInstruction: r.dosage_instruction || '',
+    adverseReaction: r.adverse_reaction || '',
+    drugInteraction: r.drug_interaction || '',
+    precaution: r.precaution || '',
+    storage: r.storage || '',
+    type1: r.type1 || '',
+    syz: r.syz || '',
+    jx: r.jx || '',
+    wyy: r.wyy != null ? Number(r.wyy) : 0,
+    fl: r.fl || '',
+    description: r.description || '',
+    descriptionFetchedAt: r.description_fetched_at || null
+  };
+}

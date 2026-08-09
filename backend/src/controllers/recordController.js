@@ -4,21 +4,54 @@ const { getEntityFiles, setEntityFiles, deleteEntityFiles } = require('../utils/
 
 function fmtDate(d) { if (d instanceof Date) { const y = d.getFullYear(); const m = String(d.getMonth() + 1).padStart(2, '0'); const day = String(d.getDate()).padStart(2, '0'); return `${y}-${m}-${day}`; } return d; }
 
+/**
+ * 生成记录编号：前缀(BL/CF/JC) + 日期(YYYYMMDD) + 字母序号(A,B,...,Z,AA,AB,...)
+ * 同一家庭同一天同一类型按字母递增
+ */
+async function _generateRecordNo(pool, type, visitDate, familyId) {
+  const prefixMap = { '病历': 'BL', '药方': 'CF', '检查报告': 'JC' };
+  const prefix = prefixMap[type] || 'BL';
+  const date = visitDate ? new Date(visitDate) : new Date();
+  const dateStr = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`;
+  const pattern = `${prefix}${dateStr}%`;
+  const [existing] = await pool.query(
+    'SELECT record_no FROM records WHERE family_id = ? AND record_no LIKE ? ORDER BY record_no',
+    [familyId, pattern]
+  );
+  let nextLetter = 'A';
+  if (existing.length > 0) {
+    const lastNo = existing[existing.length - 1].record_no;
+    const lastLetter = lastNo.substring(prefix.length + dateStr.length);
+    nextLetter = _nextLetter(lastLetter);
+  }
+  return `${prefix}${dateStr}${nextLetter}`;
+}
+
+function _nextLetter(s) {
+  const chars = s.split('');
+  let i = chars.length - 1;
+  while (i >= 0) {
+    if (chars[i] === 'Z') { chars[i] = 'A'; i--; }
+    else { chars[i] = String.fromCharCode(chars[i].charCodeAt(0) + 1); return chars.join(''); }
+  }
+  return 'A' + chars.join('');
+}
+
 // 获取病历列表
 async function getRecords(req, res) {
   try {
     const familyId = req.familyId;
     const { elderId } = req.query;
 
-    let query = 'SELECT * FROM records WHERE family_id = ?';
+    let query = `SELECT r.*, rr.record_no AS related_record_no FROM records r LEFT JOIN records rr ON r.related_record_id = rr.id WHERE r.family_id = ?`;
     const params = [familyId];
 
     if (elderId) {
-      query += ' AND elder_id = ?';
+      query += ' AND r.elder_id = ?';
       params.push(elderId);
     }
 
-    query += ' ORDER BY visit_date DESC, created_at DESC';
+    query += ' ORDER BY r.visit_date DESC, r.created_at DESC';
 
     const [records] = await getPool().query(query, params);
 
@@ -27,6 +60,7 @@ async function getRecords(req, res) {
       id: r.id,
       elderId: r.elder_id,
       type: r.type,
+      recordNo: r.record_no || null,
       visitDate: fmtDate(r.visit_date),
       hospital: r.hospital,
       department: r.department,
@@ -41,8 +75,30 @@ async function getRecords(req, res) {
       confidence: r.confidence,
       notes: typeof r.notes === 'string' ? JSON.parse(r.notes) : (r.notes || []),
       relatedRecordId: r.related_record_id || null,
+      relatedRecordNo: r.related_record_no || null,
       createdAt: r.created_at
     }));
+
+    // 批量查询处方关联的药品列表（用于卡片显示）
+    const prescriptionIds = formattedRecords.filter(r => r.type === '药方').map(r => r.id);
+    if (prescriptionIds.length > 0) {
+      const [meds] = await getPool().query(
+        'SELECT * FROM medications WHERE source_prescription_id IN (?) ORDER BY source_prescription_id, created_at',
+        [prescriptionIds]
+      );
+      const medsByRx = {};
+      meds.forEach(m => {
+        const key = m.source_prescription_id;
+        if (!medsByRx[key]) medsByRx[key] = [];
+        medsByRx[key].push({
+          name: m.name, dose: m.dose, doseAmount: m.dose_amount, doseUnit: m.dose_unit,
+          frequency: m.frequency, quantity: m.quantity, quantityUnit: m.quantity_unit
+        });
+      });
+      formattedRecords.forEach(r => {
+        if (r.type === '药方') r.medications = medsByRx[r.id] || [];
+      });
+    }
 
     res.json({ records: formattedRecords });
   } catch (err) {
@@ -58,7 +114,7 @@ async function getRecord(req, res) {
     const familyId = req.familyId;
 
     const [records] = await getPool().query(
-      'SELECT * FROM records WHERE id = ? AND family_id = ?',
+      `SELECT r.*, rr.record_no AS related_record_no FROM records r LEFT JOIN records rr ON r.related_record_id = rr.id WHERE r.id = ? AND r.family_id = ?`,
       [id, familyId]
     );
 
@@ -73,6 +129,7 @@ async function getRecord(req, res) {
       id: r.id,
       elderId: r.elder_id,
       type: r.type,
+      recordNo: r.record_no || null,
       visitDate: fmtDate(r.visit_date),
       hospital: r.hospital,
       department: r.department,
@@ -87,6 +144,7 @@ async function getRecord(req, res) {
       confidence: r.confidence,
       notes: typeof r.notes === 'string' ? JSON.parse(r.notes) : (r.notes || []),
       relatedRecordId: r.related_record_id || null,
+      relatedRecordNo: r.related_record_no || null,
       ocrText: r.ocr_text || null,
       images,
       createdAt: r.created_at
@@ -104,6 +162,7 @@ async function getRecord(req, res) {
         const item = {
           id: rr.id,
           type: rr.type,
+          recordNo: rr.record_no || null,
           visitDate: fmtDate(rr.visit_date),
           hospital: rr.hospital,
           department: rr.department,
@@ -121,8 +180,9 @@ async function getRecord(req, res) {
           );
           item.medications = meds.map(m => ({
             name: m.name, specification: m.specification, dose: m.dose,
-            frequency: m.frequency, quantity: m.quantity, note: m.note,
-            startDate: fmtDate(m.start_date), status: m.status
+            doseAmount: m.dose_amount, doseUnit: m.dose_unit,
+            frequency: m.frequency, quantity: m.quantity, quantityUnit: m.quantity_unit,
+            note: m.note, startDate: fmtDate(m.start_date), status: m.status
           }));
         }
         relatedRecords.push(item);
@@ -140,7 +200,7 @@ async function getRecord(req, res) {
         id: m.id, name: m.name, specification: m.specification, dose: m.dose,
         doseAmount: m.dose_amount, doseUnit: m.dose_unit,
         frequency: m.frequency, times: typeof m.times === 'string' ? JSON.parse(m.times) : (m.times || []),
-        quantity: m.quantity, note: m.note,
+        quantity: m.quantity, quantityUnit: m.quantity_unit, note: m.note,
         startDate: fmtDate(m.start_date), status: m.status
       }));
     }
@@ -171,11 +231,14 @@ async function addRecord(req, res) {
     const id = uuidv4();
     const metricsJson = JSON.stringify(metrics || []);
     const notesJson = JSON.stringify([]);
+    const recordType = type || '病历';
+    // 自动生成记录编号
+    const recordNo = await _generateRecordNo(getPool(), recordType, visitDate, familyId);
 
     await getPool().query(
-      `INSERT INTO records (id, elder_id, family_id, type, visit_date, hospital, department, diagnosis, chief_complaint, findings, conclusion, metrics, orders, doctor, image_url, confidence, notes, ocr_text, related_record_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, elderId, familyId, type || '病历', visitDate || null, hospital || null, department || null, diagnosis || null, chiefComplaint || null, findings || null, conclusion || null, metricsJson, orders || null, doctor || null, imageUrl || null, confidence || null, notesJson, ocrText || null, relatedRecordId || null]
+      `INSERT INTO records (id, elder_id, family_id, type, record_no, visit_date, hospital, department, diagnosis, chief_complaint, findings, conclusion, metrics, orders, doctor, image_url, confidence, notes, ocr_text, related_record_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, elderId, familyId, recordType, recordNo, visitDate || null, hospital || null, department || null, diagnosis || null, chiefComplaint || null, findings || null, conclusion || null, metricsJson, orders || null, doctor || null, imageUrl || null, confidence || null, notesJson, ocrText || null, relatedRecordId || null]
     );
 
     // 保存关联图片
@@ -183,7 +246,10 @@ async function addRecord(req, res) {
       await setEntityFiles('record', id, fileIds);
     }
 
-    const [records] = await getPool().query('SELECT * FROM records WHERE id = ?', [id]);
+    const [records] = await getPool().query(
+      `SELECT r.*, rr.record_no AS related_record_no FROM records r LEFT JOIN records rr ON r.related_record_id = rr.id WHERE r.id = ?`,
+      [id]
+    );
     const images = await getEntityFiles('record', id);
     const r = records[0];
     res.json({
@@ -191,6 +257,7 @@ async function addRecord(req, res) {
         id: r.id,
         elderId: r.elder_id,
         type: r.type,
+        recordNo: r.record_no || null,
         visitDate: fmtDate(r.visit_date),
         hospital: r.hospital,
         department: r.department,
@@ -204,6 +271,7 @@ async function addRecord(req, res) {
         confidence: r.confidence,
         notes: [],
       relatedRecordId: r.related_record_id || null,
+      relatedRecordNo: r.related_record_no || null,
       ocrText: r.ocr_text || null,
       images,
       createdAt: r.created_at

@@ -98,6 +98,7 @@ async function initDatabase() {
         elder_id VARCHAR(36) NOT NULL,
         family_id VARCHAR(36) NOT NULL,
         type ENUM('病历', '检查报告', '药方') DEFAULT '病历',
+        record_no VARCHAR(20) DEFAULT NULL COMMENT '记录编号（BL/CF/JC+日期+字母序号）',
         visit_date DATE,
         hospital VARCHAR(100),
         department VARCHAR(50),
@@ -209,6 +210,13 @@ async function initDatabase() {
         drug_interaction TEXT DEFAULT NULL COMMENT '药物相互作用',
         precaution TEXT DEFAULT NULL COMMENT '注意事项',
         storage TEXT DEFAULT NULL COMMENT '贮藏',
+        type1 VARCHAR(100) DEFAULT NULL COMMENT '药品类别（如感冒、消炎）',
+        syz TEXT DEFAULT NULL COMMENT '适应症',
+        jx VARCHAR(100) DEFAULT NULL COMMENT '剂型',
+        wyy TINYINT(1) DEFAULT 0 COMMENT '是否外用：0=否，1=是',
+        fl VARCHAR(50) DEFAULT NULL COMMENT '中西药：中药/西药',
+        description LONGTEXT DEFAULT NULL COMMENT '药品说明',
+        description_fetched_at DATETIME DEFAULT NULL COMMENT '说明书获取时间',
         PRIMARY KEY (code),
         INDEX idx_pinyin (pinyin_abbr),
         INDEX idx_name (name),
@@ -454,6 +462,12 @@ async function _ensureColumns(p) {
     console.log('已将 departments.idx_name 从唯一索引改为普通索引');
   }
 
+  // 检查records表是否缺少record_no列（记录编号）
+  const [recordNoCols] = await p.query(`SHOW COLUMNS FROM records LIKE 'record_no'`);
+  if (recordNoCols.length === 0) {
+    await p.query(`ALTER TABLE records ADD COLUMN record_no VARCHAR(20) DEFAULT NULL COMMENT '记录编号（BL/CF/JC+日期+字母序号）' AFTER type`);
+    console.log('已补充 records 表的 record_no 列');
+  }
   // 检查records表是否缺少findings和conclusion列
   const [cols] = await p.query(`SHOW COLUMNS FROM records LIKE 'findings'`);
   if (cols.length === 0) {
@@ -577,6 +591,13 @@ async function _ensureColumns(p) {
         drug_interaction TEXT DEFAULT NULL COMMENT '药物相互作用',
         precaution TEXT DEFAULT NULL COMMENT '注意事项',
         storage TEXT DEFAULT NULL COMMENT '贮藏',
+        type1 VARCHAR(100) DEFAULT NULL COMMENT '药品类别（如感冒、消炎）',
+        syz TEXT DEFAULT NULL COMMENT '适应症',
+        jx VARCHAR(100) DEFAULT NULL COMMENT '剂型',
+        wyy TINYINT(1) DEFAULT 0 COMMENT '是否外用：0=否，1=是',
+        fl VARCHAR(50) DEFAULT NULL COMMENT '中西药：中药/西药',
+        description LONGTEXT DEFAULT NULL COMMENT '药品说明',
+        description_fetched_at DATETIME DEFAULT NULL COMMENT '说明书获取时间',
         PRIMARY KEY (code),
         INDEX idx_pinyin (pinyin_abbr),
         INDEX idx_name (name),
@@ -640,6 +661,24 @@ async function _ensureColumns(p) {
     await p.query(`ALTER TABLE drugs ADD COLUMN owner_user_id VARCHAR(36) DEFAULT NULL COMMENT '创建者用户ID(NULL=标准共享数据)' AFTER storage`);
     await p.query(`ALTER TABLE drugs ADD INDEX idx_owner (owner_user_id)`);
     console.log('已补充 drugs 表的 owner_user_id 列');
+  }
+
+  // 为 drugs 表补充 type1/syz/jx/wyy/fl/description/description_fetched_at 列（ShowAPI 药品说明书字段）
+  const drugInfoColChecks = [
+    { col: 'type1', ddl: `ALTER TABLE drugs ADD COLUMN type1 VARCHAR(100) DEFAULT NULL COMMENT '药品类别（如感冒、消炎）' AFTER storage` },
+    { col: 'syz', ddl: `ALTER TABLE drugs ADD COLUMN syz TEXT DEFAULT NULL COMMENT '适应症' AFTER type1` },
+    { col: 'jx', ddl: `ALTER TABLE drugs ADD COLUMN jx VARCHAR(100) DEFAULT NULL COMMENT '剂型' AFTER syz` },
+    { col: 'wyy', ddl: `ALTER TABLE drugs ADD COLUMN wyy TINYINT(1) DEFAULT 0 COMMENT '是否外用：0=否，1=是' AFTER jx` },
+    { col: 'fl', ddl: `ALTER TABLE drugs ADD COLUMN fl VARCHAR(50) DEFAULT NULL COMMENT '中西药：中药/西药' AFTER wyy` },
+    { col: 'description', ddl: `ALTER TABLE drugs ADD COLUMN description LONGTEXT DEFAULT NULL COMMENT '药品说明' AFTER fl` },
+    { col: 'description_fetched_at', ddl: `ALTER TABLE drugs ADD COLUMN description_fetched_at DATETIME DEFAULT NULL COMMENT '说明书获取时间' AFTER description` },
+  ];
+  for (const { col, ddl } of drugInfoColChecks) {
+    const [rows] = await p.query(`SHOW COLUMNS FROM drugs LIKE '${col}'`);
+    if (rows.length === 0) {
+      await p.query(ddl);
+      console.log(`已补充 drugs 表的 ${col} 列`);
+    }
   }
 
   // 为 medications 表补充 drug_code 列（关联药品库）

@@ -40,7 +40,8 @@ body{font-family:'Inter',-apple-system,sans-serif;background:#f4f7fc;display:fle
 .time-tag{min-width:48px;font-weight:700;background:#f1f5f9;padding:4px 12px;border-radius:30px;text-align:center;font-size:13px}
 .time-tag.morning{background:#dbeafe;color:#1e4b7a}
 .time-tag.noon{background:#dcfce7;color:#166534}
-.time-tag.night{background:#fce7f3;color:#9d174d}
+.time-tag.evening{background:#fef3c7;color:#92400e}
+.time-tag.night{background:#ede9fe;color:#5b21b6}
 .med-info{flex:1}
 .med-info .name{font-weight:600;font-size:16px;color:#0f172a}
 .med-info .dosage{font-size:14px;color:#64748b}
@@ -55,6 +56,42 @@ body{font-family:'Inter',-apple-system,sans-serif;background:#f4f7fc;display:fle
 .record-item .title{font-weight:600}
 .record-item .sub{font-size:14px;color:#64748b}
 .record-item .date{font-size:12px;color:#94a3b8;float:right}
+.record-item .record-no{font-size:15px;font-weight:600;color:#2b7a78}
+.record-item .record-no-link{font-size:12px;color:#2b7a78;text-decoration:underline;cursor:pointer}
+.record-item .right-info{float:right;font-size:13px;color:#64748b}
+.record-item .med-item{font-size:14px;color:#475569;padding:2px 0;display:flex;justify-content:space-between;align-items:center}
+.record-item .med-item .med-name{flex:1}
+.record-item .med-item .med-usage{color:#94a3b8;margin-left:auto;white-space:nowrap}
+.med-item{font-size:14px;color:#475569;display:flex;justify-content:space-between;align-items:center}
+.med-item .med-name{flex:1;font-size: 16px;font-weight: 600}
+.med-item .med-usage{color:#94a3b8;margin-left:auto;white-space:nowrap}
+/* 最新用药安排：时间段分组 */
+.time-group{margin-bottom:14px}
+.time-group:last-child{margin-bottom:0}
+.time-group-title{margin-bottom:6px}
+.time-group .med-item{padding:8px 4px;border-bottom:1px solid #f1f5f9}
+.time-group .med-item:last-child{border-bottom:none}
+.time-group .med-item .med-usage{color:#475569;font-weight:500}
+/* 编辑用药页面卡片样式 */
+.med-edit-card{background:#fff;border-radius:16px;padding:14px 16px;margin-bottom:12px;box-shadow:0 2px 8px rgba(0,0,0,.04);border:1px solid #f1f5f9;transition:box-shadow .2s}
+.med-edit-card:hover{box-shadow:0 4px 12px rgba(0,0,0,.08)}
+.med-edit-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.med-edit-name{font-weight:700;font-size:16px;color:#1e293b}
+.med-edit-dose{font-size:14px;color:#475569;font-weight:500}
+.med-edit-footer{display:flex;justify-content:space-between;align-items:center;margin-top:10px}
+.med-edit-time{display:flex;align-items:center;gap:6px;font-size:13px;color:#64748b}
+.med-edit-time .time-tag{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;min-width:24px;padding:0;border-radius:50%;font-size:12px;font-weight:600;flex-shrink:0}
+.med-edit-time .text-muted{color:#94a3b8}
+.med-edit-date{font-size:13px;color:#64748b;white-space:nowrap;flex-shrink:0;text-align:right}
+.med-edit-actions{display:flex;gap:10px;justify-content:flex-end}
+.med-edit-btn{border:none;padding:6px 14px;border-radius:20px;font-size:13px;font-weight:600;cursor:pointer;transition:all .2s;font-family:inherit;display:inline-flex;align-items:center;gap:4px;white-space:nowrap;flex-shrink:0}
+.med-edit-btn i{font-size:12px}
+.med-edit-btn.btn-edit{background:#eff6ff;color:#2563eb;border:1px solid #bfdbfe}
+.med-edit-btn.btn-edit:hover{background:#dbeafe}
+.med-edit-btn.btn-end{background:#fffbeb;color:#d97706;border:1px solid #fde68a}
+.med-edit-btn.btn-end:hover{background:#fef3c7}
+.med-edit-btn.btn-delete{background:#fef2f2;color:#dc2626;border:1px solid #fecaca}
+.med-edit-btn.btn-delete:hover{background:#fee2e2}
 .drug-item{display:flex;align-items:center;gap:14px;padding:12px 0;border-bottom:1px solid #f1f5f9}
 .drug-item:last-child{border-bottom:none}
 .drug-icon{font-size:24px;color:#2b7a78;width:40px;text-align:center}
