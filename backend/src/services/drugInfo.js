@@ -1,15 +1,17 @@
 /**
- * ShowAPI 药品详细信息服务
- * 文档：https://www.showapi.com/apiGateway/view/1468/3
- * 功能：根据药品名称从 ShowAPI 获取详细说明书信息，并解析为数据库字段
- * 
- * 接口地址：https://route.showapi.com/1468-3
- * 请求参数：searchType=1（按名称）, searchKey=药品名称, appKey=密钥
- * 返回数据：showapi_res_body.drugList 数组
+ * ShowAPI 药品信息服务
+ * 文档：
+ *   药品详细信息(按批准文号/药品ID): https://www.showapi.com/apiGateway/view/1468/3
+ *   药名查询药品信息: https://www.showapi.com/apiGateway/view/1468/4
+ *
+ * 查询策略：
+ *   1. 优先用批准文号调 1468/3 (searchType=2)
+ *   2. 查不到再用药名调 1468/4 (无需 classifyId)
  */
 
 const SHOWAPI_KEY = process.env.SHOWAPI_KEY || '';
-const SHOWAPI_URL = 'https://route.showapi.com/1468-3';
+const API_DETAIL = 'https://route.showapi.com/1468-3';   // 按批准文号/药品ID
+const API_NAME   = 'https://route.showapi.com/1468-4';   // 按药品名
 
 // 不需要出现在说明书正文中的字段
 const EXCLUDED_FIELDS = new Set([
@@ -22,14 +24,18 @@ const EXCLUDED_FIELDS = new Set([
   'msg',           // 消息
   'page',          // 页码
   'count',         // 总数
+  'hypy',          // 豁免用药
+  'price',         // 价格
+  'detailUrl',     // 药品详情URL
+  'old_id',        // '旧ID',
+  'ywm',           // '药品名称',
 ]);
 
-// 字段名映射：API 返回字段 -> 中文显示名（用户关心的放前面）
+// 字段名映射：API 返回字段 -> 中文显示名
 const FIELD_LABELS = {
   drugName: '药品名称',
   spmc: '商品名',
   tymc: '通用名',
-  englishName: '英文名称',
   pinyin: '汉语拼音',
   type1: '药品类别',
   syz: '适应症',
@@ -43,14 +49,17 @@ const FIELD_LABELS = {
   zysx: '注意事项',
   ywxhzy: '药物相互作用',
   zc: '贮藏',
+  yb: '医保',
+  bz: '包装',
+  lx: '类型',
   yxq: '有效期',
   pzwh: '批准文号',
   manu: '生产企业',
   zxbz: '执行标准',
   xz: '性状',
   zycf: '主要成分',
-  ywdl: '药理毒理',
-  ywgl: '药代动力学',
+  yldl: '药理毒理',
+  yddlx: '药代动力学',
   yfyy: '孕妇用药',
   yfjbrqfnyy: '儿童用药',
   lryy: '老人用药',
@@ -58,6 +67,14 @@ const FIELD_LABELS = {
   hypy: '豁免',
   price: '价格',
   pp: '品牌',
+  drugId: '药品ID',
+  type2: '药品小分类',
+  type2Code: '药品小分类ID',
+  detailUrl: '药品详情URL',
+  old_id: '旧ID',
+  ywdl: '药物毒理',
+  ywgl: '药物过量',
+  ywm: '药品名称',
 };
 
 function isConfigured() {
@@ -66,11 +83,7 @@ function isConfigured() {
 
 /**
  * 调用 ShowAPI 获取药品详情
- * 优先用批准文号(searchType=3)查询，查不到再用药品名(searchType=1)查询
- * @param {object} params 查询参数
- * @param {string} params.drugName 药品名称
- * @param {string} [params.approvalNumber] 批准文号（药准字号）
- * @returns {Promise<object|null>} drugList 中的第一个药品数据或 null
+ * 优先用批准文号(1468/3 searchType=3)查询，查不到再用药名(1468/4)查询
  */
 async function fetchDrugInfo(params) {
   if (!isConfigured()) {
@@ -81,10 +94,10 @@ async function fetchDrugInfo(params) {
 
   const { drugName, approvalNumber } = params;
 
-  // 先用批准文号查（searchType=3）
+  // 1. 先用批准文号查（1468/3, searchType=3）
   if (approvalNumber && approvalNumber.trim()) {
     console.log(`[ShowAPI] 尝试用批准文号查询: ${approvalNumber}`);
-    const result = await _request('3', approvalNumber.trim());
+    const result = await _requestDetail('3', approvalNumber.trim());
     if (result) {
       console.log(`[ShowAPI] 批准文号查询成功`);
       return result;
@@ -92,10 +105,10 @@ async function fetchDrugInfo(params) {
     console.log(`[ShowAPI] 批准文号查询无结果，改用药品名查询`);
   }
 
-  // 再用药品名查（searchType=1）
+  // 2. 再用药品名查（1468/4，专用药名查询接口，无需 classifyId）
   if (drugName && drugName.trim()) {
     console.log(`[ShowAPI] 尝试用药品名查询: ${drugName}`);
-    const result = await _request('1', drugName.trim());
+    const result = await _requestByName(drugName.trim());
     if (result) {
       console.log(`[ShowAPI] 药品名查询成功`);
       return result;
@@ -106,12 +119,10 @@ async function fetchDrugInfo(params) {
 }
 
 /**
- * 底层请求方法
- * @param {string} searchType 搜索类型
- * @param {string} searchKey 搜索关键词
- * @returns {Promise<object|null>}
+ * 按批准文号/药品ID查询（1468/3）
+ * searchType: 3=国药准字, 4=药品ID
  */
-async function _request(searchType, searchKey) {
+async function _requestDetail(searchType, searchKey) {
   const params = new URLSearchParams({
     appKey: SHOWAPI_KEY,
     searchType,
@@ -120,8 +131,29 @@ async function _request(searchType, searchKey) {
     maxResult: '10'
   });
 
-  const url = `${SHOWAPI_URL}?${params.toString()}`;
+  const url = `${API_DETAIL}?${params.toString()}`;
+  return await _doRequest(url);
+}
 
+/**
+ * 按药品名查询（1468/4，专用接口，无需 classifyId）
+ */
+async function _requestByName(drugName) {
+  const params = new URLSearchParams({
+    appKey: SHOWAPI_KEY,
+    searchKey: drugName,
+    page: '1',
+    maxResult: '10'
+  });
+
+  const url = `${API_NAME}?${params.toString()}`;
+  return await _doRequest(url);
+}
+
+/**
+ * 通用请求处理
+ */
+async function _doRequest(url) {
   try {
     const resp = await fetch(url, { method: 'GET' });
     if (!resp.ok) {
@@ -154,8 +186,6 @@ async function _request(searchType, searchKey) {
 
 /**
  * 将 API 返回数据解析为数据库字段
- * @param {object} drug ShowAPI 返回的单个药品数据（drugList[0]）
- * @returns {{ type1: string|null, syz: string|null, jx: string|null, wyy: number, fl: string|null, description: string|null }}
  */
 function parseDrugInfo(drug) {
   if (!drug) {
@@ -167,7 +197,6 @@ function parseDrugInfo(drug) {
   if (Array.isArray(drug.type) && drug.type.length > 0) {
     type1 = drug.type[0].type1 || null;
   }
-  // 也兼容直接返回 type1 的情况
   if (!type1 && drug.type1) {
     type1 = drug.type1;
   }
@@ -180,7 +209,7 @@ function parseDrugInfo(drug) {
   // 组合药品说明
   const descParts = [];
 
-  // 第一部分：用户最关心的字段（按 FIELD_LABELS 定义的顺序）
+  // 用户最关心的字段放前面
   const priorityOrder = [
     'drugName', 'spmc', 'tymc',
     'type1', 'syz', 'jx', 'gg', 'wyy', 'fl',
@@ -196,7 +225,7 @@ function parseDrugInfo(drug) {
     descParts.push(`【${label}】${val}`);
   }
 
-  // 第二部分：剩余字段
+  // 剩余字段
   for (const [key, val] of Object.entries(drug)) {
     if (EXCLUDED_FIELDS.has(key)) continue;
     if (priorityOrder.includes(key)) continue;

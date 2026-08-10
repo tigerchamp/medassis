@@ -1730,7 +1730,7 @@ const App = {
                 <div class="form-group"><label>检查项目</label><input id="ocr-diagnosis" value="${this._escAttr(parsed.examName)}"></div>
                 <div class="form-group"><label>检查所见</label><textarea id="ocr-findings" rows="4">${this._escAttr(parsed.findings)}</textarea></div>
                 <div class="form-group"><label>报告结论</label><textarea id="ocr-conclusion" rows="3">${this._escAttr(parsed.conclusion)}</textarea></div>
-                <div class="form-group"><label>关联病历</label><select id="ocr-record-related"><option value=""></option></select><div style="font-size:12px;color:#ea7e2c;margin-top:4px;">如未选择病历记录，在保存时，将自动创建一条病历记录。</div></div>
+                <div class="form-group"><label>关联病历</label><select id="ocr-record-related"><option value="">无匹配，同步创建</option></select><div style="font-size:12px;color:#ea7e2c;margin-top:4px;">如未选择病历记录，在保存时，将自动创建一条病历记录。</div></div>
                 <button class="btn-primary" onclick="App.saveOcrRecord()">保存报告</button>
                 <button class="btn-outline" style="margin-top:8px;" onclick="App.closeModal()">取消</button>
             `);
@@ -1781,7 +1781,7 @@ const App = {
                 <div class="form-group"><label>科室 *</label><input id="ocr-med-dept" value="${this._escAttr(parsed.department)}" placeholder="科室" autocomplete="off" onclick="DeptSuggest.showSuggestions(this)" oninput="DeptSuggest.onInput(this)"></div>
                 <div class="form-group"><label>诊断</label><input id="ocr-med-diagnosis" value="${this._escAttr(parsed.diagnosis)}" placeholder="诊断"></div>
                 <div class="form-group"><label>医生</label><input id="ocr-med-doctor" value="${this._escAttr(parsed.doctor)}" placeholder="主治医生"></div>
-                <div class="form-group"><label>关联病历</label><select id="ocr-med-related"><option value=""></option></select><div style="font-size:12px;color:#ea7e2c;margin-top:4px;">如未选择病历记录，在保存时，将自动创建一条病历记录。</div></div>
+                <div class="form-group"><label>关联病历</label><select id="ocr-med-related"><option value="">无匹配，同步创建</option></select><div style="font-size:12px;color:#ea7e2c;margin-top:4px;">如未选择病历记录，在保存时，将自动创建一条病历记录。</div></div>
                 ${medBlocks}
                 <button class="btn-primary" onclick="App.saveOcrMeds()">添加用药</button>
                 <button class="btn-outline" style="margin-top:8px;" onclick="App.closeModal()">取消</button>
@@ -1939,8 +1939,19 @@ const App = {
             const select = document.getElementById(selectId);
             if (!select) return;
             const curVal = select.value;
-            select.innerHTML = '<option value=""></option>' +
-                records.map(r => `<option value="${r.id}">${r.visitDate || ''} ${r.diagnosis || '未填写'}</option>`).join('');
+            // 默认项：无匹配时同步创建
+            const defaultOption = '<option value="">无匹配，同步创建</option>';
+            // 下拉选项：显示 就诊日期 | 医院 | 科室 | 医师
+            const options = records.map(r => {
+                const parts = [
+                    r.visitDate || '',
+                    r.hospital || '',
+                    r.department || '',
+                    r.doctor || ''
+                ].filter(p => p && p.trim());
+                return `<option value="${r.id}">${parts.join(' | ')}</option>`;
+            }).join('');
+            select.innerHTML = defaultOption + options;
             if (curVal) select.value = curVal;
         } catch (e) { /* 静默失败 */ }
     },
@@ -1970,14 +1981,20 @@ const App = {
     },
 
     // 通用确认对话框（返回 Promise<'link'|'new'|'cancel'>）
-    _confirmDialog(message) {
+    // options: { htmlContent: true } 表示 message 为 HTML 内容
+    _confirmDialog(message, options = {}) {
         return new Promise(resolve => {
+            const isHtml = options.htmlContent === true;
             const overlay = document.createElement('div');
             overlay.style.cssText = 'position:fixed;inset:0;z-index:10001;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;';
+            const msgHtml = isHtml ? message : message.replace(/\n/g, '<br>');
+            const containerStyle = isHtml
+                ? 'background:#fff;border-radius:12px;padding:20px;max-width:420px;width:92%;'
+                : 'background:#fff;border-radius:12px;padding:24px;max-width:320px;width:90%;';
             overlay.innerHTML = `
-                <div style="background:#fff;border-radius:12px;padding:24px;max-width:320px;width:90%;text-align:center;">
-                    <div style="font-size:16px;font-weight:600;margin-bottom:16px;color:#ea7e2c;"><i class="fas fa-exclamation-triangle"></i> 提示</div>
-                    <div style="font-size:14px;color:#333;white-space:pre-wrap;margin-bottom:20px;line-height:1.6;">${message}</div>
+                <div style="${containerStyle}">
+                    <div style="font-size:16px;font-weight:600;margin-bottom:16px;color:#ea7e2c;text-align:center;"><i class="fas fa-exclamation-triangle"></i> 提示</div>
+                    <div style="font-size:14px;color:#333;margin-bottom:20px;line-height:1.6;">${msgHtml}</div>
                     <div style="display:flex;gap:10px;">
                         <button id="confirmNew" style="flex:1;padding:10px;border:1px solid #ddd;border-radius:8px;background:#fff;cursor:pointer;font-size:14px;">否，新建</button>
                         <button id="confirmLink" style="flex:1;padding:10px;border:none;border-radius:8px;background:#2b7a78;color:#fff;cursor:pointer;font-size:14px;">是，关联</button>
@@ -2024,6 +2041,7 @@ const App = {
         const _preMedCount = App._ocrMeds ? App._ocrMeds.length : 0;
         // 必填字段（除生产厂家、有效期、备注外）
         const _reqFields = [['SpecDosage','规格'],['UnitCap','单位容量'],['Qty','数量'],['DoseAmount','每次剂量'],['Freq','每日次数']];
+        const medsToSave = [];
         for (let i = 0; i < _preMedCount; i++) {
             const _p = `ocrMed${i}`;
             const _nameEl = document.getElementById(`${_p}Name`);
@@ -2045,7 +2063,31 @@ const App = {
             }
             if (false === await DrugSuggest.ensure(_nameEl, true)) return;
             console.log(`[saveOcrMeds] 药品${i} ensure通过`);
+            // 校验有效期
+            const expiryDate = document.getElementById(`${_p}Expiry`).value;
+            if (!expiryDate) { this.toast(`请填写药品${i + 1}的有效期`); return; }
+            medsToSave.push({
+                prefix: _p,
+                name: _name,
+                drugCode: (document.getElementById(`${_p}Code`) || {}).value || '',
+                specDosageVal: document.getElementById(`${_p}SpecDosage`).value,
+                specDosageUnit: document.getElementById(`${_p}SpecDosageUnit`).value,
+                unitCapVal: document.getElementById(`${_p}UnitCap`)?.value,
+                unitCapacityUnit: document.getElementById(`${_p}UnitCapUnit`)?.value || '',
+                manufacturer: document.getElementById(`${_p}Manu`)?.value || '',
+                doseAmountVal: document.getElementById(`${_p}DoseAmount`).value,
+                doseUnit: document.getElementById(`${_p}DoseUnit`).value,
+                quantity: parseInt(document.getElementById(`${_p}Qty`).value) || 1,
+                quantityUnit: document.getElementById(`${_p}QtyUnit`)?.value || '',
+                frequency: parseInt(document.getElementById(`${_p}Freq`).value) || 1,
+                times: _times,
+                startDate: document.getElementById(`${_p}Start`).value || new Date().toISOString().slice(0, 10),
+                note: document.getElementById(`${_p}Note`)?.value || '',
+                expiryDate,
+            });
         }
+        // 必须至少有一个药品
+        if (medsToSave.length === 0) { this.toast('请至少添加一个药品'); return; }
         this._ocrMedsSaving = true;
         try {
             const fileIds = await this._uploadOcrFiles();
@@ -2099,42 +2141,32 @@ const App = {
             const prescriptionId = recResp.record.id;
 
             // 2. 创建用药明细，关联到处方记录
-            const medCount = App._ocrMeds ? App._ocrMeds.length : 0;
-            for (let i = 0; i < medCount; i++) {
-                const p = `ocrMed${i}`;
-                const nameEl = document.getElementById(`${p}Name`);
-                if (!nameEl || !nameEl.value.trim()) continue;
-                const expiryDate = document.getElementById(`${p}Expiry`).value;
-                if (!expiryDate) { this.toast(`请填写药品${i + 1}的有效期`); return; }
-                const specDosageVal = document.getElementById(`${p}SpecDosage`).value;
-                const unitCapVal = document.getElementById(`${p}UnitCap`)?.value;
-                const doseAmountVal = document.getElementById(`${p}DoseAmount`).value;
-                const times = MedTimesUI.getTimes(p);
+            for (const m of medsToSave) {
                 await Api.medications.add({
                     elderId,
-                    name: nameEl.value,
-                    drugCode: (document.getElementById(`${p}Code`) || {}).value || undefined,
-                    specDosage: specDosageVal ? parseFloat(specDosageVal) : undefined,
-                    specDosageUnit: specDosageVal ? document.getElementById(`${p}SpecDosageUnit`).value : undefined,
-                    unitCapacity: unitCapVal ? parseInt(unitCapVal, 10) : undefined,
-                    unitCapacityUnit: document.getElementById(`${p}UnitCapUnit`)?.value || undefined,
-                    manufacturer: document.getElementById(`${p}Manu`)?.value || undefined,
-                    dose: doseAmountVal ? `${doseAmountVal}${document.getElementById(`${p}DoseUnit`).value}` : undefined,
-                    doseAmount: doseAmountVal ? parseFloat(doseAmountVal) : undefined,
-                    doseUnit: doseAmountVal ? document.getElementById(`${p}DoseUnit`).value : undefined,
-                    quantity: parseInt(document.getElementById(`${p}Qty`).value) || 1,
-                    quantityUnit: document.getElementById(`${p}QtyUnit`)?.value || undefined,
-                    frequency: parseInt(document.getElementById(`${p}Freq`).value) || 1,
-                    times,
-                    startDate: document.getElementById(`${p}Start`).value || new Date().toISOString().slice(0, 10),
-                    note: document.getElementById(`${p}Note`)?.value || '',
-                    expiryDate,
+                    name: m.name,
+                    drugCode: m.drugCode || undefined,
+                    specDosage: m.specDosageVal ? parseFloat(m.specDosageVal) : undefined,
+                    specDosageUnit: m.specDosageUnit,
+                    unitCapacity: m.unitCapVal ? parseInt(m.unitCapVal, 10) : undefined,
+                    unitCapacityUnit: m.unitCapacityUnit || undefined,
+                    manufacturer: m.manufacturer || undefined,
+                    dose: m.doseAmountVal ? `${m.doseAmountVal}${m.doseUnit}` : undefined,
+                    doseAmount: m.doseAmountVal ? parseFloat(m.doseAmountVal) : undefined,
+                    doseUnit: m.doseUnit,
+                    quantity: m.quantity,
+                    quantityUnit: m.quantityUnit,
+                    frequency: m.frequency,
+                    times: m.times,
+                    startDate: m.startDate,
+                    note: m.note,
+                    expiryDate: m.expiryDate,
                     status: 'active',
                     sourcePrescriptionId: prescriptionId,
                 });
             }
             this.closeModal();
-            this.toast('处方已保存');
+            this.toast(`处方已保存（${medsToSave.length} 个药品）`);
             if (this.state.currentPage === 'home') this.switchPage('home');
         } catch (err) { this.toast(err.message); }
         finally { this._ocrMedsSaving = false; }

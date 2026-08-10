@@ -744,7 +744,7 @@ const PageAddRecord = {
                 </div>
             </div>
             <div class="form-group"><label>关联成员 *</label><select id="recordElderId" onchange="PageAddRecord.onElderChange(this.value)">${memberOptions}</select></div>
-            <div id="recordRelatedGroup" class="form-group" style="display:none;"><label>关联病历</label><select id="recordRelated" onchange="PageAddRecord.onRelatedChange(this.value)"><option value=""></option></select><div style="font-size:12px;color:#ea7e2c;margin-top:4px;">如未选择病历记录，在保存时，将自动创建一条病历记录。</div></div>
+            <div id="recordRelatedGroup" class="form-group" style="display:none;"><label>关联病历</label><select id="recordRelated" onchange="PageAddRecord.onRelatedChange(this.value)"><option value="">无匹配，同步创建</option></select><div style="font-size:12px;color:#ea7e2c;margin-top:4px;">如未选择病历记录，在保存时，将自动创建一条病历记录。</div></div>
             <div class="form-group"><label>类型</label><select id="recordType" onchange="PageAddRecord.onTypeChange(this.value)"><option value="病历">病历</option><option value="检查报告">检查报告</option><option value="处方">处方</option></select></div>
             <div id="recordFieldsMedical">
                 <div class="form-group"><label id="recordDateLabel">就诊日期</label><input id="recordDate" type="text" readonly onclick="CalendarPicker.attach(this,{max:'today'})" placeholder="点击选择日期" style="background:#fff;"></div>
@@ -856,7 +856,71 @@ const PageAddRecord = {
         try {
             const res = await Api.records.get(recordId);
             const rec = res.record || {};
-            // 即使值为空也写入（清空用户原值），随后锁定
+
+            // 检查当前表单值与病历值是否有差异
+            const mapping = type === '处方'
+                ? [
+                    { formId: 'recordMedHospital', key: 'hospital', label: '医院' },
+                    { formId: 'recordMedDept', key: 'department', label: '科室' },
+                    { formId: 'recordMedDiagnosis', key: 'diagnosis', label: '诊断' },
+                    { formId: 'recordMedDoctor', key: 'doctor', label: '医生' },
+                  ]
+                : type === '检查报告'
+                ? [
+                    { formId: 'recordHospital2', key: 'hospital', label: '医院' },
+                    { formId: 'recordDept2', key: 'department', label: '科室' },
+                  ]
+                : [];
+
+            const diffs = [];
+            for (const m of mapping) {
+                const formVal = (document.getElementById(m.formId)?.value || '').trim();
+                const recVal = (rec[m.key] || '').trim();
+                if (formVal && formVal !== recVal) {
+                    diffs.push({ label: m.label, formVal, recVal: recVal || '空' });
+                }
+            }
+
+            // 如果有差异，弹出确认框（表格形式）
+            if (diffs.length > 0) {
+                const tableHtml = `
+                    <div style="margin-bottom:12px;font-weight:500;">检测到以下字段与已填写内容不同：</div>
+                    <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:14px;">
+                        <thead>
+                            <tr style="background:#f8f9fa;">
+                                <th style="padding:8px 10px;text-align:left;border:1px solid #e9ecef;font-weight:500;color:#495057;">字段</th>
+                                <th style="padding:8px 10px;text-align:left;border:1px solid #e9ecef;font-weight:500;color:#495057;">表单</th>
+                                <th style="padding:8px 10px;text-align:left;border:1px solid #e9ecef;font-weight:500;color:#495057;">病历</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${diffs.map(d => `
+                                <tr>
+                                    <td style="padding:8px 10px;border:1px solid #e9ecef;color:#2b7a78;font-weight:500;white-space:nowrap;">${d.label}</td>
+                                    <td style="padding:8px 10px;border:1px solid #e9ecef;color:#333;word-break:break-all;max-width:140px;">${d.formVal}</td>
+                                    <td style="padding:8px 10px;border:1px solid #e9ecef;color:#333;word-break:break-all;max-width:140px;">${d.recVal}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                    <div style="font-size:13px;color:#6c757d;text-align:center;">是否用病历信息覆盖？</div>
+                `;
+                const confirmed = await App._confirmDialog(tableHtml, { htmlContent: true });
+                if (confirmed === 'cancel') {
+                    // 用户取消：恢复下拉框选择，不执行覆盖
+                    const sel = document.getElementById('recordRelated');
+                    if (sel) sel.value = '';
+                    return;
+                }
+                if (confirmed === 'new') {
+                    // 用户选"否，新建"：也不执行覆盖
+                    const sel = document.getElementById('recordRelated');
+                    if (sel) sel.value = '';
+                    return;
+                }
+            }
+
+            // 用户确认或无差异：写入病历信息
             const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.value = val || ''; };
             if (type === '处方') {
                 setVal('recordMedHospital', rec.hospital);
@@ -867,7 +931,7 @@ const PageAddRecord = {
                 setVal('recordHospital2', rec.hospital);
                 setVal('recordDept2', rec.department);
             }
-            // 选择病历后置灰只读，即使值为空也锁定
+            // 选择病历后置灰只读
             fields.forEach(id => this._setFieldReadOnly(id, true));
         } catch (e) { /* 静默失败 */ }
     },

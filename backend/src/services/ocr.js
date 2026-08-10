@@ -137,12 +137,15 @@ function extractAfter(line) {
   return m ? m[1].trim() : '';
 }
 
-// 提取医师姓名：支持"医师：孙畅"（有分隔符）和"医师孙畅"（无分隔符）两种格式
+// 提取医师姓名：支持"医师：孙畅"（有分隔符）、"医师孙畅"（无分隔符）、"医师\n孙畅"（姓名在下一行）三种格式
 function extractDoctor(text) {
   const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
   const keywords = ['医师签名', '医师签字', '主治医师', '接诊医生', '医师', '医生', '签名'];
+  // 姓名：2-4个连续中文，或2-20个英文字母
+  const isName = (s) => /^[\u4e00-\u9fa5]{2,4}$/.test(s) || /^[a-zA-Z]{2,20}$/.test(s);
   for (const kw of keywords) {
-    for (const l of lines) {
+    for (let i = 0; i < lines.length; i++) {
+      const l = lines[i];
       if (!l.includes(kw)) continue;
       // 1. 有分隔符：医师：孙畅
       const after = extractAfter(l);
@@ -154,6 +157,26 @@ function extractDoctor(text) {
       // 过滤纯标点/数字/签章等非姓名内容，要求至少2个连续中文或英文字符
       if (rest && /^[\u4e00-\u9fa5a-zA-Z]{2,}/.test(rest)) {
         return rest.replace(/[(（]签章[)）]/g, '').trim();
+      }
+      // 3. 关键词单独成行（如 "医师" / "医师："），姓名在相邻行
+      const aloneRe = new RegExp(`^${kw}[:：]?$`);
+      if (aloneRe.test(l)) {
+        // 向后查找：医师\n任乐乐（跳过纯数字工号）
+        for (let j = i + 1; j < lines.length && j <= i + 3; j++) {
+          const nl = lines[j];
+          if (/^\d+$/.test(nl)) continue;       // 跳过工号(如 80586)
+          if (/[:：]/.test(nl)) break;          // 遇到标签行停止
+          if (isName(nl)) return nl;
+          break;
+        }
+        // 向前查找：任乐乐\n80586\n医师（签名在抬头之前）
+        for (let j = i - 1; j >= 0 && j >= i - 3; j--) {
+          const nl = lines[j];
+          if (/^\d+$/.test(nl)) continue;       // 跳过工号
+          if (/[:：]/.test(nl)) break;          // 遇到标签行停止
+          if (isName(nl)) return nl;
+          break;
+        }
       }
     }
   }
@@ -235,12 +258,83 @@ function findMetrics(text) {
   return metrics;
 }
 
+// 提取诊断：只保留疾病名称，过滤掉多栏排版噪声、药品信息、医师信息等
+// 解决"诊断："后整段内容（含药品、用法、医师签名）被当作诊断的问题
+function extractDiagnosis(text) {
+  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  const startKws = ['初步诊断', '临床诊断', '诊断'];  // 长关键字优先
+
+  // 找到诊断关键字所在行
+  let startIdx = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (startKws.some(kw => lines[i].includes(kw))) {
+      startIdx = i;
+      break;
+    }
+  }
+  if (startIdx === -1) return '';
+
+  // 同行分隔符后的内容（如"诊断：便秘"）
+  const firstLine = lines[startIdx].replace(/^[^:：】\]]*[:：】\]]\s*/, '').trim();
+  const parts = firstLine ? [firstLine] : [];
+
+  // 结束标志：处方/药品区、医师区、其他区块标签
+  // 比 extractBlock 的 endRe 多了 R:/Rp/处方/药品/用法/用量/体重/取药/注 等处方相关标志
+  const stopRe = /^[【\[][^】\]]*[】\]]/;
+  const endRe = /(医师签名|医师签字|主治医师|接诊医生|签章|第\s*\d+\s*页|共\s*\d+\s*页|审核|调配|核对|发药|签名|^R[pP]?(?:[:：]|$)|^处方|^药品|^用法[:：]|^用量|^体重[:：]|^取药|^注[:：]|^过敏试验)/;
+
+  for (let j = startIdx + 1; j < lines.length; j++) {
+    const nl = lines[j];
+    if (stopRe.test(nl) || endRe.test(nl)) break;
+    if (/^<\/?[^>]+>$/.test(nl)) continue;
+    parts.push(nl);
+  }
+
+  // 过滤：只保留疾病名称候选
+  // 常见非疾病短词（用法、体征、角色等）
+  const noiseWords = new Set([
+    '口服', '外用', '静注', '静滴', '肌注', '皮下', '含服', '吸入', '静脉', '肌内',
+    '医师', '医生', '护士', '药师', '签名', '签章', '注', '处方', '医嘱', '主诉',
+    '病史', '体温', '血压', '脉搏', '呼吸', '心率', '体重', '身高', '复诊', '随访',
+    '建议', '嘱', 'Rp', 'R'
+  ]);
+  // 药品/剂型后缀
+  const drugSuffix = /(片|丸|胶囊|口服液|注射液|颗粒|分散片|糖浆|滴丸|软膏|乳膏|气雾剂|喷剂|含片|栓|溶液|散|合剂|露|茶|贴|膏|滴剂|冲剂|瓶|盒|袋|支|次|日|周|月|年)$/i;
+  // 位置/流程词
+  const locationRe = /(楼|层|位置|门诊|病房|窗口|大厅|药房|取药|收费|挂号)/;
+
+  const candidates = [];
+  for (const p of parts) {
+    const s = p.trim();
+    if (!s) continue;
+    // 跳过含分隔符的标签行（身份:xxx、体重：等）
+    if (/[:：、，,。.（()()\[\]【】\/\\]/.test(s)) continue;
+    // 跳过纯数字/编号
+    if (/^\d+$/.test(s)) continue;
+    // 跳过含拉丁字母的（R、Rp、100ml 等）
+    if (/[a-zA-Z]/.test(s)) continue;
+    // 长度限制：2-8个字符
+    if (s.length < 2 || s.length > 8) continue;
+    // 必须为中文（允许含数字，如 2型糖尿病）
+    if (!/^[\u4e00-\u9fa5\d]+$/.test(s)) continue;
+    // 跳过噪声词
+    if (noiseWords.has(s)) continue;
+    // 跳过药品/剂型后缀
+    if (drugSuffix.test(s)) continue;
+    // 跳过位置词
+    if (locationRe.test(s)) continue;
+    candidates.push(s);
+  }
+
+  return candidates.join('、');
+}
+
 function parseRecord(text) {
   return {
     hospital: findHospital(text),
     department: findDepartment(text),
     visitDate: findDate(text),
-    diagnosis: extractBlock(text, ['诊断', '初步诊断', '临床诊断']) || '',
+    diagnosis: extractDiagnosis(text) || '',
     chiefComplaint: extractBlock(text, ['主诉']) || '',
     // 无"医嘱"时用"处置"等区块内容代替（多行药品/用法文本）
     orders: extractBlock(text, ['医嘱', '处置', '处理', '处理意见', '治疗方案', '建议', 'Rp']) || '',
@@ -390,7 +484,7 @@ function parsePrescription(text) {
     hospital: findHospital(text),
     department: findDepartment(text),
     visitDate: findDate(text),
-    diagnosis: extractBlock(text, ['诊断', '初步诊断', '临床诊断']) || '',
+    diagnosis: extractDiagnosis(text) || '',
     doctor: extractDoctor(text),
     medications: meds
   };
