@@ -1541,7 +1541,10 @@ const PageDrugInfo = {
         <div id="drugInfoContent" style="font-size:15px;line-height:1.8;">
             <div class="card">
                 <div style="font-size:1.4em;font-weight:700;margin-bottom:4px;">${drugName}</div>
-                ${drugSpec || drugManufacturer ? `<div class="text-muted" style="font-size:0.9em;">${drugSpec ? '规格: ' + drugSpec : ''}${drugSpec && drugManufacturer ? ' | ' : ''}${drugManufacturer ? '厂商: ' + drugManufacturer : ''}</div>` : ''}
+                <div id="drugInfoHeaderMeta" class="text-muted" style="font-size:0.9em;">
+                    ${drugSpec ? `<div>规格: ${drugSpec}</div>` : ''}
+                    ${drugManufacturer ? `<div>厂商: ${drugManufacturer}</div>` : ''}
+                </div>
                 <div id="drugInfoExtra" class="text-muted" style="font-size:0.9em;"></div>
             </div>
             <div id="drugInfoBody"><p class="text-muted" style="text-align:center;padding:20px;">加载中...</p></div>
@@ -1602,6 +1605,16 @@ const PageDrugInfo = {
     },
 
     _showInfo(d) {
+        // 更新头部 meta（规格/厂商），兼容首页/处方入口（无参数传入）
+        const metaEl = document.getElementById('drugInfoHeaderMeta');
+        if (metaEl) {
+            const spec = d.specification || '';
+            const manufacturer = d.manufacturer || '';
+            metaEl.innerHTML = [
+                spec ? `<div>规格: ${spec}</div>` : '',
+                manufacturer ? `<div>厂商: ${manufacturer}</div>` : '',
+            ].filter(Boolean).join('');
+        }
         const extraEl = document.getElementById('drugInfoExtra');
         const bodyEl = document.getElementById('drugInfoBody');
         if (extraEl) {
