@@ -1,5 +1,17 @@
 // ========== 辅助函数 ==========
 
+// 根据出生日期计算当前年龄
+function calcAge(birthDate) {
+    if (!birthDate) return null;
+    const b = new Date(birthDate);
+    if (isNaN(b.getTime())) return null;
+    const now = new Date();
+    let age = now.getFullYear() - b.getFullYear();
+    const m = now.getMonth() - b.getMonth();
+    if (m < 0 || (m === 0 && now.getDate() < b.getDate())) age--;
+    return age;
+}
+
 // 格式化数值：去除多余的0（5.000 → 5, 2.500 → 2.5）
 function cleanNumber(n) {
     if (n == null) return '';
@@ -539,7 +551,8 @@ const PageProfile = {
         const infoItems = [];
         if (selfElder) {
             if (selfElder.gender && selfElder.gender !== '未知') infoItems.push(`<span style="background:#eef2f6;padding:2px 8px;border-radius:4px;">${selfElder.gender}</span>`);
-            if (selfElder.age && selfElder.age > 0) infoItems.push(`<span style="background:#eef2f6;padding:2px 8px;border-radius:4px;">${selfElder.age}岁</span>`);
+            const ageFromBD = calcAge(selfElder.birth_date);
+            if (ageFromBD != null) infoItems.push(`<span style="background:#eef2f6;padding:2px 8px;border-radius:4px;">${ageFromBD}岁</span>`);
             if (selfElder.blood_type) infoItems.push(`<span style="background:#eef2f6;padding:2px 8px;border-radius:4px;">${selfElder.blood_type}</span>`);
         }
         return `
@@ -557,7 +570,7 @@ const PageProfile = {
             <div class="card-title"><i class="fas fa-cog"></i> 设置</div>
             <div style="cursor:pointer;display:flex;align-items:center;gap:14px;padding:10px 0;border-bottom:1px solid #f1f5f9;" onclick="App.switchPage('profileEdit')">
                 <i class="fas fa-user-edit" style="width:24px;color:#2b7a78;"></i>
-                <div style="flex:1;"><div style="font-weight:600;">个人信息</div><div class="text-muted">修改性别、年龄、血型等基本信息</div></div>
+                <div style="flex:1;"><div style="font-weight:600;">个人信息</div><div class="text-muted">修改性别、出生日期、血型等基本信息</div></div>
                 <i class="fas fa-chevron-right" style="color:#94a3b8;"></i>
             </div>
             <div style="cursor:pointer;display:flex;align-items:center;gap:14px;padding:10px 0;border-bottom:1px solid #f1f5f9;" onclick="App.switchPage('family')">
@@ -589,7 +602,12 @@ const PageProfileEdit = {
                 <option value="男" ${e.gender === '男' ? 'selected' : ''}>男</option>
                 <option value="女" ${e.gender === '女' ? 'selected' : ''}>女</option>
             </select></div>
-            <div class="form-group"><label>年龄</label><input id="pe-age" type="number" min="0" max="150" value="${e.age || ''}"></div>
+            <div class="form-group"><label>出生日期</label>
+                <div style="display:flex;gap:8px;align-items:center;">
+                    <input id="pe-birthDate" type="text" readonly onclick="CalendarPicker.attach(this,{max:'today'})" value="${e.birth_date || ''}" placeholder="点击选择出生日期" style="background:#fff;flex:1;" onchange="PageProfileEdit._updateAge()">
+                    <span id="pe-calcAge" style="font-size:12px;color:#2b7a78;"></span>
+                </div>
+            </div>
             <div class="form-group"><label>血型</label><select id="pe-blood">
                 <option value="" ${!e.blood_type ? 'selected' : ''}>未知</option>
                 <option value="A型" ${e.blood_type === 'A型' ? 'selected' : ''}>A型</option>
@@ -599,9 +617,22 @@ const PageProfileEdit = {
             </select></div>
             <div class="form-group"><label>过敏史</label><textarea id="pe-allergies" placeholder="如：青霉素、花粉">${e.allergies || ''}</textarea></div>
             <div class="form-group"><label>基础疾病</label><textarea id="pe-conditions" placeholder="如：高血压、糖尿病">${e.conditions || ''}</textarea></div>
-            <div class="form-group"><label>手机号</label><input id="pe-phone" type="tel" value="${e.phone || user?.phone || ''}"></div>
+            <div class="form-group"><label>手机号（登录账号，不可修改）</label><input id="pe-phone" type="tel" value="${e.phone || user?.phone || ''}" disabled style="background:#f5f5f5;"></div>
             <button class="btn-primary" onclick="App.saveProfile()">保存</button>
         </div>`;
+    },
+
+    afterRender() {
+        this._updateAge();
+    },
+
+    _updateAge() {
+        const bd = document.getElementById('pe-birthDate')?.value;
+        const age = calcAge(bd);
+        const el = document.getElementById('pe-calcAge');
+        if (el) {
+            el.textContent = (age != null) ? `${age}岁` : '';
+        }
     }
 };
 
@@ -704,7 +735,7 @@ const PageFamily = {
                             <div style="margin-top:6px;padding-top:6px;border-top:1px dashed #e2e8f0;">
                                 <div style="display:flex;flex-wrap:wrap;gap:6px;font-size:12px;">
                                     ${elder.gender ? `<span style="background:#eef2f6;padding:2px 8px;border-radius:4px;">${elder.gender}</span>` : ''}
-                                    ${elder.age ? `<span style="background:#eef2f6;padding:2px 8px;border-radius:4px;">${elder.age}岁</span>` : ''}
+                                    ${calcAge(elder.birth_date) != null ? `<span style="background:#eef2f6;padding:2px 8px;border-radius:4px;">${calcAge(elder.birth_date)}岁</span>` : (elder.age ? `<span style="background:#eef2f6;padding:2px 8px;border-radius:4px;">${elder.age}岁</span>` : '')}
                                     ${elder.blood_type ? `<span style="background:#eef2f6;padding:2px 8px;border-radius:4px;">${elder.blood_type}</span>` : ''}
                                     ${elder.relation ? `<span style="background:#dbeafe;padding:2px 8px;border-radius:4px;">${relationMap[elder.relation] || '其他'}</span>` : ''}
                                 </div>
@@ -1700,7 +1731,7 @@ const PageElderDetail = {
                     <div style="width:64px;height:64px;border-radius:50%;background:#d1e0e8;display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:700;">${e.avatar || e.name.charAt(0)}</div>
                     <div>
                         <div style="font-weight:700;font-size:20px;">${e.name}</div>
-                        <div class="text-muted">${e.gender || '未知'} · ${e.age || '-'}岁 · ${relationMap[e.relation] || '其他'}</div>
+                        <div class="text-muted">${e.gender || '未知'} · ${calcAge(e.birth_date) != null ? calcAge(e.birth_date) : (e.age || '-')}岁 · ${relationMap[e.relation] || '其他'}</div>
                     </div>
                 </div>
             </div>

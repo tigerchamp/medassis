@@ -2278,17 +2278,13 @@ const App = {
         if (!selfElder) { this.toast('未找到个人信息'); return; }
         const name = document.getElementById('pe-name')?.value.trim();
         const gender = document.getElementById('pe-gender')?.value;
-        const age = parseInt(document.getElementById('pe-age')?.value) || 0;
+        const birthDate = document.getElementById('pe-birthDate')?.value || null;
         const bloodType = document.getElementById('pe-blood')?.value || null;
         const allergies = document.getElementById('pe-allergies')?.value.trim() || null;
         const conditions = document.getElementById('pe-conditions')?.value.trim() || null;
-        const phone = document.getElementById('pe-phone')?.value.trim() || null;
         if (!name) { this.toast('姓名不能为空'); return; }
         try {
-            await Api.elders.update(selfElder.id, { name, gender, age, bloodType, allergies, conditions, phone });
-            if (phone && phone !== this.state.user.phone) {
-                await Api.auth.updateProfile({ phone });
-            }
+            await Api.elders.update(selfElder.id, { name, gender, birthDate, bloodType, allergies, conditions });
             if (name !== this.state.user.name) {
                 await Api.auth.updateProfile({ name });
             }

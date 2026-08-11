@@ -54,7 +54,7 @@ async function getElder(req, res) {
 async function addElder(req, res) {
   try {
     const familyId = req.familyId;
-    const { name, gender, age, bloodType, allergies, conditions, phone, avatar, relation } = req.body;
+    const { name, gender, age, birthDate, bloodType, allergies, conditions, phone, avatar, relation } = req.body;
 
     if (!name) {
       return res.status(400).json({ error: '姓名不能为空' });
@@ -64,9 +64,9 @@ async function addElder(req, res) {
     const elderAvatar = avatar || name.charAt(0);
 
     await getPool().query(
-      `INSERT INTO elders (id, family_id, name, gender, age, blood_type, allergies, conditions, phone, avatar, relation)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, familyId, name, gender || '未知', age || 0, bloodType || null, allergies || null, conditions || null, phone || null, elderAvatar, relation || 'other']
+      `INSERT INTO elders (id, family_id, name, gender, age, birth_date, blood_type, allergies, conditions, phone, avatar, relation)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, familyId, name, gender || '未知', age || 0, birthDate || null, bloodType || null, allergies || null, conditions || null, phone || null, elderAvatar, relation || 'other']
     );
 
     const [elders] = await getPool().query('SELECT * FROM elders WHERE id = ?', [id]);
@@ -82,7 +82,7 @@ async function updateElder(req, res) {
   try {
     const { id } = req.params;
     const familyId = req.familyId;
-    const { name, gender, age, bloodType, allergies, conditions, phone, avatar, relation } = req.body;
+    const { name, gender, age, birthDate, bloodType, allergies, conditions, phone, avatar, relation } = req.body;
 
     // 检查权限
     const [elders] = await getPool().query('SELECT * FROM elders WHERE id = ? AND family_id = ?', [id, familyId]);
@@ -96,6 +96,7 @@ async function updateElder(req, res) {
     if (name !== undefined) { updates.push('name = ?'); values.push(name); }
     if (gender !== undefined) { updates.push('gender = ?'); values.push(gender); }
     if (age !== undefined) { updates.push('age = ?'); values.push(age); }
+    if (birthDate !== undefined) { updates.push('birth_date = ?'); values.push(birthDate || null); }
     if (bloodType !== undefined) { updates.push('blood_type = ?'); values.push(bloodType); }
     if (allergies !== undefined) { updates.push('allergies = ?'); values.push(allergies); }
     if (conditions !== undefined) { updates.push('conditions = ?'); values.push(conditions); }

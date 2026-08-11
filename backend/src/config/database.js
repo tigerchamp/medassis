@@ -546,6 +546,12 @@ async function _ensureColumns(p) {
     await p.query(`ALTER TABLE elders ADD COLUMN relation ENUM('self', 'parent', 'spouse_parent', 'spouse', 'other') DEFAULT 'other' COMMENT '与操作者的关系' AFTER avatar`);
     console.log('已补充 elders 表的 relation 列');
   }
+  // 检查elders表是否缺少birth_date列
+  const [bdCols] = await p.query(`SHOW COLUMNS FROM elders LIKE 'birth_date'`);
+  if (bdCols.length === 0) {
+    await p.query(`ALTER TABLE elders ADD COLUMN birth_date DATE DEFAULT NULL COMMENT '出生日期（替代age字段）' AFTER age`);
+    console.log('已补充 elders 表的 birth_date 列');
+  }
   // 检查elders表是否缺少user_id列
   const [uidCols] = await p.query(`SHOW COLUMNS FROM elders LIKE 'user_id'`);
   if (uidCols.length === 0) {
