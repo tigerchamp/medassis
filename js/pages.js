@@ -23,6 +23,80 @@ function formatMedUsage(m) {
     return parts.join(' ') || '';
 }
 
+// 轻量 markdown 渲染：支持 GFM 表格（化验单指标表），其余按段落保留换行
+// 用于检查报告详情页展示"检查所见"（验血化验单整理为表格后存储为 markdown）
+function renderMarkdown(md) {
+    if (!md) return '';
+    const esc = (s) => (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    const lines = md.split(/\r?\n/);
+    let html = '';
+    let buf = [];
+    const flush = () => {
+        if (buf.length) {
+            html += `<p style="white-space:pre-wrap;line-height:1.8;margin:0;">${esc(buf.join('\n'))}</p>`;
+            buf = [];
+        }
+    };
+    let i = 0;
+    while (i < lines.length) {
+        if (/^\s*\|/.test(lines[i])) {
+            flush();
+            const tlines = [];
+            while (i < lines.length && /^\s*\|/.test(lines[i])) {
+                tlines.push(lines[i].replace(/^\s+|\s+$/g, ''));
+                i++;
+            }
+            html += renderMdTable(tlines, esc);
+        } else {
+            buf.push(lines[i]);
+            i++;
+        }
+    }
+    flush();
+    return html;
+}
+
+// 渲染 markdown 表格行为 HTML <table>，样式与项目差异对比表保持一致
+function renderMdTable(tlines, esc) {
+    if (tlines.length < 2) return tlines.map(l => `<p style="white-space:pre-wrap;">${esc(l)}</p>`).join('');
+    const splitRow = (l) => {
+        let s = l.trim();
+        if (s.startsWith('|')) s = s.slice(1);
+        if (s.endsWith('|')) s = s.slice(0, -1);
+        // 先用占位符保护转义的 \|，再按 | 分割，最后还原（兼容用户手写的转义管道符）
+        const PH = '\u0001PIPE\u0001';
+        return s.replace(/\\\|/g, PH).split('|').map(c => c.trim().replace(new RegExp(PH, 'g'), '|'));
+    };
+    const header = splitRow(tlines[0]);
+    // 第二行须为分隔行（| :--- | ---: |），否则当作普通内容
+    const sepCells = splitRow(tlines[1]);
+    const isSep = sepCells.every(s => /^\s*:?-+:?\s*$/.test(s));
+    if (!isSep) {
+        return tlines.map(l => `<p style="white-space:pre-wrap;">${esc(l)}</p>`).join('');
+    }
+    const aligns = sepCells.map(s => {
+        if (/^:-+:$/.test(s.trim())) return 'center';
+        if (/^-+:$/.test(s.trim())) return 'right';
+        return 'left';
+    });
+    const body = tlines.slice(2).map(splitRow);
+    const ths = header.map((h, ci) => {
+        const align = aligns[ci] === 'right' ? 'text-align:right;' : (aligns[ci] === 'center' ? 'text-align:center;' : 'text-align:left;');
+        return `<th style="padding:8px 10px;${align}border:1px solid #e9ecef;background:#f8f9fa;font-weight:600;color:#495057;">${esc(h)}</th>`;
+    }).join('');
+    const trs = body.map(row => {
+        const tds = header.map((_, ci) => {
+            const v = row[ci] || '';
+            const align = aligns[ci] === 'right' ? 'text-align:right;' : (aligns[ci] === 'center' ? 'text-align:center;' : 'text-align:left;');
+            // 仅 ↑↓ 箭头表示异常高亮；* 是检验互认项目标记，< > 常出现在参考范围，均不高亮
+            const color = /[↑↓]/.test(v) ? 'color:#d33;' : 'color:#333;';
+            return `<td style="padding:8px 10px;${align}${color}border:1px solid #e9ecef;white-space:nowrap;">${esc(v)}</td>`;
+        }).join('');
+        return `<tr>${tds}</tr>`;
+    }).join('');
+    return `<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr>${ths}</tr></thead><tbody>${trs}</tbody></table></div>`;
+}
+
 // ========== 页面渲染器 ==========
 
 // ---------- 登录页 ----------
@@ -320,10 +394,10 @@ const PageRecordDetail = {
                         ${r.relatedRecordNo ? `<span class="record-no-link" onclick="App.viewRecord('${r.relatedRecordId}')">病历：${r.relatedRecordNo}</span>` : ''}
                     </div>
                     <div style="font-size:18px;font-weight:700;margin-bottom:8px;">${r.diagnosis || '未填写'}</div>
-                    <div class="text-muted">${r.hospital || ''} ${r.department ? '· ' + r.department : ''}</div>
+                    <div class="text-muted">${r.hospital || ''} ${r.department ? '· ' + r.department : ''}${r.doctor ? ' · ' + r.doctor : ''}</div>
                 </div>
-                ${r.findings ? `<div class="card"><div class="card-title"><i class="fas fa-microscope"></i> 检查所见</div><p style="white-space:pre-wrap;line-height:1.8;">${r.findings}</p></div>` : ''}
-                ${r.conclusion ? `<div class="card"><div class="card-title"><i class="fas fa-clipboard-check"></i> 报告结论</div><p style="white-space:pre-wrap;line-height:1.8;">${r.conclusion}</p></div>` : ''}
+                ${r.findings ? `<div class="card"><div class="card-title"><i class="fas fa-microscope"></i> 检查所见</div>${renderMarkdown(r.findings)}</div>` : ''}
+                ${r.conclusion ? `<div class="card"><div class="card-title"><i class="fas fa-clipboard-check"></i> 报告结论</div>${renderMarkdown(r.conclusion)}</div>` : ''}
                 ${renderImageGallery(r.images)}
                 ${r.ocrText ? `<button class="btn-outline" style="margin-top:8px;" onclick="App.showOcrTextFullscreen(App._viewOcrText)"><i class="fas fa-file-alt"></i> 查看识别内容</button>` : ''}
                 <button class="btn-danger" style="margin-top:8px;" onclick="App.deleteRecord('${r.id}')">删除此报告</button>`;
@@ -731,7 +805,7 @@ const PageAddRecord = {
         <div class="sub-header">
             <button class="back-btn" onclick="App.goBack()"><i class="fas fa-arrow-left"></i></button>
             <h2>添加病历</h2>
-            <button style="background:none;border:none;cursor:pointer;font-size:20px;color:#2b7a78;margin-left:auto;padding:8px;" onclick="App.startScan(document.getElementById('recordType')?.value || '病历')" title="拍照识别"><i class="fas fa-camera"></i></button>
+            <button style="background:none;border:none;cursor:pointer;font-size:20px;color:#2b7a78;margin-left:auto;padding:8px;" onclick="App.startScan()" title="拍照识别"><i class="fas fa-camera"></i></button>
         </div>
         <div class="card">
             <div class="form-group" style="background:#f0f7ff;border-radius:8px;padding:10px;border:1px dashed #2b7a78;position:relative;">
@@ -739,7 +813,7 @@ const PageAddRecord = {
                 <button type="button" onclick="PageAddRecord.showPasteFullscreen()" style="position:absolute;top:8px;right:8px;background:none;border:none;cursor:pointer;color:#94a3b8;font-size:14px;padding:4px;" title="全屏编辑"><i class="fas fa-expand"></i></button>
                 <textarea id="pasteRecognizeBox" placeholder="将病历/处方/检查报告的文字内容粘贴到此处，自动识别并填写表单字段" style="width:100%;min-height:50px;max-height:100px;font-size:13px;border:1px solid #ddd;border-radius:6px;padding:8px;box-sizing:border-box;" onpaste="PageAddRecord.onPasteRecognize(event)"></textarea>
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;">
-                    <span style="font-size:11px;color:#94a3b8;">按当前类型识别，粘贴后自动填写</span>
+                    <span style="font-size:11px;color:#94a3b8;">自动识别类型，粘贴后自动填写</span>
                     <button type="button" onclick="PageAddRecord.onPasteRecognize(null)" style="background:#2b7a78;color:#fff;border:none;border-radius:4px;padding:3px 10px;font-size:12px;cursor:pointer;">识别</button>
                 </div>
             </div>
@@ -762,6 +836,7 @@ const PageAddRecord = {
                 <div class="form-group"><label>检查项目 *</label><input id="recordExamName" placeholder="如：胸部CT平扫"></div>
                 <div class="form-group"><label>检查所见</label><textarea id="recordFindings" rows="4" placeholder="检查所见内容"></textarea></div>
                 <div class="form-group"><label>报告结论</label><textarea id="recordConclusion" rows="3" placeholder="报告结论内容"></textarea></div>
+                <div class="form-group"><label>医生</label><input id="recordDoctor2" placeholder="申请医生"></div>
             </div>
             <div id="recordFieldsPrescription" style="display:none;">
                 <div class="form-group"><label>就诊日期 *</label><input id="recordDate3" type="text" readonly onclick="CalendarPicker.attach(this,{max:'today'})" placeholder="点击选择日期" style="background:#fff;"></div>
@@ -1088,26 +1163,37 @@ const PageAddRecord = {
 
     // 粘贴文本自动识别：event 来自 onpaste，传 null 时从文本框读取（手动点"识别"按钮）
     async onPasteRecognize(event) {
-        let text;
-        if (event && event.clipboardData) {
-            text = event.clipboardData.getData('text');
-            event.preventDefault();
-            const box = document.getElementById('pasteRecognizeBox');
-            if (box) box.value = text;
-        } else {
-            text = document.getElementById('pasteRecognizeBox')?.value || '';
-        }
-        if (!text || !text.trim()) { App.toast('请粘贴文本内容'); return; }
-        const type = document.getElementById('recordType')?.value || '病历';
-        const typeMap = { '病历': 'record', '检查报告': 'report', '处方': 'prescription' };
-        const parseType = typeMap[type] || 'record';
-        App.toast('正在识别...');
+        if (this._pasteRecognizing) return; // 防止 onTypeChange 递归触发
+        this._pasteRecognizing = true;
         try {
-            const res = await Api.ocr.parse(parseType, text);
+            let text;
+            if (event && event.clipboardData) {
+                text = event.clipboardData.getData('text');
+                event.preventDefault();
+                const box = document.getElementById('pasteRecognizeBox');
+                if (box) box.value = text;
+            } else {
+                text = document.getElementById('pasteRecognizeBox')?.value || '';
+            }
+            if (!text || !text.trim()) { App.toast('请粘贴文本内容'); return; }
+            // 用 'auto' 让后端自动判定类型，不再读取 recordType 下拉
+            App.toast('正在识别...');
+            const res = await Api.ocr.parse('auto', text);
+            // 后端返回 detectedType，映射为中文并自动切换表单类型
+            const typeMap = { 'record': '病历', 'report': '检查报告', 'prescription': '处方', 'drug': '处方' };
+            const type = typeMap[res.detectedType] || '病历';
+            // 自动切换类型下拉（触发 onTypeChange 显示对应字段区域）
+            const typeSel = document.getElementById('recordType');
+            if (typeSel && typeSel.value !== type) {
+                typeSel.value = type;
+                this.onTypeChange(type);
+            }
             await this._applyParsedToForm(res.parsed, type);
-            App.toast('识别完成，已填写表单字段');
+            App.toast(`识别完成（${type}），已填写表单字段`);
         } catch (err) {
             App.toast('识别失败: ' + err.message);
+        } finally {
+            this._pasteRecognizing = false;
         }
     },
 
@@ -1131,6 +1217,7 @@ const PageAddRecord = {
             setVal('recordExamName', parsed.examName);
             setVal('recordFindings', parsed.findings);
             setVal('recordConclusion', parsed.conclusion);
+            setVal('recordDoctor2', parsed.doctor);
         } else if (type === '处方') {
             matchHosp('recordMedHospital', parsed.hospital);
             matchDept('recordMedDept', parsed.department);

@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const multer = require('multer');
 const { authMiddleware } = require('../middleware/auth');
-const { recognizeText, parse, isConfigured } = require('../services/ocr');
+const { recognizeText, parse, isConfigured, detectType } = require('../services/ocr');
 
 router.use(authMiddleware);
 
@@ -24,9 +24,11 @@ router.post('/parse', (req, res) => {
     if (!text || !text.trim()) {
       return res.status(400).json({ error: '文本内容不能为空' });
     }
-    const parsed = parse(type || 'record', text);
-    console.log(`[OCR/parse] type=${type}, 文本长度=${text.length}, 解析结果:`, JSON.stringify(parsed).substring(0, 200));
-    res.json({ parsed });
+    const parsed = parse(type || 'auto', text);
+    // type='auto' 时返回自动判定的类型，供前端切换表单
+    const detectedType = (type === 'auto' || !type) ? detectType(text) : type;
+    console.log(`[OCR/parse] type=${type}, detectedType=${detectedType}, 文本长度=${text.length}, 解析结果:`, JSON.stringify(parsed).substring(0, 200));
+    res.json({ parsed, detectedType });
   } catch (err) {
     console.error('[OCR/parse] 异常:', err);
     res.status(500).json({ error: '文本解析失败' });
@@ -43,7 +45,7 @@ router.post('/parse', (req, res) => {
 router.post('/recognize', upload.array('files', 9), async (req, res) => {
   try {
     const files = req.files;
-    const type = req.body.type || 'record';
+    const type = req.body.type || 'auto';
 
     console.log(`[OCR] 收到请求: type=${type}, 文件数=${files ? files.length : 0}`);
     if (files && files.length) {
@@ -83,11 +85,12 @@ router.post('/recognize', upload.array('files', 9), async (req, res) => {
       return res.status(500).json({ error: lastOcrError.message });
     }
 
-    // 按类型结构化解析
+    // 按类型结构化解析（支持 'auto' 自动判定）
     const parsed = parse(type, text);
-    console.log(`[OCR] 解析结果(type=${type}):`, JSON.stringify(parsed));
+    const detectedType = type === 'auto' ? detectType(text) : type;
+    console.log(`[OCR] 解析结果(type=${type}, detectedType=${detectedType}):`, JSON.stringify(parsed));
 
-    res.json({ text, parsed });
+    res.json({ text, parsed, detectedType });
     console.log('[OCR] 响应已返回前端');
   } catch (err) {
     console.error('[OCR] 路由异常:', err);

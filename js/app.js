@@ -1560,12 +1560,12 @@ const App = {
     },
 
     openScanSelector() {
-        document.getElementById('scanOverlay').classList.add('show');
+        // 直接调起拍照，不再选择类型（类型由OCR文本自动判定）
+        this.startScan();
     },
 
     closeScanSelector(e) {
-        if (e && e.target && e.target !== document.getElementById('scanOverlay')) return;
-        document.getElementById('scanOverlay').classList.remove('show');
+        // 兼容旧调用，已无实际UI
     },
 
     // 从手动添加页面切换到拍照识别
@@ -1574,6 +1574,8 @@ const App = {
         this.startScan(type);
     },
 
+    // 后端 OCR 类型 → 中文显示名
+    _ocrTypeDisplayMap: { 'record': '病历', 'report': '检查报告', 'prescription': '处方', 'drug': '药品' },
     // 中文扫描类型 → 后端 OCR 类型
     _ocrTypeMap: { '病历': 'record', '报告': 'report', '检查报告': 'report', '处方': 'prescription', '药品': 'drug' },
 
@@ -1633,7 +1635,6 @@ const App = {
     },
 
     async startScan(type) {
-        document.getElementById('scanOverlay').classList.remove('show');
         const memberId = this.state.currentMemberId;
         if (!memberId) { this.toast('请先选择一位成员'); return; }
 
@@ -1644,14 +1645,15 @@ const App = {
         if (!files.length) { console.log('[扫描] 用户未选择图片'); return; }
         console.log(`[扫描] 选了 ${files.length} 张图片:`, files.map(f => `${f.name}(${f.type},${f.size}bytes)`));
 
-        const ocrType = this._ocrTypeMap[type] || 'record';
-        console.log(`[扫描] 开始OCR识别, type=${type} → ocrType=${ocrType}`);
+        // type 未指定时用 'auto'，由后端根据OCR文本自动判定类型
+        const ocrType = type ? (this._ocrTypeMap[type] || 'record') : 'auto';
+        console.log(`[扫描] 开始OCR识别, type=${type || '(auto)'} → ocrType=${ocrType}`);
         this.openModal(`<div class="ocr-loading"><div class="spinner"></div><h3>正在识别...</h3><p class="text-muted">上传图片并 OCR 识别中</p></div>`);
 
         let resp;
         try {
             resp = await Api.ocr.recognize(files, ocrType);
-            console.log('[扫描] OCR响应:', { text: resp.text, parsed: resp.parsed });
+            console.log('[扫描] OCR响应:', { text: resp.text, parsed: resp.parsed, detectedType: resp.detectedType });
         } catch (err) {
             console.error('[扫描] OCR失败:', err);
             this.closeModal();
@@ -1659,6 +1661,12 @@ const App = {
             return;
         }
 
+        // auto 模式下，用后端返回的 detectedType 确定渲染哪种表单
+        const detectedType = resp.detectedType || 'record';
+        const displayName = this._ocrTypeDisplayMap[detectedType] || '病历';
+        console.log(`[扫描] 自动判定类型: ${detectedType} → ${displayName}`);
+        // 将 detectedType 映射为中文，复用后续的 type 分支
+        type = displayName;
         const parsed = resp.parsed || {};
         // 保留 File 对象，确认保存时才上传到 MinIO（符合"先识别后保存"流程）
         App._ocrFiles = files;
@@ -1730,6 +1738,7 @@ const App = {
                 <div class="form-group"><label>检查项目</label><input id="ocr-diagnosis" value="${this._escAttr(parsed.examName)}"></div>
                 <div class="form-group"><label>检查所见</label><textarea id="ocr-findings" rows="4">${this._escAttr(parsed.findings)}</textarea></div>
                 <div class="form-group"><label>报告结论</label><textarea id="ocr-conclusion" rows="3">${this._escAttr(parsed.conclusion)}</textarea></div>
+                <div class="form-group"><label>医生</label><input id="ocr-doctor" value="${this._escAttr(parsed.doctor)}" placeholder="申请医生"></div>
                 <div class="form-group"><label>关联病历</label><select id="ocr-record-related"><option value="">无匹配，同步创建</option></select><div style="font-size:12px;color:#ea7e2c;margin-top:4px;">如未选择病历记录，在保存时，将自动创建一条病历记录。</div></div>
                 <button class="btn-primary" onclick="App.saveOcrRecord()">保存报告</button>
                 <button class="btn-outline" style="margin-top:8px;" onclick="App.closeModal()">取消</button>
@@ -1889,6 +1898,7 @@ const App = {
                         visitDate,
                         hospital: document.getElementById('ocr-hospital')?.value,
                         department: document.getElementById('ocr-department')?.value,
+                        doctor: document.getElementById('ocr-doctor')?.value,
                     });
                 }
             }
@@ -2513,6 +2523,7 @@ const App = {
                     visitDate,
                     hospital: document.getElementById('recordHospital2')?.value,
                     department: document.getElementById('recordDept2')?.value,
+                    doctor: document.getElementById('recordDoctor2')?.value,
                 });
                 await Api.records.add({
                     elderId,
@@ -2523,6 +2534,7 @@ const App = {
                     department: document.getElementById('recordDept2').value,
                     findings: document.getElementById('recordFindings').value,
                     conclusion: document.getElementById('recordConclusion').value,
+                    doctor: document.getElementById('recordDoctor2')?.value,
                     relatedRecordId: relatedId || undefined,
                     fileIds: fileIds.length > 0 ? fileIds : undefined,
                 });

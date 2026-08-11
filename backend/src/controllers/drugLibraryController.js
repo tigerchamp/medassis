@@ -50,7 +50,7 @@ async function search(req, res) {
          ELSE 5
        END, name
        LIMIT ?`,
-      [familyUserIds, `%${kw}%`, kw, `${kw}%`, kw, kw, `${kw}%`, kw, `${kw}%`, limit]
+      [familyUserIds, `%${kw}%`, kw, `%${kw}%`, kw, kw, `%${kw}%`, kw, `%${kw}%`, limit]
     );
 
     res.json({
@@ -124,7 +124,7 @@ async function check(req, res) {
       `SELECT code, name, specification, manufacturer FROM drugs
        WHERE (owner_user_id IS NULL OR owner_user_id IN (?))
          AND (name LIKE ? OR pinyin_abbr LIKE ?) ORDER BY name LIMIT 8`,
-      [familyUserIds, `%${name}%`, `${name}%`]
+      [familyUserIds, `%${name}%`, `%${name}%`]
     );
     res.json({ exists: false, drug: null, similar });
   } catch (err) {

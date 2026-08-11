@@ -34,20 +34,9 @@
     <div class="bottom-nav" id="bottomNav">
         <button class="nav-item active" data-page="home" onclick="App.switchPage('home')"><i class="fas fa-home"></i><span>首页</span></button>
         <button class="nav-item" data-page="records" onclick="App.switchPage('records')"><i class="fas fa-notes-medical"></i><span>病历</span></button>
-        <button class="nav-item camera-btn" onclick="App.openScanSelector()"><i class="fas fa-camera"></i></button>
+        <button class="nav-item camera-btn" onclick="App.startScan()"><i class="fas fa-camera"></i></button>
         <button class="nav-item" data-page="pharmacy" onclick="App.switchPage('pharmacy')"><i class="fas fa-box"></i><span>药箱</span></button>
         <button class="nav-item" data-page="profile" onclick="App.switchPage('profile')"><i class="fas fa-user"></i><span>我的</span></button>
-    </div>
-    <div class="scan-overlay" id="scanOverlay" onclick="App.closeScanSelector(event)">
-        <div class="scan-sheet" onclick="event.stopPropagation();">
-            <div class="handle"></div>
-            <div class="title">选择扫描类型</div>
-            <button class="scan-option" onclick="App.startScan('病历')"><i class="fas fa-notes-medical"></i><div><div>病历</div><div class="desc">扫描纸质病历或电子档</div></div></button>
-            <button class="scan-option" onclick="App.startScan('处方')"><i class="fas fa-prescription"></i><div><div>处方</div><div class="desc">识别处方药品信息</div></div></button>
-            <button class="scan-option" onclick="App.startScan('报告')"><i class="fas fa-file-alt"></i><div><div>报告</div><div class="desc">检查报告、化验单</div></div></button>
-            <button class="scan-option" onclick="App.startScan('药品')"><i class="fas fa-capsules"></i><div><div>药品</div><div class="desc">扫描药盒，自动录入药箱</div></div></button>
-            <button class="scan-cancel" onclick="App.closeScanSelector()">取消</button>
-        </div>
     </div>
     <div class="modal-overlay" id="modalOverlay" onclick="App.closeModal()">
         <div class="modal-content" id="modalContent" onclick="event.stopPropagation();"></div>

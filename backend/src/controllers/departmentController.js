@@ -51,7 +51,7 @@ async function search(req, res) {
          ELSE 6
        END, name
        LIMIT ?`,
-      [familyUserIds, `%${kw}%`, `%${kw}%`, `%${kw}%`, `${kw}%`, kw, kw, kw, kw, `${kw}%`, `${kw}%`, limit]
+      [familyUserIds, `%${kw}%`, `%${kw}%`, `%${kw}%`, `%${kw}%`, kw, kw, kw, kw, `%${kw}%`, `%${kw}%`, limit]
     );
 
     res.json({
