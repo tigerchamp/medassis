@@ -735,9 +735,28 @@ async function _ensureColumns(p) {
     console.log('已移除 drug_inventory 表的 unit_capacity 列（已迁移至 drugs 表）');
   }
 
-  // 迁移：为已有用户在 user_families 表中创建默认关联（迁移多家庭支持）
+  // 创建 user_families 表（支持多家庭组）
   const [ufTable] = await p.query(`SHOW TABLES LIKE 'user_families'`);
-  if (ufTable.length > 0) {
+  if (ufTable.length === 0) {
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS user_families (
+        id VARCHAR(36) PRIMARY KEY,
+        user_id VARCHAR(36) NOT NULL,
+        family_id VARCHAR(36) NOT NULL,
+        role ENUM('admin', 'member') DEFAULT 'member',
+        is_primary TINYINT(1) DEFAULT 0,
+        joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uk_user_family (user_id, family_id),
+        INDEX idx_user (user_id),
+        INDEX idx_family (family_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+    console.log('已创建 user_families 关联表');
+  }
+
+  // 迁移：为已有用户在 user_families 表中创建默认关联（迁移多家庭支持）
+  const [ufTable2] = await p.query(`SHOW TABLES LIKE 'user_families'`);
+  if (ufTable2.length > 0) {
     // 检查是否需要迁移：统计已在 user_families 中但仍有 family_id 不为空的用户
     const [migRows] = await p.query(`
       SELECT u.id, u.family_id FROM users u

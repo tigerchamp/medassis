@@ -19,23 +19,38 @@ async function authMiddleware(req, res, next) {
     // 支持通过请求头 family-id 切换当前家庭组（如果用户是该家庭成员）
     const overrideFamilyId = req.headers['family-id'];
     if (overrideFamilyId) {
-      // 检查用户是否是该家庭的成员
-      const [membership] = await getPool().query(
-        'SELECT id FROM user_families WHERE user_id = ? AND family_id = ?',
-        [users[0].id, overrideFamilyId]
-      );
-      if (membership.length > 0) {
+      try {
+        // 通过 user_families 表检查成员关系
+        const [membership] = await getPool().query(
+          'SELECT id FROM user_families WHERE user_id = ? AND family_id = ?',
+          [users[0].id, overrideFamilyId]
+        );
+        if (membership.length > 0) {
+          req.familyId = overrideFamilyId;
+          return next();
+        }
+      } catch (e) {
+        // user_families 表可能不存在，回退检查 users.family_id
+        if (users[0].family_id === overrideFamilyId) {
+          req.familyId = overrideFamilyId;
+          return next();
+        }
+      }
+      // 回退：检查 users.family_id（旧模型）
+      if (users[0].family_id === overrideFamilyId) {
         req.familyId = overrideFamilyId;
         return next();
       }
-      // 如果 user_families 表不存在或无记录，回退到 users.family_id
+      // 没有权限访问该家庭，使用默认家庭
+      console.warn(`用户 ${users[0].id} 不是家庭 ${overrideFamilyId} 的成员，使用默认家庭`);
     }
-    req.familyId = decoded.familyId;
+    req.familyId = decoded.familyId || users[0].family_id;
     next();
   } catch (err) {
     if (err.name === 'TokenExpiredError') {
       return res.status(401).json({ error: '登录已过期' });
     }
+    console.error('Auth middleware error:', err);
     return res.status(401).json({ error: '无效的token' });
   }
 }
