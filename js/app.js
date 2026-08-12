@@ -2263,7 +2263,7 @@ const App = {
             this.switchPage('profile');
         } else if (current) {
             // 显示该成员的档案详情
-            this.state.currentElderId = current.id;
+            this.state.currentMemberId = current.id;
             this.switchPage('elderDetail');
         } else {
             this.switchPage('profile');

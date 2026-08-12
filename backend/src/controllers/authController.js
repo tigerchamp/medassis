@@ -246,11 +246,11 @@ async function joinFamily(req, res) {
         });
       }
       // 添加到 user_families 表（保留原家庭组，不覆盖）
-      const ufId = 'uf_' + userId.slice(0, 8) + '_' + family.id.slice(0, 8);
-      await getPool().query(
-        'INSERT INTO user_families (id, user_id, family_id, role, is_primary) VALUES (?, ?, ?, ?, 0)',
-        [ufId, userId, family.id, 'member']
-      );
+    const ufId = 'uf_' + userId.slice(0, 8) + '_' + family.id.slice(0, 8);
+    await getPool().query(
+      'INSERT INTO user_families (id, user_id, family_id, role, is_primary) VALUES (?, ?, ?, ?, 0)',
+      [ufId, userId, family.id, 'member']
+    );
     } catch (e) {
       // user_families 表不存在时，不覆盖原 users.family_id
       // 只在用户没有任何家庭组时才更新
@@ -259,28 +259,9 @@ async function joinFamily(req, res) {
       }
     }
 
-    // 新家庭组中确保有 self 档案（不改变原家庭组的 self 档案）
-    // 检查新家庭中是否已有该用户的 self 档案
-    const [existingSelf] = await getPool().query(
-      'SELECT id FROM elders WHERE user_id = ? AND family_id = ? AND relation = ?',
-      [userId, family.id, 'self']
-    );
-
-    if (existingSelf.length === 0) {
-      // 创建新的 self 档案在新家庭中
-      await getPool().query(
-        `INSERT INTO elders (id, user_id, family_id, name, gender, birth_date, phone, relation, avatar, created_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        ['elder_' + userId.slice(0, 8) + '_self_' + family.id.slice(0, 8),
-         userId, family.id,
-         req.user.name || name || '我',
-         null, null, req.user.phone || null,
-         'self', null, userId]
-      );
-    }
-
-    // 不更新原 self 档案的 family_id —— 保留用户在原家庭组的档案
-    // 原档案保留在原家庭组中，新家庭组创建独立的 self 档案
+    // 注意：用户的档案资料（elders、records、medications 等）只有一份
+    // 不需要在新家庭组中创建新的 self 档案
+    // 查询成员时会自动包含当前用户的 self 档案（跨家庭共享）
 
     res.json({
       message: '加入成功',

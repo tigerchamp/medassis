@@ -41,10 +41,18 @@ function _nextLetter(s) {
 async function getRecords(req, res) {
   try {
     const familyId = req.familyId;
+    const userId = req.user.id;
     const { elderId } = req.query;
 
-    let query = `SELECT r.*, rr.record_no AS related_record_no FROM records r LEFT JOIN records rr ON r.related_record_id = rr.id WHERE r.family_id = ?`;
-    const params = [familyId];
+    // 查询：当前家庭的病历 + 当前用户 self 档案的病历（跨家庭共享）
+    let query = `
+      SELECT r.*, rr.record_no AS related_record_no
+      FROM records r
+      LEFT JOIN records rr ON r.related_record_id = rr.id
+      WHERE (r.family_id = ?
+         OR r.elder_id IN (SELECT id FROM elders WHERE user_id = ? AND relation = 'self'))
+    `;
+    const params = [familyId, userId];
 
     if (elderId) {
       query += ' AND r.elder_id = ?';
@@ -112,11 +120,18 @@ async function getRecord(req, res) {
   try {
     const { id } = req.params;
     const familyId = req.familyId;
+    const userId = req.user.id;
 
-    const [records] = await getPool().query(
-      `SELECT r.*, rr.record_no AS related_record_no FROM records r LEFT JOIN records rr ON r.related_record_id = rr.id WHERE r.id = ? AND r.family_id = ?`,
-      [id, familyId]
-    );
+    // 查询：当前家庭的病历 OR self 档案的病历
+    const [records] = await getPool().query(`
+      SELECT r.*, rr.record_no AS related_record_no
+      FROM records r
+      LEFT JOIN records rr ON r.related_record_id = rr.id
+      WHERE r.id = ? AND (
+        r.family_id = ?
+        OR r.elder_id IN (SELECT id FROM elders WHERE user_id = ? AND relation = 'self')
+      )
+    `, [id, familyId, userId]);
 
     if (records.length === 0) {
       return res.status(404).json({ error: '病历不存在' });
@@ -153,8 +168,10 @@ async function getRecord(req, res) {
     // 若为病历，查询关联的处方/报告
     if (r.type === '病历') {
       const [related] = await getPool().query(
-        'SELECT * FROM records WHERE related_record_id = ? AND family_id = ? ORDER BY visit_date DESC, created_at DESC',
-        [r.id, familyId]
+        `SELECT * FROM records WHERE related_record_id = ? AND (
+          family_id = ? OR elder_id IN (SELECT id FROM elders WHERE user_id = ? AND relation = 'self')
+        ) ORDER BY visit_date DESC, created_at DESC`,
+        [r.id, familyId, userId]
       );
       const relatedRecords = [];
       for (const rr of related) {
@@ -216,14 +233,19 @@ async function getRecord(req, res) {
 async function addRecord(req, res) {
   try {
     const familyId = req.familyId;
+    const userId = req.user.id;
   const { elderId, type, visitDate, hospital, department, diagnosis, chiefComplaint, findings, conclusion, metrics, orders, doctor, imageUrl, confidence, fileIds, relatedRecordId, ocrText } = req.body;
 
   if (!elderId) {
       return res.status(400).json({ error: '必须关联老人' });
     }
 
-    // 检查老人是否存在
-    const [elders] = await getPool().query('SELECT id FROM elders WHERE id = ? AND family_id = ?', [elderId, familyId]);
+    // 检查老人是否存在（当前家庭的 OR self 档案跨家庭共享）
+    const [elders] = await getPool().query(`
+      SELECT id FROM elders WHERE id = ? AND (
+        family_id = ? OR (user_id = ? AND relation = 'self')
+      )
+    `, [elderId, familyId, userId]);
     if (elders.length === 0) {
       return res.status(400).json({ error: '老人档案不存在' });
     }
@@ -288,9 +310,15 @@ async function updateRecord(req, res) {
   try {
     const { id } = req.params;
     const familyId = req.familyId;
+    const userId = req.user.id;
     const { elderId, type, visitDate, hospital, department, diagnosis, chiefComplaint, findings, conclusion, metrics, orders, doctor, imageUrl, confidence, fileIds, relatedRecordId } = req.body;
 
-    const [records] = await getPool().query('SELECT * FROM records WHERE id = ? AND family_id = ?', [id, familyId]);
+    // 查询：当前家庭的病历 OR self 档案的病历
+    const [records] = await getPool().query(`
+      SELECT * FROM records WHERE id = ? AND (
+        family_id = ? OR elder_id IN (SELECT id FROM elders WHERE user_id = ? AND relation = 'self')
+      )
+    `, [id, familyId, userId]);
     if (records.length === 0) {
       return res.status(404).json({ error: '病历不存在' });
     }
@@ -315,9 +343,9 @@ async function updateRecord(req, res) {
     if (relatedRecordId !== undefined) { updates.push('related_record_id = ?'); values.push(relatedRecordId || null); }
 
     if (updates.length > 0) {
-      values.push(id, familyId);
+      values.push(id);
       await getPool().query(
-        `UPDATE records SET ${updates.join(', ')} WHERE id = ? AND family_id = ?`,
+        `UPDATE records SET ${updates.join(', ')} WHERE id = ?`,
         values
       );
     }
@@ -362,13 +390,19 @@ async function deleteRecord(req, res) {
   try {
     const { id } = req.params;
     const familyId = req.familyId;
+    const userId = req.user.id;
 
-    const [records] = await getPool().query('SELECT * FROM records WHERE id = ? AND family_id = ?', [id, familyId]);
+    // 查询：当前家庭的病历 OR self 档案的病历
+    const [records] = await getPool().query(`
+      SELECT * FROM records WHERE id = ? AND (
+        family_id = ? OR elder_id IN (SELECT id FROM elders WHERE user_id = ? AND relation = 'self')
+      )
+    `, [id, familyId, userId]);
     if (records.length === 0) {
       return res.status(404).json({ error: '病历不存在' });
     }
 
-    await getPool().query('DELETE FROM records WHERE id = ? AND family_id = ?', [id, familyId]);
+    await getPool().query('DELETE FROM records WHERE id = ?', [id]);
     await deleteEntityFiles('record', id);
     res.json({ message: '删除成功' });
   } catch (err) {
@@ -383,12 +417,17 @@ async function addNote(req, res) {
     const { id } = req.params;
     const { text, author } = req.body;
     const familyId = req.familyId;
+    const userId = req.user.id;
 
     if (!text) {
       return res.status(400).json({ error: '备注内容不能为空' });
     }
 
-    const [records] = await getPool().query('SELECT * FROM records WHERE id = ? AND family_id = ?', [id, familyId]);
+    const [records] = await getPool().query(`
+      SELECT * FROM records WHERE id = ? AND (
+        family_id = ? OR elder_id IN (SELECT id FROM elders WHERE user_id = ? AND relation = 'self')
+      )
+    `, [id, familyId, userId]);
     if (records.length === 0) {
       return res.status(404).json({ error: '病历不存在' });
     }
