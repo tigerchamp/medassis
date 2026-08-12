@@ -245,38 +245,42 @@ async function joinFamily(req, res) {
           family: { id: family.id, name: family.name }
         });
       }
-      // 添加到 user_families 表
+      // 添加到 user_families 表（保留原家庭组，不覆盖）
       const ufId = 'uf_' + userId.slice(0, 8) + '_' + family.id.slice(0, 8);
       await getPool().query(
         'INSERT INTO user_families (id, user_id, family_id, role, is_primary) VALUES (?, ?, ?, ?, 0)',
         [ufId, userId, family.id, 'member']
       );
     } catch (e) {
-      // user_families 表不存在时回退到旧逻辑
-      await getPool().query('UPDATE users SET family_id = ?, role = ? WHERE id = ?', [family.id, 'member', userId]);
+      // user_families 表不存在时，不覆盖原 users.family_id
+      // 只在用户没有任何家庭组时才更新
+      if (!req.user.family_id) {
+        await getPool().query('UPDATE users SET family_id = ?, role = ? WHERE id = ?', [family.id, 'member', userId]);
+      }
     }
 
-    // 保留原家庭组，不覆盖 users.family_id（除非用户没有其他家庭）
-    const [primaryCheck] = await getPool().query(
-      'SELECT COUNT(*) as cnt FROM user_families WHERE user_id = ? AND is_primary = 1',
-      [userId]
-    ).catch(() => [{ cnt: 0 }]);
+    // 新家庭组中确保有 self 档案（不改变原家庭组的 self 档案）
+    // 检查新家庭中是否已有该用户的 self 档案
+    const [existingSelf] = await getPool().query(
+      'SELECT id FROM elders WHERE user_id = ? AND family_id = ? AND relation = ?',
+      [userId, family.id, 'self']
+    );
 
-    if (primaryCheck.cnt === 0 && !req.user.family_id) {
-      // 如果没有原家庭组，设新家庭为 primary
-      try {
-        await getPool().query(
-          'UPDATE user_families SET is_primary = 1 WHERE user_id = ? AND family_id = ?',
-          [userId, family.id]
-        );
-      } catch (e) {}
+    if (existingSelf.length === 0) {
+      // 创建新的 self 档案在新家庭中
+      await getPool().query(
+        `INSERT INTO elders (id, user_id, family_id, name, gender, birth_date, phone, relation, avatar, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ['elder_' + userId.slice(0, 8) + '_self_' + family.id.slice(0, 8),
+         userId, family.id,
+         req.user.name || name || '我',
+         null, null, req.user.phone || null,
+         'self', null, userId]
+      );
     }
 
-    // 更新 elders 表中的 self 档案的 family_id（如果存在）
-    await getPool().query(
-      'UPDATE elders SET family_id = ? WHERE user_id = ? AND relation = ?',
-      [family.id, userId, 'self']
-    ).catch(() => {});
+    // 不更新原 self 档案的 family_id —— 保留用户在原家庭组的档案
+    // 原档案保留在原家庭组中，新家庭组创建独立的 self 档案
 
     res.json({
       message: '加入成功',
@@ -292,10 +296,17 @@ async function joinFamily(req, res) {
 async function getFamilyMembers(req, res) {
   try {
     const familyId = req.familyId;
-    const [members] = await getPool().query(
-      'SELECT id, name, phone, role, authorized, avatar, created_at FROM users WHERE family_id = ?',
-      [familyId]
-    );
+    // 通过 user_families 表查询所有加入该家庭的用户（兼容多家庭组）
+    // 同时回退查询 users.family_id 以兼容旧数据
+    const [members] = await getPool().query(`
+      SELECT u.id, u.name, u.phone, u.role, u.authorized, u.avatar, u.created_at
+      FROM users u
+      WHERE u.id IN (
+        SELECT uf.user_id FROM user_families uf WHERE uf.family_id = ?
+        UNION
+        SELECT u2.id FROM users u2 WHERE u2.family_id = ?
+      )
+    `, [familyId, familyId]);
 
     res.json({ members });
   } catch (err) {
@@ -328,8 +339,13 @@ async function toggleAuthorization(req, res) {
     const { userId } = req.params;
     const familyId = req.familyId;
 
-    // 检查目标用户是否在同一家庭
-    const [users] = await getPool().query('SELECT * FROM users WHERE id = ? AND family_id = ?', [userId, familyId]);
+    // 检查目标用户是否在该家庭（通过 user_families 或 users.family_id）
+    const [users] = await getPool().query(`
+      SELECT * FROM users WHERE id = ? AND (
+        family_id = ? OR
+        id IN (SELECT uf.user_id FROM user_families uf WHERE uf.family_id = ? AND uf.user_id = ?)
+      )
+    `, [userId, familyId, familyId, userId]);
     if (users.length === 0) {
       return res.status(404).json({ error: '用户不存在' });
     }
