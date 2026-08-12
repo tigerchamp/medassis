@@ -10,6 +10,9 @@ async function api(endpoint, options = {}) {
     // 登录和注册接口不携带token，避免旧token导致401
     const isAuthEndpoint = endpoint.startsWith('/auth/login') || endpoint.startsWith('/auth/register');
     if (token && !isAuthEndpoint) headers['Authorization'] = `Bearer ${token}`;
+    // 注入当前家庭组ID（用于多家庭切换）
+    const currentFamilyId = window.__currentFamilyId;
+    if (currentFamilyId && !isAuthEndpoint) headers['family-id'] = currentFamilyId;
     try {
         const res = await fetch(url, { ...options, headers });
         const data = await res.json();
@@ -35,6 +38,7 @@ const Api = {
         joinFamily: (inviteCode) => api('/auth/join-family', { method: 'POST', body: JSON.stringify({ inviteCode }) }),
         updateFamily: (name) => api('/auth/family', { method: 'PUT', body: JSON.stringify({ name }) }),
         toggleAuthorize: (userId) => api(`/auth/authorize/${userId}`, { method: 'PUT' }),
+        switchFamily: (familyId) => api('/auth/profile', { headers: { 'family-id': familyId } }),
     },
     elders: {
         getAll: () => api('/elders'),

@@ -69,6 +69,21 @@ async function initDatabase() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     `);
 
+    // 2.1 用户-家庭关联表（支持一个用户加入多个家庭组）
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS user_families (
+        id VARCHAR(36) PRIMARY KEY,
+        user_id VARCHAR(36) NOT NULL,
+        family_id VARCHAR(36) NOT NULL,
+        role ENUM('admin', 'member', 'readonly') DEFAULT 'member',
+        is_primary BOOLEAN DEFAULT FALSE COMMENT '是否为默认/当前家庭组',
+        joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uk_user_family (user_id, family_id),
+        INDEX idx_user (user_id),
+        INDEX idx_family (family_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+
     // 3. 成员档案表（含自己和老人）
     await connection.query(`
       CREATE TABLE IF NOT EXISTS elders (
@@ -718,6 +733,34 @@ async function _ensureColumns(p) {
   if (invCapCols.length > 0) {
     await p.query(`ALTER TABLE drug_inventory DROP COLUMN unit_capacity`);
     console.log('已移除 drug_inventory 表的 unit_capacity 列（已迁移至 drugs 表）');
+  }
+
+  // 迁移：为已有用户在 user_families 表中创建默认关联（迁移多家庭支持）
+  const [ufTable] = await p.query(`SHOW TABLES LIKE 'user_families'`);
+  if (ufTable.length > 0) {
+    // 检查是否需要迁移：统计已在 user_families 中但仍有 family_id 不为空的用户
+    const [migRows] = await p.query(`
+      SELECT u.id, u.family_id FROM users u
+      WHERE u.family_id IS NOT NULL AND u.family_id != ''
+      AND NOT EXISTS (SELECT 1 FROM user_families uf WHERE uf.user_id = u.id AND uf.family_id = u.family_id)
+    `);
+    for (const row of migRows) {
+      try {
+        const [check] = await p.query('SELECT role FROM families WHERE id = ?', [row.family_id]);
+        const role = check.length > 0 ? 'admin' : 'member';
+        const ufId = 'uf_' + row.id.slice(0, 8) + '_' + row.family_id.slice(0, 8);
+        // 标记第一个为 primary
+        const [existingCount] = await p.query('SELECT COUNT(*) as cnt FROM user_families WHERE user_id = ?', [row.id]);
+        const isPrimary = existingCount[0].cnt === 0 ? 1 : 0;
+        await p.query(
+          'INSERT INTO user_families (id, user_id, family_id, role, is_primary) VALUES (?, ?, ?, ?, ?)',
+          [ufId, row.id, row.family_id, role, isPrimary]
+        );
+      } catch (e) {
+        console.error('迁移 user_families 失败:', e.message);
+      }
+    }
+    if (migRows.length > 0) console.log(`已迁移 ${migRows.length} 条用户-家庭关联到 user_families 表`);
   }
 }
 

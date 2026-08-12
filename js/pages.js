@@ -704,6 +704,7 @@ const PageFamily = {
                                 <div class="text-muted" style="font-size:12px;">创建者: ${f.creator_name || '未知'}</div>
                                 <div style="font-size:12px;color:#6b7280;">邀请码: <span style="font-family:monospace;letter-spacing:1px;">${f.invite_code || ''}</span></div>
                             </div>
+                            <button class="btn-outline" style="width:auto;padding:6px 12px;font-size:12px;flex-shrink:0;" onclick="App.switchFamily('${f.id}')"><i class="fas fa-exchange-alt"></i> 切换</button>
                             <button class="btn-outline" style="width:auto;padding:6px 12px;font-size:12px;flex-shrink:0;" onclick="App.editFamilyName('${f.id}','${f.name.replace(/'/g, "\\'")}')"><i class="fas fa-edit"></i></button>
                         </div>`;
                     }).join('');
@@ -775,6 +776,9 @@ const PageJoinFamily = {
         </div>
         <div class="card">
             <div class="card-title"><i class="fas fa-sign-in-alt"></i> 通过邀请码加入</div>
+            <div style="background:#fff7ed;border:1px solid #fed7aa;color:#c2410c;padding:10px 14px;border-radius:8px;font-size:13px;margin-bottom:12px;">
+                <i class="fas fa-info-circle"></i> 提示：加入新家庭组后，您当前的家庭组不会被移除。您可以在首页左上角的下拉菜单中切换不同的家庭组。
+            </div>
             <div class="form-group"><label>邀请码</label><input id="joinCode" placeholder="输入邀请码" style="font-family:monospace;letter-spacing:2px;font-size:16px;"></div>
             <button class="btn-primary" onclick="App.joinFamily()">加入</button>
         </div>`;

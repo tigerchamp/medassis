@@ -1339,6 +1339,7 @@ const App = {
         members: [],
         user: null,
         family: null,
+        families: [],
         pageHistory: [],
     },
 
@@ -1376,6 +1377,10 @@ const App = {
             try {
                 const profileRes = await Api.auth.profile();
                 this.state.family = profileRes.family;
+                this.state.families = profileRes.families || [];
+                if (profileRes.user?.familyId) {
+                    window.__currentFamilyId = profileRes.user.familyId;
+                }
             } catch {}
             this.updateHeader();
         } catch (err) {
@@ -1531,11 +1536,26 @@ const App = {
         }
     },
 
-    // 下拉菜单：显示所有家庭成员 + 家庭组管理入口（无"添加成员"）
+    // 下拉菜单：先显示家庭组切换，再显示当前家庭的成员列表
     toggleDropdown() {
         const dd = document.getElementById('familyDropdown');
         if (dd.classList.contains('show')) { dd.classList.remove('show'); return; }
         let html = '';
+        // 家庭组切换区
+        const families = this.state.families || [];
+        if (families.length > 0) {
+            html += '<div class="dropdown-label">家庭组</div>';
+            families.forEach(f => {
+                const isCurrent = this.state.family && f.id === this.state.family.id;
+                const checked = isCurrent ? '<i class="fas fa-check check"></i>' : '';
+                html += `<button class="dropdown-item" onclick="App.switchFamily('${f.id}')">
+                    <div class="avatar-small" style="background:#d1e0e8;"><i class="fas fa-home"></i></div>
+                    <span>${f.name}</span>${checked}</button>`;
+            });
+            html += '<div class="dropdown-divider"></div>';
+        }
+        // 成员列表（当前家庭的成员）
+        html += '<div class="dropdown-label">成员</div>';
         this.state.members.forEach(m => {
             const checked = m.id === this.state.currentMemberId ? '<i class="fas fa-check check"></i>' : '';
             const isSelf = m.relation === 'self';
@@ -1548,6 +1568,22 @@ const App = {
         html += `<button class="dropdown-item" onclick="App.switchPage('family');document.getElementById('familyDropdown').classList.remove('show');"><i class="fas fa-cog" style="color:#2b7a78;width:32px;text-align:center;"></i><span>家庭组管理</span></button>`;
         dd.innerHTML = html;
         dd.classList.add('show');
+    },
+
+    // 切换家庭组：设置 family-id header 并重新加载数据
+    async switchFamily(familyId) {
+        window.__currentFamilyId = familyId;
+        document.getElementById('familyDropdown').classList.remove('show');
+        try {
+            const profileRes = await Api.auth.profile();
+            this.state.family = profileRes.family;
+            this.state.families = profileRes.families || this.state.families;
+        } catch {}
+        await this.loadData();
+        this.updateHeader();
+        if (['home', 'records', 'pharmacy'].includes(this.state.currentPage)) {
+            this.switchPage(this.state.currentPage);
+        }
     },
 
     selectMember(id) {
@@ -2218,7 +2254,21 @@ const App = {
         } catch (err) { this.toast(err.message); }
     },
 
-    openMessages() { this.switchPage('messages'); },
+    // 右上角头像点击：如果当前选择的不是自己，则显示该成员的档案信息
+    // 否则切换到"我的"页面（个人档案）
+    onAvatarClick() {
+        const current = this.getCurrentMember();
+        const isSelf = current && current.relation === 'self';
+        if (isSelf) {
+            this.switchPage('profile');
+        } else if (current) {
+            // 显示该成员的档案详情
+            this.state.currentElderId = current.id;
+            this.switchPage('elderDetail');
+        } else {
+            this.switchPage('profile');
+        }
+    },
 
     async doLogin() {
         const phone = document.getElementById('loginPhone').value.trim();
