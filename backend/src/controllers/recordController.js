@@ -121,9 +121,33 @@ async function getRecords(req, res) {
       const [users] = await getPool().query('SELECT id, name, phone FROM users WHERE id IN (?)', [allUserIds]);
       users.forEach(u => { userMap[u.id] = u.name || u.phone || u.id.slice(0, 8); });
     }
+
+    // 回填：通过 elder 档案推断旧记录的创建人
+    const elderIds = [...new Set(formattedRecords.map(r => r.elderId).filter(Boolean))];
+    const elderUserMap = {};
+    if (elderIds.length > 0) {
+      const [elders] = await getPool().query('SELECT id, user_id FROM elders WHERE id IN (?)', [elderIds]);
+      const eUserIds = [...new Set(elders.map(e => e.user_id).filter(Boolean))];
+      if (eUserIds.length > 0) {
+        const [eUsers] = await getPool().query('SELECT id, name, phone FROM users WHERE id IN (?)', [eUserIds]);
+        eUsers.forEach(u => { elderUserMap[u.id] = u.name || u.phone || u.id.slice(0, 8); });
+      }
+      elders.forEach(e => {
+        if (e.user_id) elderUserMap[e.id + '_uid'] = e.user_id;
+      });
+    }
+
     formattedRecords.forEach(r => {
       r.createdByName = r.createdBy ? (userMap[r.createdBy] || '') : '';
       r.updatedByName = r.updatedBy ? (userMap[r.updatedBy] || '') : '';
+      // 回填旧记录：如果没有 createdByName，尝试通过 elder 档案推断
+      if (!r.createdByName) {
+        const elderUserId = elderUserMap[r.elderId + '_uid'];
+        if (elderUserId) {
+          r.createdByName = elderUserMap[elderUserId] || '';
+          r.createdBy = elderUserId;
+        }
+      }
     });
 
     // 批量查询处方关联的药品列表（用于卡片显示）
@@ -217,6 +241,18 @@ async function getRecord(req, res) {
       users.forEach(u => { userMap[u.id] = u.name || u.phone || u.id.slice(0, 8); });
       record.createdByName = r.created_by ? (userMap[r.created_by] || '') : '';
       record.updatedByName = r.updated_by ? (userMap[r.updated_by] || '') : '';
+    }
+
+    // 回填：旧记录 created_by 为空时，通过 elder 档案的 user_id 推断创建人
+    if (!record.createdByName) {
+      const [elders] = await getPool().query('SELECT user_id FROM elders WHERE id = ?', [r.elder_id]);
+      if (elders.length > 0 && elders[0].user_id) {
+        const [users] = await getPool().query('SELECT name, phone FROM users WHERE id = ?', [elders[0].user_id]);
+        if (users.length > 0) {
+          record.createdByName = users[0].name || users[0].phone || '';
+          record.createdBy = elders[0].user_id;
+        }
+      }
     }
 
     // 若为病历，查询关联的处方/报告
