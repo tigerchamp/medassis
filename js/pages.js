@@ -389,8 +389,14 @@ const PageRecordDetail = {
 
     _auditHtml(r) {
         const parts = [];
-        if (r.createdAt) parts.push(`创建于 ${r.createdAt}`);
-        if (r.updatedAt && r.updatedAt !== r.createdAt) parts.push(`更新于 ${r.updatedAt}`);
+        if (r.createdAt) {
+            const prefix = r.createdByName ? `由 ${r.createdByName} 创建于 ` : '创建于 ';
+            parts.push(prefix + r.createdAt);
+        }
+        if (r.updatedAt && r.updatedAt !== r.createdAt) {
+            const prefix = r.updatedByName ? `由 ${r.updatedByName} 更新于 ` : '更新于 ';
+            parts.push(prefix + r.updatedAt);
+        }
         if (parts.length === 0) return '';
         return `<div style="margin-top:16px;padding-top:10px;border-top:1px dashed #e2e8f0;font-size:11px;color:#94a3b8;text-align:right;">${parts.join(' · ')}</div>`;
     },

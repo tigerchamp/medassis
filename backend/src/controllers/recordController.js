@@ -114,6 +114,18 @@ async function getRecords(req, res) {
       updatedBy: r.updated_by || null
     }));
 
+    // 批量查询创建人/更新人名称
+    const allUserIds = [...new Set(formattedRecords.flatMap(r => [r.createdBy, r.updatedBy].filter(Boolean)))];
+    let userMap = {};
+    if (allUserIds.length > 0) {
+      const [users] = await getPool().query('SELECT id, name, phone FROM users WHERE id IN (?)', [allUserIds]);
+      users.forEach(u => { userMap[u.id] = u.name || u.phone || u.id.slice(0, 8); });
+    }
+    formattedRecords.forEach(r => {
+      r.createdByName = r.createdBy ? (userMap[r.createdBy] || '') : '';
+      r.updatedByName = r.updatedBy ? (userMap[r.updatedBy] || '') : '';
+    });
+
     // 批量查询处方关联的药品列表（用于卡片显示）
     const prescriptionIds = formattedRecords.filter(r => r.type === '药方').map(r => r.id);
     if (prescriptionIds.length > 0) {
@@ -192,8 +204,20 @@ async function getRecord(req, res) {
       createdAt: fmtDateTime(r.created_at),
       updatedAt: fmtDateTime(r.updated_at),
       createdBy: r.created_by || null,
-      updatedBy: r.updated_by || null
+      updatedBy: r.updated_by || null,
+      createdByName: '',
+      updatedByName: ''
     };
+
+    // 查询创建人/更新人名称
+    const userIds = [r.created_by, r.updated_by].filter(Boolean);
+    if (userIds.length > 0) {
+      const [users] = await getPool().query('SELECT id, name, phone FROM users WHERE id IN (?)', [userIds]);
+      const userMap = {};
+      users.forEach(u => { userMap[u.id] = u.name || u.phone || u.id.slice(0, 8); });
+      record.createdByName = r.created_by ? (userMap[r.created_by] || '') : '';
+      record.updatedByName = r.updated_by ? (userMap[r.updated_by] || '') : '';
+    }
 
     // 若为病历，查询关联的处方/报告
     if (r.type === '病历') {
