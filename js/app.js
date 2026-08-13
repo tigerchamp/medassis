@@ -1377,7 +1377,9 @@ const App = {
             try {
                 const profileRes = await Api.auth.profile();
                 this.state.family = profileRes.family;
-                this.state.families = profileRes.families || [];
+                if (Array.isArray(profileRes.families)) {
+                    this.state.families = profileRes.families;
+                }
                 if (profileRes.user?.familyId) {
                     window.__currentFamilyId = profileRes.user.familyId;
                 }
@@ -1578,7 +1580,9 @@ const App = {
         try {
             const profileRes = await Api.auth.profile();
             this.state.family = profileRes.family;
-            this.state.families = profileRes.families || this.state.families;
+            if (Array.isArray(profileRes.families)) {
+                this.state.families = profileRes.families;
+            }
         } catch {}
         await this.loadData();
         this.updateHeader();
@@ -2281,6 +2285,10 @@ const App = {
             localStorage.setItem(USER_KEY, JSON.stringify(data.user));
             this.state.user = data.user;
             this.state.family = data.family;
+            this.state.families = data.families || [];
+            if (data.user?.familyId) {
+                window.__currentFamilyId = data.user.familyId;
+            }
             await this.loadData();
             this.switchPage('home');
         } catch (err) { this.toast(err.message); }
@@ -2652,9 +2660,14 @@ const App = {
         const code = document.getElementById('joinCode').value.trim();
         if (!code) { this.toast('请输入邀请码'); return; }
         try {
-            await Api.auth.joinFamily(code);
+            const res = await Api.auth.joinFamily(code);
             this.toast('加入成功');
-            await this.loadData();
+            // 自动切换到新加入的家庭组
+            if (res.family && res.family.id) {
+                await this.switchFamily(res.family.id);
+            } else {
+                await this.loadData();
+            }
             this.switchPage('home');
         } catch (err) { this.toast(err.message); }
     },
