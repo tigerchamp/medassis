@@ -1371,7 +1371,7 @@ const App = {
             const eldersRes = await Api.elders.getAll();
             this.state.members = eldersRes.elders || [];
             if (!this.state.currentMemberId) {
-                const self = this.state.members.find(m => m.relation === 'self');
+                const self = this.state.members.find(m => m.relation === 'self' && m.user_id === this.state.user?.id);
                 this.state.currentMemberId = self ? self.id : (this.state.members[0]?.id || null);
             }
             try {
@@ -1556,9 +1556,10 @@ const App = {
         }
         // 成员列表（当前家庭的成员）
         html += '<div class="dropdown-label">成员</div>';
+        const currentUserId = this.state.user?.id;
         this.state.members.forEach(m => {
             const checked = m.id === this.state.currentMemberId ? '<i class="fas fa-check check"></i>' : '';
-            const isSelf = m.relation === 'self';
+            const isSelf = m.relation === 'self' && m.user_id === currentUserId;
             const label = isSelf ? m.name + '（我）' : m.name;
             html += `<button class="dropdown-item" onclick="App.selectMember('${m.id}')">
                 <div class="avatar-small">${m.avatar || m.name.charAt(0)}</div>
@@ -1884,8 +1885,9 @@ const App = {
 
     // 生成成员下拉选项html
     _memberOptions() {
+        const currentUserId = this.state.user?.id;
         return this.state.members.map(m => {
-            const isSelf = m.relation === 'self';
+            const isSelf = m.relation === 'self' && m.user_id === currentUserId;
             const label = isSelf ? m.name + '（我）' : m.name;
             return `<option value="${m.id}" ${m.id === this.state.currentMemberId ? 'selected' : ''}>${label}</option>`;
         }).join('');
@@ -2258,11 +2260,10 @@ const App = {
     // 否则切换到"我的"页面（个人档案）
     onAvatarClick() {
         const current = this.getCurrentMember();
-        const isSelf = current && current.relation === 'self';
+        const isSelf = current && current.relation === 'self' && current.user_id === this.state.user?.id;
         if (isSelf) {
             this.switchPage('profile');
         } else if (current) {
-            // 显示该成员的档案详情
             this.state.currentMemberId = current.id;
             this.switchPage('elderDetail');
         } else {
@@ -2324,7 +2325,7 @@ const App = {
     },
 
     async saveProfile() {
-        const selfElder = this.state.members.find(m => m.relation === 'self');
+        const selfElder = this.state.members.find(m => m.relation === 'self' && m.user_id === this.state.user?.id);
         if (!selfElder) { this.toast('未找到个人信息'); return; }
         const name = document.getElementById('pe-name')?.value.trim();
         const gender = document.getElementById('pe-gender')?.value;
@@ -2667,7 +2668,7 @@ const App = {
 
     async deleteElder(id) {
         const member = this.state.members.find(m => m.id === id);
-        if (member && member.relation === 'self') { this.toast('不能删除自己的档案'); return; }
+        if (member && member.relation === 'self' && member.user_id === this.state.user?.id) { this.toast('不能删除自己的档案'); return; }
         if (!confirm('确认删除此成员档案？相关病历和用药记录也会被删除。')) return;
         try { await Api.elders.delete(id); this.toast('已删除'); await this.loadData(); this.switchPage('home'); } catch (err) { this.toast(err.message); }
     },
