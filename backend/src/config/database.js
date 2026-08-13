@@ -754,32 +754,34 @@ async function _ensureColumns(p) {
     console.log('已创建 user_families 关联表');
   }
 
-  // 迁移：为已有用户在 user_families 表中创建默认关联（迁移多家庭支持）
+  // 迁移：为已有用户在 user_families 表中创建默认关联（仅执行一次）
   const [ufTable2] = await p.query(`SHOW TABLES LIKE 'user_families'`);
   if (ufTable2.length > 0) {
-    // 检查是否需要迁移：统计已在 user_families 中但仍有 family_id 不为空的用户
+    // 检查是否还有未迁移的用户
     const [migRows] = await p.query(`
-      SELECT u.id, u.family_id FROM users u
+      SELECT u.id, u.family_id, u.role as user_role FROM users u
       WHERE u.family_id IS NOT NULL AND u.family_id != ''
       AND NOT EXISTS (SELECT 1 FROM user_families uf WHERE uf.user_id = u.id AND uf.family_id = u.family_id)
     `);
-    for (const row of migRows) {
-      try {
-        const [check] = await p.query('SELECT role FROM families WHERE id = ?', [row.family_id]);
-        const role = check.length > 0 ? 'admin' : 'member';
-        const ufId = 'uf_' + row.id.slice(0, 8) + '_' + row.family_id.slice(0, 8);
-        // 标记第一个为 primary
-        const [existingCount] = await p.query('SELECT COUNT(*) as cnt FROM user_families WHERE user_id = ?', [row.id]);
-        const isPrimary = existingCount[0].cnt === 0 ? 1 : 0;
-        await p.query(
-          'INSERT INTO user_families (id, user_id, family_id, role, is_primary) VALUES (?, ?, ?, ?, ?)',
-          [ufId, row.id, row.family_id, role, isPrimary]
-        );
-      } catch (e) {
-        console.error('迁移 user_families 失败:', e.message);
+    if (migRows.length > 0) {
+      let successCount = 0;
+      for (const row of migRows) {
+        try {
+          const ufId = 'uf_' + row.id.slice(0, 8) + '_' + row.family_id.slice(0, 8);
+          const [existingCount] = await p.query('SELECT COUNT(*) as cnt FROM user_families WHERE user_id = ?', [row.id]);
+          const isPrimary = existingCount[0].cnt === 0 ? 1 : 0;
+          const role = row.user_role === 'admin' ? 'admin' : 'member';
+          await p.query(
+            'INSERT INTO user_families (id, user_id, family_id, role, is_primary) VALUES (?, ?, ?, ?, ?)',
+            [ufId, row.id, row.family_id, role, isPrimary]
+          );
+          successCount++;
+        } catch (e) {
+          console.error('迁移 user_families 失败:', e.message);
+        }
       }
+      console.log(`已迁移 ${successCount} 条用户-家庭关联到 user_families 表`);
     }
-    if (migRows.length > 0) console.log(`已迁移 ${migRows.length} 条用户-家庭关联到 user_families 表`);
   }
 }
 
