@@ -3,6 +3,30 @@ const { v4: uuidv4 } = require('uuid');
 const { getEntityFiles, setEntityFiles, deleteEntityFiles } = require('../utils/entityFiles');
 
 function fmtDate(d) { if (d instanceof Date) { const y = d.getFullYear(); const m = String(d.getMonth() + 1).padStart(2, '0'); const day = String(d.getDate()).padStart(2, '0'); return `${y}-${m}-${day}`; } return d; }
+function fmtDateTime(d) {
+  if (d instanceof Date) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    const h = String(d.getHours()).padStart(2, '0');
+    const min = String(d.getMinutes()).padStart(2, '0');
+    const s = String(d.getSeconds()).padStart(2, '0');
+    return `${y}-${m}-${day} ${h}:${min}:${s}`;
+  }
+  if (typeof d === 'string' && d.includes('T')) {
+    const dt = new Date(d);
+    if (!isNaN(dt)) {
+      const y = dt.getFullYear();
+      const m = String(dt.getMonth() + 1).padStart(2, '0');
+      const day = String(dt.getDate()).padStart(2, '0');
+      const h = String(dt.getHours()).padStart(2, '0');
+      const min = String(dt.getMinutes()).padStart(2, '0');
+      const s = String(dt.getSeconds()).padStart(2, '0');
+      return `${y}-${m}-${day} ${h}:${min}:${s}`;
+    }
+  }
+  return d;
+}
 
 /**
  * 生成记录编号：前缀(BL/CF/JC) + 日期(YYYYMMDD) + 字母序号(A,B,...,Z,AA,AB,...)
@@ -84,8 +108,8 @@ async function getRecords(req, res) {
       notes: typeof r.notes === 'string' ? JSON.parse(r.notes) : (r.notes || []),
       relatedRecordId: r.related_record_id || null,
       relatedRecordNo: r.related_record_no || null,
-      createdAt: r.created_at,
-      updatedAt: r.updated_at,
+      createdAt: fmtDateTime(r.created_at),
+      updatedAt: fmtDateTime(r.updated_at),
       createdBy: r.created_by || null,
       updatedBy: r.updated_by || null
     }));
@@ -165,8 +189,8 @@ async function getRecord(req, res) {
       relatedRecordNo: r.related_record_no || null,
       ocrText: r.ocr_text || null,
       images,
-      createdAt: r.created_at,
-      updatedAt: r.updated_at,
+      createdAt: fmtDateTime(r.created_at),
+      updatedAt: fmtDateTime(r.updated_at),
       createdBy: r.created_by || null,
       updatedBy: r.updated_by || null
     };
@@ -302,7 +326,7 @@ async function addRecord(req, res) {
       relatedRecordNo: r.related_record_no || null,
       ocrText: r.ocr_text || null,
       images,
-      createdAt: r.created_at
+      createdAt: fmtDateTime(r.created_at)
     }
     });
   } catch (err) {
@@ -384,7 +408,7 @@ async function updateRecord(req, res) {
         confidence: r.confidence,
         notes: typeof r.notes === 'string' ? JSON.parse(r.notes) : (r.notes || []),
         images,
-        createdAt: r.created_at
+        createdAt: fmtDateTime(r.created_at)
       }
     });
   } catch (err) {
@@ -444,7 +468,7 @@ async function addNote(req, res) {
       id: uuidv4(),
       text,
       author: author || '家人',
-      createdAt: new Date().toISOString()
+      createdAt: fmtDateTime(new Date())
     };
 
     const notes = typeof records[0].notes === 'string' ? JSON.parse(records[0].notes) : (records[0].notes || []);

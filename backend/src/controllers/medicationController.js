@@ -3,6 +3,31 @@ const { v4: uuidv4 } = require('uuid');
 const { resolveDrugCode } = require('../utils/drugLibrary');
 const { getEntityFiles, setEntityFiles, deleteEntityFiles } = require('../utils/entityFiles');
 
+function fmtDateTime(d) {
+  if (d instanceof Date) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    const h = String(d.getHours()).padStart(2, '0');
+    const min = String(d.getMinutes()).padStart(2, '0');
+    const s = String(d.getSeconds()).padStart(2, '0');
+    return `${y}-${m}-${day} ${h}:${min}:${s}`;
+  }
+  if (typeof d === 'string' && d.includes('T')) {
+    const dt = new Date(d);
+    if (!isNaN(dt)) {
+      const y = dt.getFullYear();
+      const m = String(dt.getMonth() + 1).padStart(2, '0');
+      const day = String(dt.getDate()).padStart(2, '0');
+      const h = String(dt.getHours()).padStart(2, '0');
+      const min = String(dt.getMinutes()).padStart(2, '0');
+      const s = String(dt.getSeconds()).padStart(2, '0');
+      return `${y}-${m}-${day} ${h}:${min}:${s}`;
+    }
+  }
+  return d;
+}
+
 /**
  * 获取当前用户及其所在家庭组的全部用户ID（用于私有数据隔离）
  */
@@ -40,7 +65,7 @@ function formatMedication(m) {
     sourcePrescriptionId: m.source_prescription_id,
     reminder: !!m.reminder,
     status: m.status,
-    createdAt: m.created_at
+    createdAt: fmtDateTime(m.created_at)
   };
 }
 
