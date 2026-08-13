@@ -755,7 +755,7 @@ const PageFamily = {
                                     ${elder.gender ? `<span style="background:#eef2f6;padding:2px 8px;border-radius:4px;">${elder.gender}</span>` : ''}
                                     ${calcAge(elder.birth_date) != null ? `<span style="background:#eef2f6;padding:2px 8px;border-radius:4px;">${calcAge(elder.birth_date)}岁</span>` : (elder.age ? `<span style="background:#eef2f6;padding:2px 8px;border-radius:4px;">${elder.age}岁</span>` : '')}
                                     ${elder.blood_type ? `<span style="background:#eef2f6;padding:2px 8px;border-radius:4px;">${elder.blood_type}</span>` : ''}
-                                    ${elder.relation ? `<span style="background:#dbeafe;padding:2px 8px;border-radius:4px;">${relationMap[elder.relation] || '其他'}</span>` : ''}
+                                    ${elder.relation ? `<span style="background:#dbeafe;padding:2px 8px;border-radius:4px;">${elder.relation === 'self' && !isCurrent ? '成员' : (relationMap[elder.relation] || '其他')}</span>` : ''}
                                 </div>
                                 ${elder.allergies ? `<div style="font-size:12px;color:#b91c1c;margin-top:4px;">过敏: ${elder.allergies}</div>` : ''}
                                 ${elder.conditions ? `<div style="font-size:12px;color:#92400e;margin-top:2px;">基础病: ${elder.conditions}</div>` : ''}
@@ -794,10 +794,7 @@ const PageJoinFamily = {
         <div class="card">
             <div class="card-title"><i class="fas fa-sign-in-alt"></i> 通过邀请码加入</div>
             <div style="background:#fff7ed;border:1px solid #fed7aa;color:#c2410c;padding:10px 14px;border-radius:8px;font-size:13px;margin-bottom:12px;line-height:1.6;">
-                <i class="fas fa-exclamation-triangle"></i> <b>隐私提示：</b>加入家庭组后，您的病历、处方、检查报告等资料将向群组内所有人公开，群成员可查看。在加入家庭后，可在成员管理页设置对特定成员开放修改权限。
-            </div>
-            <div style="background:#eff6ff;border:1px solid #bfdbfe;color:#1e40af;padding:10px 14px;border-radius:8px;font-size:13px;margin-bottom:12px;">
-                <i class="fas fa-info-circle"></i> 加入新家庭组后，您当前的家庭组不会被移除。您可以在首页左上角的下拉菜单中切换不同的家庭组。
+                <i class="fas fa-exclamation-triangle"></i> <b>隐私提示：</b>加入家庭后，您的病历、处方、检查报告等资料将向家庭内所有人公开，家庭成员可查看。在加入家庭后，可在成员权限管理页设置对特定成员开放修改权限。
             </div>
             <div class="form-group"><label>邀请码</label><input id="joinCode" placeholder="输入邀请码" style="font-family:monospace;letter-spacing:2px;font-size:16px;"></div>
             <button class="btn-primary" onclick="App.joinFamily()">加入</button>
