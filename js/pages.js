@@ -387,6 +387,14 @@ const PageRecordDetail = {
         <div id="recordDetailContent"><p class="text-muted" style="text-align:center;padding:40px;">加载中...</p></div>`;
     },
 
+    _auditHtml(r) {
+        const parts = [];
+        if (r.createdAt) parts.push(`创建于 ${r.createdAt}`);
+        if (r.updatedAt && r.updatedAt !== r.createdAt) parts.push(`更新于 ${r.updatedAt}`);
+        if (parts.length === 0) return '';
+        return `<div style="margin-top:16px;padding-top:10px;border-top:1px dashed #e2e8f0;font-size:11px;color:#94a3b8;text-align:right;">${parts.join(' · ')}</div>`;
+    },
+
     async loadContent() {
         const id = App.state.currentRecordId;
         try {
@@ -412,6 +420,7 @@ const PageRecordDetail = {
                 ${r.conclusion ? `<div class="card"><div class="card-title"><i class="fas fa-clipboard-check"></i> 报告结论</div>${renderMarkdown(r.conclusion)}</div>` : ''}
                 ${renderImageGallery(r.images)}
                 ${r.ocrText ? `<button class="btn-outline" style="margin-top:8px;" onclick="App.showOcrTextFullscreen(App._viewOcrText)"><i class="fas fa-file-alt"></i> 查看识别内容</button>` : ''}
+                ${this._auditHtml(r)}
                 <button class="btn-danger" style="margin-top:8px;" onclick="App.deleteRecord('${r.id}')">删除此报告</button>`;
             } else if (r.type === '药方') {
                 // 处方类型：显示诊断、医院、医生、用药明细
@@ -445,6 +454,7 @@ const PageRecordDetail = {
                 </div>
                 ${renderImageGallery(r.images)}
                 ${r.ocrText ? `<button class="btn-outline" style="margin-top:8px;" onclick="App.showOcrTextFullscreen(App._viewOcrText)"><i class="fas fa-file-alt"></i> 查看识别内容</button>` : ''}
+                ${this._auditHtml(r)}
                 <button class="btn-danger" style="margin-top:8px;" onclick="App.deleteRecord('${r.id}')">删除此处方</button>`;
             } else {
                 // 病历类型：显示主诉、医嘱，及关联的处方/报告
@@ -475,6 +485,7 @@ const PageRecordDetail = {
                 ${relatedHtml}
                 ${renderImageGallery(r.images)}
                 ${r.ocrText ? `<button class="btn-outline" style="margin-top:8px;" onclick="App.showOcrTextFullscreen(App._viewOcrText)"><i class="fas fa-file-alt"></i> 查看识别内容</button>` : ''}
+                ${this._auditHtml(r)}
                 <button class="btn-danger" style="margin-top:8px;" onclick="App.deleteRecord('${r.id}')">删除此病历</button>`;
             }
         } catch (err) {
@@ -752,7 +763,7 @@ const PageFamily = {
                                 ${elderInfo}
                             </div>
                             <div style="flex-shrink:0;display:flex;flex-direction:column;gap:4px;align-items:flex-end;">
-                                ${!isCurrent ? `<button class="btn-outline" style="width:auto;padding:4px 10px;font-size:11px;${m.authorized ? 'color:#16a34a;border-color:#16a34a;' : 'color:#dc2626;border-color:#dc2626;'}" onclick="App.toggleMemberAuth('${m.id}')">${m.authorized ? '已授权' : '未授权'}</button>` : ''}
+                                ${!isCurrent ? `<div style="font-size:11px;color:#94a3b8;margin-bottom:2px;">${m.authorized ? '可修改您的档案' : '仅可查看'}</div><button class="btn-outline" style="width:auto;padding:4px 10px;font-size:11px;${m.authorized ? 'color:#16a34a;border-color:#16a34a;' : 'color:#dc2626;border-color:#dc2626;'}" onclick="App.toggleMemberAuth('${m.id}')">${m.authorized ? '已授权修改' : '授权修改'}</button>` : ''}
                             </div>
                         </div>`;
                     }).join('');
@@ -776,8 +787,11 @@ const PageJoinFamily = {
         </div>
         <div class="card">
             <div class="card-title"><i class="fas fa-sign-in-alt"></i> 通过邀请码加入</div>
-            <div style="background:#fff7ed;border:1px solid #fed7aa;color:#c2410c;padding:10px 14px;border-radius:8px;font-size:13px;margin-bottom:12px;">
-                <i class="fas fa-info-circle"></i> 提示：加入新家庭组后，您当前的家庭组不会被移除。您可以在首页左上角的下拉菜单中切换不同的家庭组。
+            <div style="background:#fff7ed;border:1px solid #fed7aa;color:#c2410c;padding:10px 14px;border-radius:8px;font-size:13px;margin-bottom:12px;line-height:1.6;">
+                <i class="fas fa-exclamation-triangle"></i> <b>隐私提示：</b>加入家庭组后，您的病历、处方、检查报告等资料将向群组内所有人公开，群成员可查看。在加入家庭后，可在成员管理页设置对特定成员开放修改权限。
+            </div>
+            <div style="background:#eff6ff;border:1px solid #bfdbfe;color:#1e40af;padding:10px 14px;border-radius:8px;font-size:13px;margin-bottom:12px;">
+                <i class="fas fa-info-circle"></i> 加入新家庭组后，您当前的家庭组不会被移除。您可以在首页左上角的下拉菜单中切换不同的家庭组。
             </div>
             <div class="form-group"><label>邀请码</label><input id="joinCode" placeholder="输入邀请码" style="font-family:monospace;letter-spacing:2px;font-size:16px;"></div>
             <button class="btn-primary" onclick="App.joinFamily()">加入</button>

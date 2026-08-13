@@ -735,6 +735,25 @@ async function _ensureColumns(p) {
     console.log('已移除 drug_inventory 表的 unit_capacity 列（已迁移至 drugs 表）');
   }
 
+  // 迁移：为 elders, records, medications, drug_inventory 表添加 created_by 和 updated_by 列
+  const auditTables = ['elders', 'records', 'medications', 'drug_inventory'];
+  for (const tbl of auditTables) {
+    try {
+      const [cols] = await p.query(`SHOW COLUMNS FROM ${tbl} LIKE 'created_by'`);
+      if (cols.length === 0) {
+        await p.query(`ALTER TABLE ${tbl} ADD COLUMN created_by VARCHAR(36) DEFAULT NULL COMMENT '操作人ID' AFTER created_at`);
+        console.log(`已为 ${tbl} 添加 created_by 列`);
+      }
+      const [cols2] = await p.query(`SHOW COLUMNS FROM ${tbl} LIKE 'updated_by'`);
+      if (cols2.length === 0) {
+        await p.query(`ALTER TABLE ${tbl} ADD COLUMN updated_by VARCHAR(36) DEFAULT NULL COMMENT '最后操作人ID' AFTER updated_at`);
+        console.log(`已为 ${tbl} 添加 updated_by 列`);
+      }
+    } catch (e) {
+      console.error(`迁移 ${tbl} 操作人字段失败:`, e.message);
+    }
+  }
+
   // 创建 user_families 表（支持多家庭组）
   const [ufTable] = await p.query(`SHOW TABLES LIKE 'user_families'`);
   if (ufTable.length === 0) {

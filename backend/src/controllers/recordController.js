@@ -84,7 +84,10 @@ async function getRecords(req, res) {
       notes: typeof r.notes === 'string' ? JSON.parse(r.notes) : (r.notes || []),
       relatedRecordId: r.related_record_id || null,
       relatedRecordNo: r.related_record_no || null,
-      createdAt: r.created_at
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+      createdBy: r.created_by || null,
+      updatedBy: r.updated_by || null
     }));
 
     // 批量查询处方关联的药品列表（用于卡片显示）
@@ -162,7 +165,10 @@ async function getRecord(req, res) {
       relatedRecordNo: r.related_record_no || null,
       ocrText: r.ocr_text || null,
       images,
-      createdAt: r.created_at
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+      createdBy: r.created_by || null,
+      updatedBy: r.updated_by || null
     };
 
     // 若为病历，查询关联的处方/报告
@@ -258,9 +264,9 @@ async function addRecord(req, res) {
     const recordNo = await _generateRecordNo(getPool(), recordType, visitDate, familyId);
 
     await getPool().query(
-      `INSERT INTO records (id, elder_id, family_id, type, record_no, visit_date, hospital, department, diagnosis, chief_complaint, findings, conclusion, metrics, orders, doctor, image_url, confidence, notes, ocr_text, related_record_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, elderId, familyId, recordType, recordNo, visitDate || null, hospital || null, department || null, diagnosis || null, chiefComplaint || null, findings || null, conclusion || null, metricsJson, orders || null, doctor || null, imageUrl || null, confidence || null, notesJson, ocrText || null, relatedRecordId || null]
+      `INSERT INTO records (id, elder_id, family_id, type, record_no, visit_date, hospital, department, diagnosis, chief_complaint, findings, conclusion, metrics, orders, doctor, image_url, confidence, notes, ocr_text, related_record_id, created_by, updated_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, elderId, familyId, recordType, recordNo, visitDate || null, hospital || null, department || null, diagnosis || null, chiefComplaint || null, findings || null, conclusion || null, metricsJson, orders || null, doctor || null, imageUrl || null, confidence || null, notesJson, ocrText || null, relatedRecordId || null, userId, userId]
     );
 
     // 保存关联图片
@@ -343,6 +349,8 @@ async function updateRecord(req, res) {
     if (relatedRecordId !== undefined) { updates.push('related_record_id = ?'); values.push(relatedRecordId || null); }
 
     if (updates.length > 0) {
+      updates.push('updated_by = ?');
+      values.push(userId);
       values.push(id);
       await getPool().query(
         `UPDATE records SET ${updates.join(', ')} WHERE id = ?`,

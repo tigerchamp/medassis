@@ -117,6 +117,7 @@ async function getMedication(req, res) {
 async function addMedication(req, res) {
   try {
     const familyId = req.familyId;
+    const userId = req.user.id;
     const { elderId, drugCode, name, specification, specDosage, specDosageUnit, unitCapacity, unitCapacityUnit, manufacturer, dose, doseAmount, doseUnit, quantity, quantityUnit, frequency, times, startDate, endDate, note, reminder, status, fileIds, expiryDate, sourcePrescriptionId } = req.body;
 
     if (!elderId) {
@@ -152,9 +153,9 @@ async function addMedication(req, res) {
 
     // medications 表不再存储 specification（重复字段，由 drugs 表通过 drug_code 关联获取）
     await getPool().query(
-      `INSERT INTO medications (id, elder_id, family_id, drug_code, name, dose, dose_amount, dose_unit, quantity, quantity_unit, frequency, times, start_date, end_date, note, reminder, status, source_prescription_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, elderId, familyId, finalCode, finalName, dose || null, doseAmount || null, doseUnit || null, quantity || 1, quantityUnit || null, frequency || null, timesJson, startDate || null, endDate || null, note || null, reminder !== false, status || 'active', sourcePrescriptionId || null]
+      `INSERT INTO medications (id, elder_id, family_id, drug_code, name, dose, dose_amount, dose_unit, quantity, quantity_unit, frequency, times, start_date, end_date, note, reminder, status, source_prescription_id, created_by, updated_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, elderId, familyId, finalCode, finalName, dose || null, doseAmount || null, doseUnit || null, quantity || 1, quantityUnit || null, frequency || null, timesJson, startDate || null, endDate || null, note || null, reminder !== false, status || 'active', sourcePrescriptionId || null, userId, userId]
     );
 
     // 保存关联图片
@@ -268,6 +269,8 @@ async function updateMedication(req, res) {
     if (status !== undefined) { updates.push('status = ?'); values.push(status); }
 
     if (updates.length > 0) {
+      updates.push('updated_by = ?');
+      values.push(userId);
       values.push(id);
       await getPool().query(
         `UPDATE medications SET ${updates.join(', ')} WHERE id = ?`,

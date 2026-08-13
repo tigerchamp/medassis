@@ -71,6 +71,7 @@ async function getElder(req, res) {
 async function addElder(req, res) {
   try {
     const familyId = req.familyId;
+    const userId = req.user.id;
     const { name, gender, age, birthDate, bloodType, allergies, conditions, phone, avatar, relation } = req.body;
 
     if (!name) {
@@ -81,9 +82,9 @@ async function addElder(req, res) {
     const elderAvatar = avatar || name.charAt(0);
 
     await getPool().query(
-      `INSERT INTO elders (id, family_id, name, gender, age, birth_date, blood_type, allergies, conditions, phone, avatar, relation)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, familyId, name, gender || '未知', age || 0, birthDate || null, bloodType || null, allergies || null, conditions || null, phone || null, elderAvatar, relation || 'other']
+      `INSERT INTO elders (id, family_id, name, gender, age, birth_date, blood_type, allergies, conditions, phone, avatar, relation, created_by, updated_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, familyId, name, gender || '未知', age || 0, birthDate || null, bloodType || null, allergies || null, conditions || null, phone || null, elderAvatar, relation || 'other', userId, userId]
     );
 
     const [elders] = await getPool().query('SELECT * FROM elders WHERE id = ?', [id]);
@@ -127,6 +128,8 @@ async function updateElder(req, res) {
     if (relation !== undefined) { updates.push('relation = ?'); values.push(relation); }
 
     if (updates.length > 0) {
+      updates.push('updated_by = ?');
+      values.push(userId);
       values.push(id);
       await getPool().query(
         `UPDATE elders SET ${updates.join(', ')} WHERE id = ?`,

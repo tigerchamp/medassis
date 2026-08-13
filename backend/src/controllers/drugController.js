@@ -165,8 +165,8 @@ async function addDrug(req, res) {
       const existingDrug = existing[0];
       const newQuantity = (existingDrug.quantity || 1) + (quantity || 1);
       await getPool().query(
-        'UPDATE drug_inventory SET quantity = ?, quantity_unit = ? WHERE id = ?',
-        [newQuantity, quantityUnit || existingDrug.quantity_unit || null, existingDrug.id]
+        'UPDATE drug_inventory SET quantity = ?, quantity_unit = ?, updated_by = ? WHERE id = ?',
+        [newQuantity, quantityUnit || existingDrug.quantity_unit || null, req.user.id, existingDrug.id]
       );
       const [updated] = await getPool().query(
         `SELECT di.*, d.spec_dosage, d.spec_dosage_unit, d.unit_capacity, d.unit_capacity_unit
@@ -178,9 +178,9 @@ async function addDrug(req, res) {
 
     const id = uuidv4();
     await getPool().query(
-      `INSERT INTO drug_inventory (id, family_id, elder_id, drug_code, name, specification, manufacturer, quantity, quantity_unit, expiry_date, status, note)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, familyId, elderId || null, finalCode, finalName, finalSpec || null, finalManu || null, quantity || 1, quantityUnit || null, expiryDate || null, status, note || null]
+      `INSERT INTO drug_inventory (id, family_id, elder_id, drug_code, name, specification, manufacturer, quantity, quantity_unit, expiry_date, status, note, created_by, updated_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, familyId, elderId || null, finalCode, finalName, finalSpec || null, finalManu || null, quantity || 1, quantityUnit || null, expiryDate || null, status, note || null, req.user.id, req.user.id]
     );
 
     // 保存关联图片
@@ -250,9 +250,11 @@ async function updateDrug(req, res) {
     if (expiryDate !== undefined) { updates.push('expiry_date = ?'); values.push(expiryDate || null); }
     if (note !== undefined) { updates.push('note = ?'); values.push(note); }
 
-    values.push(id, familyId);
+    updates.push('updated_by = ?');
+    values.push(req.user.id);
+    values.push(id);
     await getPool().query(
-      `UPDATE drug_inventory SET ${updates.join(', ')} WHERE id = ? AND family_id = ?`,
+      `UPDATE drug_inventory SET ${updates.join(', ')} WHERE id = ?`,
       values
     );
 
