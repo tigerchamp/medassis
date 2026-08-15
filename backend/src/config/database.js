@@ -275,6 +275,26 @@ async function initDatabase() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     `);
 
+    // 9. 长期用药设置表（从药箱选择标记的长期用药）
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS chronic_medications (
+        id VARCHAR(36) PRIMARY KEY,
+        user_id VARCHAR(36) NOT NULL COMMENT '设置用户ID',
+        family_id VARCHAR(36) NOT NULL,
+        elder_id VARCHAR(36) COMMENT '针对老人（NULL=当前查看成员）',
+        drug_inventory_id VARCHAR(36) NOT NULL COMMENT '药箱表ID',
+        drug_code VARCHAR(50) COMMENT '药品编码',
+        drug_name VARCHAR(100) NOT NULL COMMENT '药品名称（冗余）',
+        sort_order INT DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_user (user_id),
+        INDEX idx_family (family_id),
+        INDEX idx_elder (elder_id),
+        UNIQUE KEY uk_user_drug (user_id, drug_inventory_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='长期用药设置表'
+    `);
+
     console.log('数据库表初始化完成');
 
     // 兼容旧表：添加 manufacturer 列（如已存在则跳过）
@@ -801,6 +821,50 @@ async function _ensureColumns(p) {
       }
       console.log(`已迁移 ${successCount} 条用户-家庭关联到 user_families 表`);
     }
+  }
+
+  // 长期用药设置表
+  const [chrTable] = await p.query(`SHOW TABLES LIKE 'chronic_medications'`);
+  if (chrTable.length === 0) {
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS chronic_medications (
+        id VARCHAR(36) PRIMARY KEY,
+        user_id VARCHAR(36) NOT NULL COMMENT '设置用户ID',
+        family_id VARCHAR(36) NOT NULL,
+        elder_id VARCHAR(36) COMMENT '针对老人（NULL=当前查看成员）',
+        drug_inventory_id VARCHAR(36) NOT NULL COMMENT '药箱表ID',
+        drug_code VARCHAR(50) COMMENT '药品编码',
+        drug_name VARCHAR(100) NOT NULL COMMENT '药品名称（冗余）',
+        sort_order INT DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_user (user_id),
+        INDEX idx_family (family_id),
+        INDEX idx_elder (elder_id),
+        UNIQUE KEY uk_user_drug (user_id, drug_inventory_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='长期用药设置表'
+    `);
+    console.log('已创建 chronic_medications 长期用药设置表');
+  }
+
+  // 留言反馈表
+  const [fbTable] = await p.query(`SHOW TABLES LIKE 'feedback'`);
+  if (fbTable.length === 0) {
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS feedback (
+        id VARCHAR(36) PRIMARY KEY,
+        user_id VARCHAR(36) NOT NULL COMMENT '留言用户ID',
+        user_name VARCHAR(50) NOT NULL COMMENT '留言用户姓名（冗余）',
+        page_key VARCHAR(30) COMMENT '当前页面英文标识',
+        page_name VARCHAR(50) COMMENT '当前页面中文名称',
+        title VARCHAR(200) NOT NULL COMMENT '留言标题',
+        content TEXT NOT NULL COMMENT '留言内容',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_user (user_id),
+        INDEX idx_title (title)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户留言/建议/Bug反馈表'
+    `);
+    console.log('已创建 feedback 留言反馈表');
   }
 }
 

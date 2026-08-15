@@ -12,6 +12,36 @@ function calcAge(birthDate) {
     return age;
 }
 
+// 格式化日期为 YYYY-MM-DD
+function formatDate(dateStr) {
+    if (!dateStr) return '';
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return dateStr;
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+}
+
+// 格式化日期时间为 YYYY-MM-DD HH:mm
+function formatDateTime(dateStr) {
+    if (!dateStr) return '';
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return dateStr;
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    return `${y}-${m}-${day} ${hh}:${mm}`;
+}
+
+// HTML 转义，防止 XSS/显示错乱
+function escHtml(s) {
+    if (s == null) return '';
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
 // 格式化数值：去除多余的0（5.000 → 5, 2.500 → 2.5）
 function cleanNumber(n) {
     if (n == null) return '';
@@ -33,6 +63,17 @@ function formatMedUsage(m) {
         }
     }
     return parts.join(' ') || '';
+}
+
+// 根据药品名称（剂型关键字）选择合适的 FontAwesome 图标
+function getDrugIcon(name) {
+    const n = String(name || '');
+    if (/注射|注射液|注射剂/.test(n)) return 'fa-syringe';
+    if (/口服液|口服溶液|糖浆|合剂|滴剂|混悬液|溶液/.test(n)) return 'fa-prescription-bottle-medical';
+    if (/胶囊|软胶囊/.test(n)) return 'fa-capsules';
+    if (/片|肠溶片|分散片|咀嚼片|含片|泡腾片/.test(n)) return 'fa-tablets';
+    if (/丸|滴丸|浓缩丸|水蜜丸|颗粒|冲剂/.test(n)) return 'fa-circle-dot'; // 丸/颗粒用圆点图标
+    return 'fa-capsules'; // 兜底
 }
 
 // 轻量 markdown 渲染：支持 GFM 表格（化验单指标表），其余按段落保留换行
@@ -160,17 +201,19 @@ const PageHome = {
 
     async loadContent(memberId) {
         try {
-            const medsRes = await Api.medications.getAll(memberId, true);
+            // 并行拉取：用药计划表 + 长期用药设置 + 药箱（用于长期用药提醒）
+            const [medsRes, chronicRes, drugsRes] = await Promise.all([
+                Api.medications.getAll(memberId, true),
+                Api.drugs.getChronic().catch(() => ({ chronicMeds: [] })),
+                Api.drugs.getAll().catch(() => ({ drugs: [] })),
+            ]);
             const meds = medsRes.medications || [];
             const medsEl = document.getElementById('homeMeds');
             const refillEl = document.getElementById('homeRefill');
 
             if (meds.length === 0) {
                 if (medsEl) medsEl.innerHTML = '<p class="text-muted" style="text-align:center;padding:12px;">暂无用药计划</p>';
-                return;
-            }
-
-            if (medsEl) {
+            } else if (medsEl) {
                 // 时间段分组（与处方表单 MedTimesUI.slots 一致：早/中/晚/睡前）
                 const timeSlots = [
                     { key: 'morning', label: '早上', time: '08:00', meds: [] },
@@ -218,20 +261,135 @@ const PageHome = {
                 }
             }
 
-            const firstMed = meds[0];
-            const remaining = Math.floor(Math.random() * 20) + 5;
-            const daily = (firstMed.times || []).length || 1;
-            const daysLeft = Math.ceil(remaining / daily);
-            const progress = Math.min((remaining / (daily * 30)) * 100, 100);
-            const suggestDate = new Date(Date.now() + daysLeft * 86400000).toISOString().slice(0, 10);
+            // 真实计算剩余天数（递减）
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            const todayTs = today.getTime();
+            const DAY_MS = 86400000;
+            const DEFAULT_PER_DAY_PILLS = 3; // 默认每日按 3 片/粒 估算
+            const DEFAULT_PACK_DAYS = 30;    // 无规格信息时兜底：每盒约 30 天
+
+            // 辅助：估算每盒可供服用的天数
+            //   unitCapacity: 每盒片/粒数 (来自药箱)
+            //   perDayPills:  每日服用片/粒数
+            const calcPackDays = (unitCapacity, perDayPills) => {
+                const pillsPerDay = Math.max(1, perDayPills || DEFAULT_PER_DAY_PILLS);
+                if (unitCapacity && unitCapacity > 0) {
+                    return Math.max(1, Math.floor(unitCapacity / pillsPerDay));
+                }
+                return DEFAULT_PACK_DAYS;
+            };
+
+            // 优先基于长期用药设置（从药箱选的）计算开药提醒
+            let medStats = [];
+            const chronicList = (chronicRes && chronicRes.chronicMeds) || [];
+            const allDrugs = (drugsRes && drugsRes.drugs) || [];
+            const drugMap = new Map(allDrugs.map(d => [d.id, d]));
+
+            // 构建 药名 -> medication 映射（方便长期用药路径借用用药计划的剂量信息）
+            const medsByName = new Map();
+            meds.filter(m => m.status === 'active').forEach(m => {
+                if (!medsByName.has(m.name)) medsByName.set(m.name, m);
+            });
+
+            if (chronicList.length > 0) {
+                chronicList.forEach(cm => {
+                    const d = drugMap.get(cm.drugInventoryId);
+                    if (!d) return;
+
+                    // 尝试从同名 medication 借用每日剂量信息
+                    const mm = medsByName.get(d.name);
+                    const timesLen = (mm && mm.times && mm.times.length) ? mm.times.length : (mm && mm.frequency) || 2;
+                    const doseEach = (mm && mm.doseAmount != null) ? mm.doseAmount : 1;
+                    const perDayPills = timesLen * doseEach;
+
+                    // 起点：借用 medication.startDate 优先；否则用入库日期
+                    let startDt = (mm && mm.startDate) ? new Date(mm.startDate)
+                              : (d.createdAt ? new Date(d.createdAt) : new Date());
+                    startDt.setHours(0, 0, 0, 0);
+                    const daysUsed = Math.max(0, Math.floor((todayTs - startDt.getTime()) / DAY_MS));
+
+                    const packDays = calcPackDays(d.unitCapacity, perDayPills);
+                    const totalDays = Math.max(1, (d.quantity || 1) * packDays);
+                    const daysLeft = Math.max(0, totalDays - daysUsed);
+                    const progress = Math.max(0, Math.min(100, (daysLeft / Math.max(1, totalDays)) * 100));
+
+                    // 估算依据（用于 UI 小字说明）
+                    const basis = d.unitCapacity
+                        ? `按每日 ${timesLen} 次 × 每次 ${doseEach}${d.specDosageUnit || '片'} · 每盒 ${d.unitCapacity}${d.unitCapacityUnit || '片'} 估算`
+                        : `按每盒约 ${packDays} 天 · 每日 ${timesLen} 次估算`;
+
+                    medStats.push({ name: d.name, daysLeft, progress, totalDays, daily: timesLen, basis });
+                });
+            }
+
+            // 若没设置长期用药，回退到基于用药计划表(medications)的计算
+            if (medStats.length === 0 && meds.length > 0) {
+                // 再构建一个 药名 -> drug_inventory 映射，尽量借用药箱的 unitCapacity 精确计算
+                const invByName = new Map();
+                allDrugs.forEach(dr => { if (!invByName.has(dr.name)) invByName.set(dr.name, dr); });
+
+                medStats = meds.filter(m => m.status === 'active').map(m => {
+                    const timesLen = (m.times && m.times.length > 0) ? m.times.length : (m.frequency || 1);
+                    const doseEach = (m.doseAmount != null) ? m.doseAmount : 1;
+                    const perDayPills = timesLen * doseEach;
+
+                    // 起点：startDate 优先，退回 createdAt
+                    const startDt = m.startDate ? new Date(m.startDate) : new Date(m.createdAt);
+                    startDt.setHours(0, 0, 0, 0);
+                    const daysUsed = Math.max(0, Math.floor((todayTs - startDt.getTime()) / DAY_MS));
+
+                    let daysLeft, totalDays;
+                    let basis;
+                    if (m.endDate) {
+                        const endDt = new Date(m.endDate);
+                        endDt.setHours(0, 0, 0, 0);
+                        totalDays = Math.max(1, Math.ceil((endDt.getTime() - startDt.getTime()) / DAY_MS));
+                        daysLeft = Math.max(0, Math.ceil((endDt.getTime() - todayTs) / DAY_MS));
+                        basis = `按处方结束日期 ${m.endDate} 计算`;
+                    } else {
+                        // 先尝试借用药箱同药品的 unitCapacity，否则按默认估算
+                        const inv = invByName.get(m.name);
+                        const unitCap = (inv && inv.unitCapacity) ? inv.unitCapacity : null;
+                        const unitCapUnit = (inv && inv.unitCapacityUnit) ? inv.unitCapacityUnit : '片';
+                        const packDays = calcPackDays(unitCap, perDayPills);
+                        totalDays = Math.max(1, (m.quantity || 1) * packDays);
+                        daysLeft = Math.max(0, totalDays - daysUsed);
+                        basis = unitCap
+                            ? `按每日 ${timesLen} 次 × 每次 ${doseEach}${m.doseUnit || unitCapUnit} · 每盒 ${unitCap}${unitCapUnit} 估算`
+                            : `按每盒约 ${packDays} 天 · 每日 ${timesLen} 次估算`;
+                    }
+                    const progress = Math.max(0, Math.min(100, (daysLeft / Math.max(1, totalDays)) * 100));
+                    return { name: m.name, daysLeft, progress, totalDays, daily: timesLen, basis };
+                });
+            }
 
             if (refillEl) {
-                refillEl.innerHTML = `<div class="card">
-                    <div class="card-title"><i class="fas fa-calculator"></i> 开药倒计时</div>
-                    <div><span style="font-weight:600;">${firstMed.name}</span> <span class="badge">剩余 ${daysLeft} 天</span></div>
-                    <div class="refill-progress"><div class="bar-bg"><div class="bar-fill" style="width:${progress}%;"></div></div></div>
-                    <div class="refill-date"><span>当前剩余约 ${remaining} 份</span><span>建议开药日: ${suggestDate}</span></div>
-                </div>`;
+                if (medStats.length === 0) {
+                    refillEl.innerHTML = `<div class="card">
+                        <div class="card-title"><i class="fas fa-calculator"></i> 开药倒计时</div>
+                        <p class="text-muted" style="text-align:center;padding:10px;font-size:13px;">
+                            尚未设置长期用药。<span style="color:#2b7a78;cursor:pointer;text-decoration:underline;" onclick="App.switchPage('chronicMeds')">去设置</span>
+                        </p>
+                    </div>`;
+                } else {
+                    // 按剩余天数从少到多排序，优先显示最需要开药的
+                    medStats.sort((a, b) => a.daysLeft - b.daysLeft);
+                    const top = medStats[0];
+                    const suggestDate = new Date(todayTs + Math.max(1, top.daysLeft) * DAY_MS).toISOString().slice(0, 10);
+                    const warn = top.daysLeft <= 7 ? 'color:#dc2626;' : (top.daysLeft <= 14 ? 'color:#d97706;' : '');
+                    refillEl.innerHTML = `<div class="card">
+                        <div class="card-title"><i class="fas fa-calculator"></i> 开药倒计时 <span class="text-muted" style="font-size:12px;font-weight:400;">(${chronicList.length > 0 ? '基于长期用药' : '基于用药计划'})</span></div>
+                        <div><span style="font-weight:600;">${top.name}</span> <span class="badge" style="${warn}">剩余 ${top.daysLeft} 天</span></div>
+                        <div class="refill-progress"><div class="bar-bg"><div class="bar-fill" style="width:${top.progress}%;"></div></div></div>
+                        <div class="refill-date">
+                            <span>建议开药日: ${suggestDate}</span>
+                        </div>
+                        <div style="font-size:12px;color:#94a3b8;margin-top:6px;line-height:1.5;">
+                            <i class="fas fa-info-circle"></i> ${top.basis || '估算值'}
+                        </div>
+                    </div>`;
+                }
             }
         } catch (err) {
             console.error('加载首页失败:', err);
@@ -503,12 +661,46 @@ const PageRecordDetail = {
 
 // ---------- 药箱页 ----------
 const PagePharmacy = {
+    _currentCat: '全部',
+
     render() {
         this.loadContent();
         return `
         <div class="card">
             <div class="card-title"><i class="fas fa-kit-medical"></i> 家庭药箱 <button class="btn-outline" style="width:auto;padding:6px 14px;font-size:13px;margin-left:auto;" onclick="App.switchPage('addDrug')"><i class="fas fa-plus"></i> 添加</button></div>
+            <div id="pharmacyCats" style="margin-bottom:10px;"></div>
             <div id="pharmacyList"><p class="text-muted" style="text-align:center;padding:20px;">加载中...</p></div>
+        </div>`;
+    },
+
+    _renderDrugCard(d) {
+        const isExpired = d.status === 'expired';
+        const isExpiring = d.status === 'expiring_soon';
+        const dateColor = isExpired ? 'color:#dc2626;' : '';
+        let statusHtml = '';
+        if (isExpired) statusHtml = '<span class="danger" style="margin-left:8px;">⛔ 已过期!</span>';
+        else if (isExpiring) statusHtml = '<span class="danger" style="margin-left:8px;">⚠ 即将过期</span>';
+        const icon = getDrugIcon(d.name);
+        let specLine = d.specification || '';
+        if (!specLine) {
+            const specParts = [];
+            if (d.specDosage != null) specParts.push(`每${d.unitCapacityUnit || '片'}${d.specDosage}${d.specDosageUnit || ''}`);
+            if (d.unitCapacity != null) specParts.push(`每${d.quantityUnit || '盒'}${d.unitCapacity}${d.unitCapacityUnit || '片'}`);
+            specLine = specParts.join('，');
+        }
+        const qtySpecLine = `${d.quantity || 1}${d.quantityUnit || '盒'}${specLine ? ' · ' + specLine : ''}`;
+        return `<div class="drug-item" style="cursor:pointer;" onclick="App.viewDrugDetail('${d.id}')">
+            <div class="drug-icon"><i class="fas ${icon}"></i></div>
+            <div class="drug-info" style="flex:1;min-width:0;">
+                <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;">
+                    <div class="dname" style="color:#2b7a78;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${d.name}</div>
+                    <div class="qty" style="flex-shrink:0;width:160px;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${qtySpecLine}</div>
+                </div>
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+                    <div class="dexp">📅 过期: <span style="${dateColor}">${d.expiryDate || '未设置'}</span>${statusHtml}</div>
+                    <button style="background:none;border:none;color:#b91c1c;cursor:pointer;padding:2px 8px;flex-shrink:0;" onclick="event.stopPropagation();App.deleteDrug('${d.id}')"><i class="fas fa-trash"></i></button>
+                </div>
+            </div>
         </div>`;
     },
 
@@ -517,44 +709,82 @@ const PagePharmacy = {
             const res = await Api.drugs.getAll();
             const drugs = res.drugs || [];
             const warnings = res.warnings || {};
-            const el = document.getElementById('pharmacyList');
-            if (!el) return;
+            const catsEl = document.getElementById('pharmacyCats');
+            const listEl = document.getElementById('pharmacyList');
+            if (!listEl) return;
 
+            // 生成分类列表：收集所有实际存在的分类，按数量排序
+            const catMap = {};
+            drugs.forEach(d => {
+                const c = d.category && d.category.trim() ? d.category.trim() : '其他';
+                catMap[c] = (catMap[c] || 0) + 1;
+            });
+            const catList = Object.keys(catMap).sort((a, b) => {
+                if (a === '其他') return 1;
+                if (b === '其他') return -1;
+                return catMap[b] - catMap[a];
+            });
+            const allCats = ['全部', ...catList];
+
+            // 如果当前选中的分类不在列表中（比如已无该分类药品），重置为全部
+            if (!allCats.includes(this._currentCat)) this._currentCat = '全部';
+
+            // 渲染分类导航
+            if (catsEl) {
+                catsEl.innerHTML = `<div style="display:flex;gap:6px;flex-wrap:wrap;overflow-x:auto;padding-bottom:4px;">
+                    ${allCats.map(c => {
+                        const active = c === this._currentCat;
+                        const count = c === '全部' ? drugs.length : (catMap[c] || 0);
+                        return `<span onclick="PagePharmacy._selectCat('${c.replace(/'/g, "\\'")}')"
+                            style="padding:4px 12px;border-radius:16px;cursor:pointer;font-size:13px;white-space:nowrap;
+                            ${active ? 'background:#2b7a78;color:#fff;' : 'background:#f1f5f9;color:#475569;'}">
+                            ${c} <span style="opacity:0.75;">(${count})</span>
+                        </span>`;
+                    }).join('')}
+                </div>`;
+            }
+
+            // 按当前分类筛选
+            const filtered = this._currentCat === '全部'
+                ? drugs
+                : drugs.filter(d => (d.category && d.category.trim() ? d.category.trim() : '其他') === this._currentCat);
+
+            // 按分类分组显示（如果在"全部"标签，显示分类分组）
             let html = '';
-            if (drugs.length === 0) {
-                html = '<p class="text-muted" style="text-align:center;padding:20px;">药箱为空</p>';
-            } else {
-                html = drugs.map(d => {
-                    let statusHtml = '<span style="color:#16a34a;">✔ 有效</span>';
-                    if (d.status === 'expired') statusHtml = '<span class="danger">⛔ 已过期!</span>';
-                    else if (d.status === 'expiring_soon') statusHtml = '<span class="danger">⚠ 即将过期</span>';
-                    const icon = d.name.includes('注射') ? 'fa-syringe' : d.name.includes('片') ? 'fa-tablets' : 'fa-capsules';
-                    const specParts = [];
-                    if (d.specDosage != null) specParts.push(`每${d.unitCapacityUnit || '片'}${d.specDosage}${d.specDosageUnit || ''}`);
-                    if (d.unitCapacity != null) specParts.push(`每${d.quantityUnit || '盒'}${d.unitCapacity}${d.unitCapacityUnit || '片'}`);
-                    const specLine = specParts.length > 0 ? specParts.join('，') : (d.specification || '');
-                    return `<div class="drug-item" style="cursor:pointer;" onclick="App.viewDrugDetail('${d.id}')">
-                        <div class="drug-icon"><i class="fas ${icon}"></i></div>
-                        <div class="drug-info">
-                            <div class="dname" style="color:#2b7a78;" onclick="event.stopPropagation();App.viewDrugInfo('${d.name.replace(/'/g, "\\'")}','${(d.specification || '').replace(/'/g, "\\'")}','${(d.manufacturer || '').replace(/'/g, "\\'")}','${(d.drugCode || '').replace(/'/g, "\\'")}')">${d.name}</div>
-                            <div class="dexp">📅 过期: ${d.expiryDate || '未设置'} ${statusHtml}</div>
-                            ${specLine || d.manufacturer ? `<div class="qty">${d.quantity || 1}${d.quantityUnit || '盒'}${specLine ? ' · ' + specLine : ''}${d.manufacturer ? ' · ' + d.manufacturer : ''}</div>` : `<div class="qty">数量: ${d.quantity || 1}${d.quantityUnit || ''}</div>`}
+            if (filtered.length === 0) {
+                html = '<p class="text-muted" style="text-align:center;padding:20px;">该分类暂无药品</p>';
+            } else if (this._currentCat === '全部') {
+                // 全部：按分类分组展示
+                html = catList.map(cat => {
+                    const items = filtered.filter(d => (d.category && d.category.trim() ? d.category.trim() : '其他') === cat);
+                    if (items.length === 0) return '';
+                    return `<div style="margin-top:10px;">
+                        <div style="font-size:13px;color:#64748b;margin-bottom:4px;padding-left:2px;font-weight:600;">
+                            <i class="fas fa-folder" style="width:16px;"></i> ${cat} (${items.length})
                         </div>
-                        <button style="background:none;border:none;color:#b91c1c;cursor:pointer;padding:8px;" onclick="event.stopPropagation();App.deleteDrug('${d.id}')"><i class="fas fa-trash"></i></button>
+                        ${items.map(d => this._renderDrugCard(d)).join('')}
                     </div>`;
                 }).join('');
+            } else {
+                // 指定分类：平铺
+                html = filtered.map(d => this._renderDrugCard(d)).join('');
             }
 
             if (warnings.expired > 0 || warnings.expiringSoon > 0) {
-                html += `<div style="margin-top:6px;background:#fee2e2;padding:10px 16px;border-radius:18px;color:#991b1b;font-size:14px;">
+                html += `<div style="margin-top:10px;background:#fee2e2;padding:10px 16px;border-radius:18px;color:#991b1b;font-size:14px;">
                     <i class="fas fa-exclamation-triangle"></i> 提醒: ${warnings.expired}种已过期，${warnings.expiringSoon}种即将过期，请及时处理。
                 </div>`;
             }
-            el.innerHTML = html;
+            listEl.innerHTML = html;
         } catch (err) {
             const el = document.getElementById('pharmacyList');
             if (el) el.innerHTML = '<p class="text-muted" style="text-align:center;padding:20px;">加载失败</p>';
         }
+    },
+
+    _selectCat(cat) {
+        this._currentCat = cat;
+        this.loadContent();
     }
 };
 
@@ -562,7 +792,7 @@ const PagePharmacy = {
 const PageProfile = {
     render() {
         const user = App.state.user;
-        const selfElder = App.state.members.find(m => m.relation === 'self');
+        const selfElder = App.state.members.find(m => m.relation === 'self' && m.user_id === user?.id);
         if (!user) return '';
         const relationMap = { self: '本人', parent: '父母', spouse_parent: '公婆/岳父母', spouse: '配偶', other: '其他' };
         const infoItems = [];
@@ -585,6 +815,11 @@ const PageProfile = {
         </div>
         <div class="card">
             <div class="card-title"><i class="fas fa-cog"></i> 设置</div>
+            <div style="cursor:pointer;display:flex;align-items:center;gap:14px;padding:10px 0;border-bottom:1px solid #f1f5f9;" onclick="App.switchPage('chronicMeds')">
+                <i class="fas fa-capsules" style="width:24px;color:#2b7a78;"></i>
+                <div style="flex:1;"><div style="font-weight:600;">长期用药</div><div class="text-muted">从药箱选择长期服用的药品，首页开药提醒基于此</div></div>
+                <i class="fas fa-chevron-right" style="color:#94a3b8;"></i>
+            </div>
             <div style="cursor:pointer;display:flex;align-items:center;gap:14px;padding:10px 0;border-bottom:1px solid #f1f5f9;" onclick="App.switchPage('profileEdit')">
                 <i class="fas fa-user-edit" style="width:24px;color:#2b7a78;"></i>
                 <div style="flex:1;"><div style="font-weight:600;">个人信息</div><div class="text-muted">修改性别、出生日期、血型等基本信息</div></div>
@@ -603,8 +838,8 @@ const PageProfile = {
 // ---------- 个人信息编辑页 ----------
 const PageProfileEdit = {
     render() {
-        const selfElder = App.state.members.find(m => m.relation === 'self');
         const user = App.state.user;
+        const selfElder = App.state.members.find(m => m.relation === 'self' && m.user_id === user?.id);
         if (!selfElder && !user) return '<p class="text-muted" style="text-align:center;padding:40px;">未找到个人信息</p>';
         const e = selfElder || {};
         return `
@@ -621,7 +856,7 @@ const PageProfileEdit = {
             </select></div>
             <div class="form-group"><label>出生日期</label>
                 <div style="display:flex;gap:8px;align-items:center;">
-                    <input id="pe-birthDate" type="text" readonly onclick="CalendarPicker.attach(this,{max:'today'})" value="${e.birth_date || ''}" placeholder="点击选择出生日期" style="background:#fff;flex:1;" onchange="PageProfileEdit._updateAge()">
+                    <input id="pe-birthDate" type="text" readonly onclick="CalendarPicker.attach(this,{max:'today'})" value="${e.birth_date ? formatDate(e.birth_date) : ''}" placeholder="点击选择出生日期" style="background:#fff;flex:1;" onchange="PageProfileEdit._updateAge()">
                     <span id="pe-calcAge" style="font-size:12px;color:#2b7a78;"></span>
                 </div>
             </div>
@@ -653,6 +888,131 @@ const PageProfileEdit = {
     }
 };
 
+// ---------- 长期用药设置页 ----------
+const PageChronicMeds = {
+    _allDrugs: [],
+    _selectedIds: new Set(),
+
+    render() {
+        this.loadContent();
+        return `
+        <div class="sub-header">
+            <button class="back-btn" onclick="App.switchPage('profile')"><i class="fas fa-arrow-left"></i></button>
+            <h2>长期用药设置</h2>
+        </div>
+        <div class="card" style="margin-bottom:12px;">
+            <div style="font-size:13px;color:#64748b;line-height:1.6;">
+                <i class="fas fa-info-circle" style="color:#2b7a78;"></i>
+                请从下方药箱列表中勾选您需要长期服用的药品，首页的<b>开药倒计时</b>将基于这些药品的库存进行提醒。
+            </div>
+        </div>
+        <div class="card">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+                <div class="card-title" style="margin-bottom:0;"><i class="fas fa-kit-medical"></i> 药箱列表 <span id="chronicCount" class="text-muted" style="font-size:13px;font-weight:400;"></span></div>
+                <button class="btn-primary" style="width:auto;padding:6px 16px;font-size:14px;" onclick="PageChronicMeds._save()"><i class="fas fa-save"></i> 保存</button>
+            </div>
+            <div id="chronicList"><p class="text-muted" style="text-align:center;padding:20px;">加载中...</p></div>
+        </div>`;
+    },
+
+    _renderDrugCard(d, checked) {
+        const cat = d.category || '其他';
+        const icon = getDrugIcon(d.name);
+        let specLine = d.specification || '';
+        if (!specLine) {
+            const specParts = [];
+            if (d.specDosage != null) specParts.push(`每${d.unitCapacityUnit || '片'}${d.specDosage}${d.specDosageUnit || ''}`);
+            if (d.unitCapacity != null) specParts.push(`每${d.quantityUnit || '盒'}${d.unitCapacity}${d.unitCapacityUnit || '片'}`);
+            specLine = specParts.join('，');
+        }
+        const qty = `${d.quantity || 1}${d.quantityUnit || '盒'}`;
+        const isExpired = d.status === 'expired';
+        const isExpiring = d.status === 'expiring_soon';
+        const warnBadge = isExpired ? '<span class="badge" style="background:#fee2e2;color:#991b1b;margin-left:6px;">已过期</span>' :
+            (isExpiring ? '<span class="badge" style="background:#fef3c7;color:#92400e;margin-left:6px;">即将过期</span>' : '');
+        return `<label style="display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-bottom:1px solid #f1f5f9;cursor:pointer;user-select:none;${checked ? 'background:#f0fdfa;' : ''}">
+            <input type="checkbox" value="${d.id}" ${checked ? 'checked' : ''} onchange="PageChronicMeds._toggle('${d.id}', this.checked)"
+                style="width:18px;height:18px;margin-top:4px;accent-color:#2b7a78;flex-shrink:0;">
+            <div class="drug-icon" style="flex-shrink:0;"><i class="fas ${icon}"></i></div>
+            <div style="flex:1;min-width:0;">
+                <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;">
+                    <span style="font-weight:600;color:#2b7a78;">${d.name}</span>${warnBadge}
+                    <span style="margin-left:auto;font-size:12px;background:#eef2f6;color:#475569;padding:1px 8px;border-radius:10px;">${cat}</span>
+                </div>
+                <div class="text-muted" style="font-size:13px;margin-top:3px;">
+                    库存: <strong>${qty}</strong>${specLine ? ' · ' + specLine : ''}
+                    ${d.expiryDate ? ' · 有效期至: ' + d.expiryDate : ''}
+                </div>
+            </div>
+        </label>`;
+    },
+
+    async loadContent() {
+        try {
+            const [drugsRes, chronicRes] = await Promise.all([
+                Api.drugs.getAll(),
+                Api.drugs.getChronic()
+            ]);
+            this._allDrugs = drugsRes.drugs || [];
+            const chronicList = chronicRes.chronicMeds || [];
+            this._selectedIds = new Set(chronicList.map(c => c.drugInventoryId));
+
+            const listEl = document.getElementById('chronicList');
+            const countEl = document.getElementById('chronicCount');
+            if (!listEl) return;
+
+            if (this._allDrugs.length === 0) {
+                listEl.innerHTML = `<div style="padding:20px;">
+                    <p class="text-muted" style="text-align:center;margin-bottom:10px;">药箱为空，请先添加药品</p>
+                    <button class="btn-outline" style="width:100%;" onclick="App.switchPage('addDrug')"><i class="fas fa-plus"></i> 去添加药品</button>
+                </div>`;
+                if (countEl) countEl.textContent = '';
+                return;
+            }
+
+            // 按分类排序，同分类按名称
+            const sorted = [...this._allDrugs].sort((a, b) => {
+                const ca = a.category || '其他';
+                const cb = b.category || '其他';
+                if (ca !== cb) {
+                    if (ca === '其他') return 1;
+                    if (cb === '其他') return -1;
+                    return ca.localeCompare(cb, 'zh');
+                }
+                return a.name.localeCompare(b.name, 'zh');
+            });
+
+            listEl.innerHTML = sorted.map(d => this._renderDrugCard(d, this._selectedIds.has(d.id))).join('');
+            if (countEl) countEl.textContent = `（已选 ${this._selectedIds.size} / ${this._allDrugs.length}）`;
+        } catch (err) {
+            console.error('加载长期用药失败:', err);
+            const el = document.getElementById('chronicList');
+            if (el) el.innerHTML = `<p class="text-muted" style="text-align:center;padding:20px;">加载失败: ${err.message || ''}</p>`;
+        }
+    },
+
+    _toggle(id, checked) {
+        if (checked) this._selectedIds.add(id);
+        else this._selectedIds.delete(id);
+        const countEl = document.getElementById('chronicCount');
+        if (countEl) countEl.textContent = `（已选 ${this._selectedIds.size} / ${this._allDrugs.length}）`;
+    },
+
+    async _save() {
+        try {
+            const ids = Array.from(this._selectedIds);
+            const res = await Api.drugs.saveChronic(ids);
+            App.toast(`已保存 ${ids.length} 种长期用药`);
+            // 同步一下状态
+            const chronicList = res.chronicMeds || [];
+            this._selectedIds = new Set(chronicList.map(c => c.drugInventoryId));
+            setTimeout(() => App.switchPage('profile'), 500);
+        } catch (err) {
+            App.toast('保存失败: ' + (err.message || ''));
+        }
+    }
+};
+
 // ---------- 消息中心 ----------
 const PageMessages = {
     render() {
@@ -671,6 +1031,168 @@ const PageMessages = {
                 <div style="flex:1;"><div style="font-weight:600;">健康提示</div><div class="text-muted">定期检查，关注健康指标变化</div><div style="font-size:12px;color:#94a3b8;">今天</div></div>
             </div>
         </div>`;
+    }
+};
+
+// ---------- 留言反馈（填写页）----------
+const PageFeedback = {
+    _searchTimer: null,
+    _from: null,
+
+    render() {
+        // 使用 App._feedbackFromPage 记录用户点击留言按钮时的页面；如果没有（比如用户直接刷新），退回首页
+        const from = App._feedbackFromPage || { key: App.state.page || 'home', name: App.getPageLabel(App.state.page) || '首页' };
+        this._from = from;
+        return `
+        <div class="sub-header">
+            <button class="back-btn" onclick="App.goBack()"><i class="fas fa-arrow-left"></i></button>
+            <h2>留言反馈</h2>
+            <span style="margin-left:auto;font-size:13px;color:#2b7a78;cursor:pointer;" onclick="App.switchPage('feedbackList')">
+                <i class="fas fa-list"></i> 查看全部留言
+            </span>
+        </div>
+        <div class="card">
+            <div style="font-size:13px;color:#64748b;line-height:1.7;margin-bottom:14px;">
+                <i class="fas fa-info-circle" style="color:#2b7a78;"></i>
+                欢迎留下 Bug 报告或使用建议。我们会认真对待每一条反馈。
+            </div>
+
+            <div style="margin-bottom:14px;">
+                <label style="font-size:13px;color:#475569;font-weight:600;display:block;margin-bottom:6px;">当前页面（自动记录）</label>
+                <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px 14px;color:#64748b;font-size:13px;">
+                    <i class="fas fa-map-marker-alt" style="color:#94a3b8;"></i>
+                    来自：<b style="color:#2b7a78;">${from.name || '未知'}</b>
+                    ${from.name !== '首页' && from.name ? `<span style="color:#94a3b8;margin-left:10px;">（提交时会一并记录）</span>` : ''}
+                </div>
+            </div>
+
+            <div style="margin-bottom:14px;">
+                <label style="font-size:13px;color:#475569;font-weight:600;display:block;margin-bottom:6px;">留言标题 <span style="color:#dc2626;">*</span></label>
+                <input type="text" id="fbTitle" placeholder="一句话概括，如：药箱图标显示错误" style="width:100%;padding:10px 14px;border:1px solid #cbd5e1;border-radius:8px;font-size:14px;box-sizing:border-box;" oninput="PageFeedback._onTitleInput()">
+                <!-- 相似留言展示区 -->
+                <div id="fbMatches" style="margin-top:8px;"></div>
+            </div>
+
+            <div style="margin-bottom:16px;">
+                <label style="font-size:13px;color:#475569;font-weight:600;display:block;margin-bottom:6px;">留言内容 <span style="color:#dc2626;">*</span></label>
+                <textarea id="fbContent" rows="6" placeholder="请描述具体问题或建议（可附截图链接、操作步骤、预期行为等）" style="width:100%;padding:10px 14px;border:1px solid #cbd5e1;border-radius:8px;font-size:14px;box-sizing:border-box;resize:vertical;font-family:inherit;line-height:1.6;"></textarea>
+            </div>
+
+            <button class="btn-primary" style="width:100%;" onclick="PageFeedback._submit()"><i class="fas fa-paper-plane"></i> 提交留言</button>
+        </div>`;
+    },
+
+    _onTitleInput() {
+        if (this._searchTimer) clearTimeout(this._searchTimer);
+        const q = (document.getElementById('fbTitle')?.value || '').trim();
+        if (q.length < 2) {
+            const el = document.getElementById('fbMatches');
+            if (el) el.innerHTML = '';
+            return;
+        }
+        // 300ms debounce
+        this._searchTimer = setTimeout(() => this._doSearch(q), 300);
+    },
+
+    async _doSearch(q) {
+        try {
+            const res = await Api.feedback.search(q);
+            const list = res.matches || [];
+            const el = document.getElementById('fbMatches');
+            if (!el) return;
+            if (list.length === 0) {
+                el.innerHTML = '';
+                return;
+            }
+            el.innerHTML = `<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:10px 12px;">
+                <div style="font-size:12px;color:#92400e;margin-bottom:6px;">
+                    <i class="fas fa-lightbulb"></i> 找到 ${list.length} 条相似留言，您可以先查看是否已有相同问题：
+                </div>
+                ${list.map(m => `
+                <div style="padding:8px 10px;background:#fff;border:1px solid #fde68a;border-radius:6px;margin-bottom:6px;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;margin-bottom:2px;">
+                        <span style="font-weight:600;font-size:13px;color:#78350f;">${escHtml(m.title)}</span>
+                        <span style="font-size:11px;color:#94a3b8;flex-shrink:0;">${formatDate(m.created_at)} · ${escHtml(m.user_name)}</span>
+                    </div>
+                    <div style="font-size:12px;color:#6b7280;line-height:1.5;white-space:pre-wrap;word-break:break-word;">${escHtml(m.content || '').substring(0, 120)}${(m.content || '').length > 120 ? '...' : ''}</div>
+                    ${m.page_name ? `<div style="font-size:11px;color:#94a3b8;margin-top:3px;"><i class="fas fa-map-marker-alt"></i> 来自：${escHtml(m.page_name)}</div>` : ''}
+                </div>`).join('')}
+            </div>`;
+        } catch (err) {
+            // 搜索失败静默，不影响用户填写
+        }
+    },
+
+    async _submit() {
+        const title = (document.getElementById('fbTitle')?.value || '').trim();
+        const content = (document.getElementById('fbContent')?.value || '').trim();
+        if (!title) { App.toast('请填写留言标题'); return; }
+        if (!content) { App.toast('请填写留言内容'); return; }
+        try {
+            await Api.feedback.save({
+                title, content,
+                pageKey: this._from && this._from.key,
+                pageName: this._from && this._from.name,
+            });
+            App.toast('留言提交成功，感谢您的反馈！');
+            // 清空输入
+            const tEl = document.getElementById('fbTitle'); if (tEl) tEl.value = '';
+            const cEl = document.getElementById('fbContent'); if (cEl) cEl.value = '';
+            const mEl = document.getElementById('fbMatches'); if (mEl) mEl.innerHTML = '';
+            setTimeout(() => App.switchPage('feedbackList'), 600);
+        } catch (err) {
+            App.toast('提交失败：' + (err.message || ''));
+        }
+    }
+};
+
+// ---------- 留言列表 ----------
+const PageFeedbackList = {
+    render() {
+        this.loadContent();
+        return `
+        <div class="sub-header">
+            <button class="back-btn" onclick="App.switchPage('feedback')"><i class="fas fa-arrow-left"></i></button>
+            <h2>留言列表</h2>
+            <span style="margin-left:auto;font-size:13px;color:#2b7a78;cursor:pointer;" onclick="App.switchPage('feedback')">
+                <i class="fas fa-plus"></i> 我要留言
+            </span>
+        </div>
+        <div id="fbListWrap"><p class="text-muted" style="text-align:center;padding:20px;">加载中...</p></div>`;
+    },
+
+    async loadContent() {
+        try {
+            const res = await Api.feedback.list();
+            const list = res.feedback || [];
+            const wrap = document.getElementById('fbListWrap');
+            if (!wrap) return;
+            if (list.length === 0) {
+                wrap.innerHTML = `<div class="card"><p class="text-muted" style="text-align:center;padding:20px;">还没有留言，<span style="color:#2b7a78;cursor:pointer;text-decoration:underline;" onclick="App.switchPage('feedback')">去写第一条</span></p></div>`;
+                return;
+            }
+            wrap.innerHTML = `<div class="card">
+                <div class="card-title" style="margin-bottom:4px;"><i class="fas fa-comments"></i> 全部留言 <span class="text-muted" style="font-size:13px;font-weight:400;">（${list.length} 条）</span></div>
+                ${list.map(f => `
+                <div style="padding:12px 0;border-bottom:1px solid #f1f5f9;${list.indexOf(f) === list.length - 1 ? 'border-bottom:none;' : ''}">
+                    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap;">
+                        <div style="display:flex;align-items:center;gap:8px;min-width:0;">
+                            <div style="width:28px;height:28px;border-radius:50%;background:#def7f5;color:#2b7a78;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;flex-shrink:0;">
+                                ${(f.user_name || '?').charAt(0)}
+                            </div>
+                            <span style="font-weight:600;font-size:13px;">${escHtml(f.user_name || '匿名')}</span>
+                            ${f.page_name ? `<span class="badge" style="background:#eef2f6;color:#475569;margin-left:4px;"><i class="fas fa-map-marker-alt" style="margin-right:2px;"></i>${escHtml(f.page_name)}</span>` : ''}
+                        </div>
+                        <span style="font-size:11px;color:#94a3b8;flex-shrink:0;">${formatDateTime(f.created_at)}</span>
+                    </div>
+                    <div style="font-weight:600;font-size:14px;color:#2b7a78;margin:6px 0 3px 36px;">${escHtml(f.title)}</div>
+                    <div style="font-size:13px;color:#475569;line-height:1.7;white-space:pre-wrap;word-break:break-word;margin-left:36px;">${escHtml(f.content || '')}</div>
+                </div>`).join('')}
+            </div>`;
+        } catch (err) {
+            const wrap = document.getElementById('fbListWrap');
+            if (wrap) wrap.innerHTML = `<div class="card"><p class="text-muted" style="text-align:center;padding:20px;">加载失败: ${err.message || ''}</p></div>`;
+        }
     }
 };
 
@@ -712,17 +1234,18 @@ const PageFamily = {
                 if (families.length === 0) {
                     listEl.innerHTML = '<p class="text-muted" style="text-align:center;padding:20px;">暂无家庭组</p>';
                 } else {
+                    const currentUserId = App.state.user?.id;
                     listEl.innerHTML = families.map(f => {
                         const isCurrent = f.id === currentFamilyId;
+                        const isCreator = f.creator_id === currentUserId;
                         return `<div style="display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid #f1f5f9;${isCurrent ? 'background:#f0fdf4;border-radius:8px;padding:12px;' : ''}">
                             <div style="width:40px;height:40px;border-radius:50%;background:#d1e0e8;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px;flex-shrink:0;"><i class="fas fa-home"></i></div>
                             <div style="flex:1;min-width:0;">
-                                <div style="font-weight:600;">${f.name}${isCurrent ? ' <span style="font-size:11px;background:#16a34a;color:#fff;padding:1px 6px;border-radius:4px;">当前</span>' : ''}</div>
+                                <div style="font-weight:600;display:flex;align-items:center;gap:6px;white-space:nowrap;overflow:hidden;">${f.name}${isCurrent ? ' <span style="font-size:11px;background:#16a34a;color:#fff;padding:1px 6px;border-radius:4px;flex-shrink:0;">当前</span>' : ''}</div>
                                 <div class="text-muted" style="font-size:12px;">创建者: ${f.creator_name || '未知'}</div>
                                 <div style="font-size:12px;color:#6b7280;">邀请码: <span style="font-family:monospace;letter-spacing:1px;">${f.invite_code || ''}</span></div>
                             </div>
-                            <button class="btn-outline" style="width:auto;padding:6px 12px;font-size:12px;flex-shrink:0;" onclick="App.switchFamily('${f.id}')"><i class="fas fa-exchange-alt"></i> 切换</button>
-                            <button class="btn-outline" style="width:auto;padding:6px 12px;font-size:12px;flex-shrink:0;" onclick="App.editFamilyName('${f.id}','${f.name.replace(/'/g, "\\'")}')"><i class="fas fa-edit"></i></button>
+                            ${isCreator ? `<button class="btn-outline" style="width:auto;padding:6px 12px;font-size:12px;flex-shrink:0;" onclick="App.editFamilyName('${f.id}','${f.name.replace(/'/g, "\\'")}')"><i class="fas fa-edit"></i></button>` : ''}
                         </div>`;
                     }).join('');
                 }
@@ -761,8 +1284,12 @@ const PageFamily = {
                                 ${elder.conditions ? `<div style="font-size:12px;color:#92400e;margin-top:2px;">基础病: ${elder.conditions}</div>` : ''}
                             </div>` : '';
 
+                        const isAdmin = m.role === 'admin';
                         return `<div style="display:flex;align-items:flex-start;gap:14px;padding:12px 0;border-bottom:1px solid #f1f5f9;">
-                            <div style="width:44px;height:44px;border-radius:50%;background:#d1e0e8;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:18px;flex-shrink:0;">${m.avatar || m.name.charAt(0)}</div>
+                            <div style="position:relative;flex-shrink:0;">
+                                <div style="width:44px;height:44px;border-radius:50%;background:#d1e0e8;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:18px;">${m.avatar || m.name.charAt(0)}</div>
+                                ${isAdmin ? `<div style="position:absolute;bottom:-2px;right:-2px;width:18px;height:18px;border-radius:50%;background:#f59e0b;color:#fff;display:flex;align-items:center;justify-content:center;font-size:10px;border:2px solid #fff;" title="管理员"><i class="fas fa-crown"></i></div>` : ''}
+                            </div>
                             <div style="flex:1;min-width:0;">
                                 <div style="font-weight:600;">${m.name}${isCurrent ? '（我）' : ''}</div>
                                 <div class="text-muted">${m.role === 'admin' ? '管理员' : '成员'} · ${m.phone || ''}</div>
@@ -807,7 +1334,7 @@ const PageAddMed = {
     render() {
         const members = App.state.members;
         const memberOptions = members.map(m => {
-            const isSelf = m.relation === 'self';
+            const isSelf = m.relation === 'self' && m.user_id === App.state.user?.id;
             const label = isSelf ? m.name + '（我）' : m.name;
             return `<option value="${m.id}" ${m.id === App.state.currentMemberId ? 'selected' : ''}>${label}</option>`;
         }).join('');
@@ -849,7 +1376,7 @@ const PageAddRecord = {
     render() {
         const members = App.state.members;
         const memberOptions = members.map(m => {
-            const isSelf = m.relation === 'self';
+            const isSelf = m.relation === 'self' && m.user_id === App.state.user?.id;
             const label = isSelf ? m.name + '（我）' : m.name;
             return `<option value="${m.id}" ${m.id === App.state.currentMemberId ? 'selected' : ''}>${label}</option>`;
         }).join('');
@@ -1515,10 +2042,13 @@ const PageDrugDetail = {
             if (drug.status === 'expired') statusHtml = '<span class="danger">⛔ 已过期</span>';
             else if (drug.status === 'expiring_soon') statusHtml = '<span class="danger">⚠ 即将过期</span>';
 
-            const specParts = [];
-            if (drug.specDosage != null) specParts.push(`每${drug.unitCapacityUnit || '片'}${drug.specDosage}${drug.specDosageUnit || ''}`);
-            if (drug.unitCapacity != null) specParts.push(`每${drug.quantityUnit || '盒'}${drug.unitCapacity}${drug.unitCapacityUnit || '片'}`);
-            const specLine = specParts.length > 0 ? specParts.join('，') : (drug.specification || '');
+            let specLine = drug.specification || '';
+            if (!specLine) {
+                const specParts = [];
+                if (drug.specDosage != null) specParts.push(`每${drug.unitCapacityUnit || '片'}${drug.specDosage}${drug.specDosageUnit || ''}`);
+                if (drug.unitCapacity != null) specParts.push(`每${drug.quantityUnit || '盒'}${drug.unitCapacity}${drug.unitCapacityUnit || '片'}`);
+                specLine = specParts.join('，');
+            }
 
             let imagesHtml = '';
             if (drug.images && drug.images.length > 0) {
@@ -1529,9 +2059,6 @@ const PageDrugDetail = {
                 `).join('');
             }
 
-            // 找出关联的家人名称
-            const elderName = drug.elderId ? (App.state.members.find(m => m.id === drug.elderId) || {}).name || '' : '';
-
             el.innerHTML = `
             <div class="card">
                 <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
@@ -1539,33 +2066,40 @@ const PageDrugDetail = {
                 </div>
                 ${specLine ? `<div class="text-muted" style="font-size:0.9em;margin-bottom:4px;">${specLine}</div>` : ''}
                 ${drug.manufacturer ? `<div class="text-muted" style="font-size:0.9em;margin-bottom:4px;">厂商: ${drug.manufacturer}</div>` : ''}
-                <div style="display:flex;gap:16px;align-items:center;margin-top:8px;">
+                <div style="margin-top:8px;">
                     <span style="font-size:1.2em;font-weight:600;">库存: ${drug.quantity || 0}</span>
                     ${drug.quantityUnit || '盒'}
-                    ${statusHtml}
                 </div>
-                ${elderName ? `<div class="text-muted" style="font-size:0.9em;margin-top:4px;">所属: ${elderName}</div>` : ''}
-                ${drug.expiryDate ? `<div class="text-muted" style="font-size:0.9em;">有效期至: ${drug.expiryDate}</div>` : ''}
                 ${drug.note ? `<div class="text-muted" style="font-size:0.9em;margin-top:4px;">备注: ${drug.note}</div>` : ''}
                 ${imagesHtml ? `<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;">${imagesHtml}</div>` : ''}
             </div>
             <div class="card">
                 <div class="card-title"><i class="fas fa-history"></i> 添加记录</div>
-                ${records.length === 0 ? '<p class="text-muted" style="text-align:center;padding:10px;">暂无处方记录</p>' :
-                records.map(r => `
-                    <div style="padding:10px 0;border-bottom:1px solid #f1f5f9;">
-                        <div style="display:flex;justify-content:space-between;align-items:center;">
-                            <span style="font-weight:500;">${r.elderName || '未知'}</span>
-                            <span style="font-size:0.85em;color:#94a3b8;">${r.startDate || ''}</span>
-                        </div>
-                        <div style="font-size:0.9em;color:#64748b;margin-top:4px;">
-                            ${r.dose ? `剂量: ${r.dose}` : ''}${r.dose && r.frequency ? ' · ' : ''}${r.frequency ? `频次: ${r.frequency}` : ''}
-                            ${r.quantity ? ` · 数量: ${r.quantity}${r.quantityUnit || ''}` : ''}
-                        </div>
-                        ${r.note ? `<div style="font-size:0.85em;color:#94a3b8;margin-top:2px;">${r.note}</div>` : ''}
-                        <div style="font-size:0.8em;color:#94a3b8;margin-top:2px;">${r.status === 'active' ? '用药中' : '已结束'}</div>
-                    </div>
-                `).join('')}
+                ${records.length === 0 ? '<p class="text-muted" style="text-align:center;padding:10px;">暂无处方记录</p>' : `
+                <table style="width:100%;border-collapse:collapse;font-size:0.9em;">
+                    <thead>
+                        <tr style="background:#f1f5f9;color:#475569;">
+                            <th style="padding:10px 8px;text-align:left;font-weight:600;border-bottom:2px solid #e2e8f0;">添加人</th>
+                            <th style="padding:10px 8px;text-align:left;font-weight:600;border-bottom:2px solid #e2e8f0;">数量</th>
+                            <th style="padding:10px 8px;text-align:left;font-weight:600;border-bottom:2px solid #e2e8f0;">有效期</th>
+                            <th style="padding:10px 8px;text-align:left;font-weight:600;border-bottom:2px solid #e2e8f0;">添加日期</th>
+                            <th style="padding:10px 8px;text-align:left;font-weight:600;border-bottom:2px solid #e2e8f0;">关联处方</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${records.map(r => {
+                            const validRange = [r.startDate, r.endDate].filter(Boolean).join(' ~ ');
+                            return `
+                            <tr style="border-bottom:1px solid #f1f5f9;">
+                                <td style="padding:10px 8px;">${r.createdByName || '-'}</td>
+                                <td style="padding:10px 8px;">${r.quantity != null ? r.quantity : '-'}</td>
+                                <td style="padding:10px 8px;">${validRange || '-'}</td>
+                                <td style="padding:10px 8px;">${r.createdAt || '-'}</td>
+                                <td style="padding:10px 8px;">${r.recordNo && r.recordId ? `<a style="color:#2b7a78;text-decoration:underline;cursor:pointer;" onclick="App.viewRecord('${r.recordId}')">${r.recordNo}</a>` : '-'}</td>
+                            </tr>`;
+                        }).join('')}
+                    </tbody>
+                </table>`}
             </div>`;
         } catch (err) {
             const el = document.getElementById('drugDetailContent');
@@ -1746,22 +2280,33 @@ const PageElderDetail = {
             const relationMap = { self: '本人', parent: '父母', spouse_parent: '公婆/岳父母', spouse: '配偶', other: '其他' };
             const el = document.getElementById('elderDetailContent');
             if (!el) return;
+
+            const user = App.state.user;
+            const isSelf = e.relation === 'self' && e.user_id === user?.id;
+            const displayPhone = e.phone || e.user_phone || (isSelf ? (user?.phone || '') : '');
+            const relationLabel = isSelf ? '本人' : (e.relation === 'self' ? '成员' : (relationMap[e.relation] || '其他'));
+            const displayBirth = e.birth_date ? formatDate(e.birth_date) : '';
+            const hasAnyInfo = e.blood_type || displayPhone || e.allergies || e.conditions || displayBirth;
+
             el.innerHTML = `
             <div class="card">
                 <div style="display:flex;align-items:center;gap:16px;margin-bottom:12px;">
                     <div style="width:64px;height:64px;border-radius:50%;background:#d1e0e8;display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:700;">${e.avatar || e.name.charAt(0)}</div>
                     <div>
                         <div style="font-weight:700;font-size:20px;">${e.name}</div>
-                        <div class="text-muted">${e.gender || '未知'} · ${calcAge(e.birth_date) != null ? calcAge(e.birth_date) : (e.age || '-')}岁 · ${relationMap[e.relation] || '其他'}</div>
+                        <div class="text-muted">${e.gender || '未知'} · ${calcAge(e.birth_date) != null ? calcAge(e.birth_date) : (e.age || '-')}岁 · ${relationLabel}</div>
                     </div>
                 </div>
             </div>
             <div class="card">
                 <div class="card-title"><i class="fas fa-info-circle"></i> 基本信息</div>
-                ${e.bloodType ? `<div class="metric-row"><span class="metric-name">血型</span><span class="metric-value">${e.bloodType}</span></div>` : ''}
-                ${e.phone ? `<div class="metric-row"><span class="metric-name">电话</span><span class="metric-value">${e.phone}</span></div>` : ''}
+                ${hasAnyInfo ? `
+                ${displayBirth ? `<div class="metric-row"><span class="metric-name">出生日期</span><span class="metric-value">${displayBirth}</span></div>` : ''}
+                ${e.blood_type ? `<div class="metric-row"><span class="metric-name">血型</span><span class="metric-value">${e.blood_type}</span></div>` : ''}
+                ${displayPhone ? `<div class="metric-row"><span class="metric-name">电话</span><span class="metric-value">${displayPhone}</span></div>` : ''}
                 ${e.allergies ? `<div class="metric-row"><span class="metric-name">过敏史</span><span class="metric-value">${e.allergies}</span></div>` : ''}
                 ${e.conditions ? `<div class="metric-row"><span class="metric-name">基础疾病</span><span class="metric-value">${e.conditions}</span></div>` : ''}
+                ` : '<div style="color:#94a3b8;font-size:13px;padding:4px 0;">暂无基本信息</div>'}
             </div>
             ${e.relation !== 'self' ? `<button class="btn-danger" onclick="App.deleteElder('${e.id}')">删除档案</button>` : ''}`;
         } catch (err) {

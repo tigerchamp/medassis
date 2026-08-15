@@ -2,6 +2,7 @@ const { getPool } = require('../config/database');
 const { v4: uuidv4 } = require('uuid');
 const { resolveDrugCode } = require('../utils/drugLibrary');
 const { getEntityFiles, setEntityFiles, deleteEntityFiles } = require('../utils/entityFiles');
+const { familyAccessFilter } = require('../utils/familyAccess');
 
 function fmtDateTime(d) {
   if (d instanceof Date) {
@@ -76,13 +77,13 @@ async function getMedications(req, res) {
     const userId = req.user.id;
     const { elderId, active } = req.query;
 
-    // 查询：当前家庭的用药 + self 档案的用药（跨家庭共享）
+    // 查询：当前家庭的用药 + 家庭组成员 self 档案的用药（跨家庭共享）
+    const access = familyAccessFilter(familyId, 'm.');
     let query = `SELECT m.*, COALESCE(d.specification, m.specification) as specification
       FROM medications m
       LEFT JOIN drugs d ON m.drug_code COLLATE utf8mb4_unicode_ci = d.code
-      WHERE (m.family_id = ?
-         OR m.elder_id IN (SELECT id FROM elders WHERE user_id = ? AND relation = 'self'))`;
-    const params = [familyId, userId];
+      WHERE (${access.sql})`;
+    const params = access.params;
 
     if (elderId) {
       query += ' AND m.elder_id = ?';
@@ -115,15 +116,13 @@ async function getMedication(req, res) {
     const familyId = req.familyId;
     const userId = req.user.id;
 
+    const access = familyAccessFilter(familyId, 'm.');
     const [medications] = await getPool().query(
       `SELECT m.*, COALESCE(d.specification, m.specification) as specification
        FROM medications m
        LEFT JOIN drugs d ON m.drug_code COLLATE utf8mb4_unicode_ci = d.code
-       WHERE m.id = ? AND (
-         m.family_id = ?
-         OR m.elder_id IN (SELECT id FROM elders WHERE user_id = ? AND relation = 'self')
-       )`,
-      [id, familyId, userId]
+       WHERE m.id = ? AND (${access.sql})`,
+      [id, ...access.params]
     );
 
     if (medications.length === 0) {
@@ -152,12 +151,17 @@ async function addMedication(req, res) {
       return res.status(400).json({ error: '药品名称不能为空' });
     }
 
-    // 检查老人是否存在（当前家庭的 OR self 档案跨家庭共享）
+    // 检查老人是否存在（当前家庭的 OR 家庭组成员 self 档案跨家庭共享）
     const [elders] = await getPool().query(`
       SELECT id FROM elders WHERE id = ? AND (
-        family_id = ? OR (user_id = ? AND relation = 'self')
+        family_id = ?
+        OR (relation = 'self' AND user_id IN (
+          SELECT uf.user_id FROM user_families uf WHERE uf.family_id = ?
+          UNION
+          SELECT u.id FROM users u WHERE u.family_id = ?
+        ))
       )
-    `, [elderId, familyId, req.user.id]);
+    `, [elderId, familyId, familyId, familyId]);
     if (elders.length === 0) {
       return res.status(400).json({ error: '老人档案不存在' });
     }
@@ -261,11 +265,10 @@ async function updateMedication(req, res) {
     const userId = req.user.id;
     const { elderId, drugCode, name, dose, frequency, times, startDate, endDate, note, reminder, status, fileIds } = req.body;
 
+    const access = familyAccessFilter(familyId);
     const [medications] = await getPool().query(`
-      SELECT * FROM medications WHERE id = ? AND (
-        family_id = ? OR elder_id IN (SELECT id FROM elders WHERE user_id = ? AND relation = 'self')
-      )
-    `, [id, familyId, userId]);
+      SELECT * FROM medications WHERE id = ? AND (${access.sql})
+    `, [id, ...access.params]);
     if (medications.length === 0) {
       return res.status(404).json({ error: '用药记录不存在' });
     }
@@ -322,13 +325,11 @@ async function deleteMedication(req, res) {
   try {
     const { id } = req.params;
     const familyId = req.familyId;
-    const userId = req.user.id;
 
+    const access = familyAccessFilter(familyId);
     const [medications] = await getPool().query(`
-      SELECT * FROM medications WHERE id = ? AND (
-        family_id = ? OR elder_id IN (SELECT id FROM elders WHERE user_id = ? AND relation = 'self')
-      )
-    `, [id, familyId, userId]);
+      SELECT * FROM medications WHERE id = ? AND (${access.sql})
+    `, [id, ...access.params]);
     if (medications.length === 0) {
       return res.status(404).json({ error: '用药记录不存在' });
     }
@@ -357,11 +358,10 @@ async function logMedication(req, res) {
       return res.status(400).json({ error: '用药ID和计划时间不能为空' });
     }
 
+    const access = familyAccessFilter(familyId);
     const [meds] = await getPool().query(`
-      SELECT id FROM medications WHERE id = ? AND (
-        family_id = ? OR elder_id IN (SELECT id FROM elders WHERE user_id = ? AND relation = 'self')
-      )
-    `, [medId, familyId, userId]);
+      SELECT id FROM medications WHERE id = ? AND (${access.sql})
+    `, [medId, ...access.params]);
     if (meds.length === 0) {
       return res.status(404).json({ error: '用药记录不存在' });
     }

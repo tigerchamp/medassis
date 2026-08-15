@@ -110,6 +110,8 @@ body{font-family:'Inter',-apple-system,sans-serif;background:#f4f7fc;display:fle
 .nav-item i{font-size:22px}
 .nav-item.active{color:#0b3b5c;font-weight:600;background:#eaf3f2}
 .nav-item.active i{color:#1e6b68}
+.nav-item.disabled{color:#cbd5e1;cursor:not-allowed;opacity:.6;pointer-events:auto}
+.nav-item.disabled i{color:#cbd5e1}
 .nav-item.camera-btn{background:#2b7a78;color:#fff;border-radius:50%;width:60px;height:60px;padding:0;margin-top:-16px;box-shadow:0 4px 12px rgba(43,122,120,.3);justify-content:center}
 .nav-item.camera-btn i{font-size:28px;color:#fff}
 .nav-item.camera-btn:active{transform:scale(.92)}

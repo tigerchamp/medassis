@@ -7,14 +7,19 @@ async function getElders(req, res) {
     const familyId = req.familyId;
     const userId = req.user.id;
 
-    // 查询：当前家庭的成员 + 当前用户的 self 档案（跨家庭共享）
+    // 查询：当前家庭的成员 + 家庭组所有成员的 self 档案（跨家庭共享）
     // self 档案根据 user_id + relation='self' 定位，不依赖 family_id
+    // 通过 user_families 表找到当前家庭组的所有用户，包含他们的 self 档案
     const [elders] = await getPool().query(`
       SELECT * FROM elders
       WHERE family_id = ?
-         OR (user_id = ? AND relation = 'self')
+         OR (relation = 'self' AND user_id IN (
+           SELECT uf.user_id FROM user_families uf WHERE uf.family_id = ?
+           UNION
+           SELECT u.id FROM users u WHERE u.family_id = ?
+         ))
       ORDER BY FIELD(relation, 'self') DESC, created_at DESC
-    `, [familyId, userId]);
+    `, [familyId, familyId, familyId]);
 
     // 获取每个成员的病历和用药数量
     const eldersWithCount = await Promise.all(elders.map(async (elder) => {
@@ -47,14 +52,22 @@ async function getElder(req, res) {
   try {
     const { id } = req.params;
     const familyId = req.familyId;
-    const userId = req.user.id;
 
-    // 查询：当前家庭的成员 OR 当前用户的 self 档案
+    // 查询：当前家庭的成员 OR 家庭组成员的 self 档案
+    // LEFT JOIN users 获取 self 档案关联的用户手机号
     const [elders] = await getPool().query(`
-      SELECT * FROM elders WHERE id = ? AND (
-        family_id = ? OR (user_id = ? AND relation = 'self')
+      SELECT e.*, u.phone AS user_phone
+      FROM elders e
+      LEFT JOIN users u ON e.user_id = u.id
+      WHERE e.id = ? AND (
+        e.family_id = ?
+        OR (e.relation = 'self' AND e.user_id IN (
+          SELECT uf.user_id FROM user_families uf WHERE uf.family_id = ?
+          UNION
+          SELECT u2.id FROM users u2 WHERE u2.family_id = ?
+        ))
       )
-    `, [id, familyId, userId]);
+    `, [id, familyId, familyId, familyId]);
 
     if (elders.length === 0) {
       return res.status(404).json({ error: '老人档案不存在' });
@@ -103,12 +116,17 @@ async function updateElder(req, res) {
     const userId = req.user.id;
     const { name, gender, age, birthDate, bloodType, allergies, conditions, phone, avatar, relation } = req.body;
 
-    // 检查权限：当前家庭的成员 OR 当前用户的 self 档案
+    // 检查权限：当前家庭的成员 OR 家庭组成员的 self 档案
     const [elders] = await getPool().query(`
       SELECT * FROM elders WHERE id = ? AND (
-        family_id = ? OR (user_id = ? AND relation = 'self')
+        family_id = ?
+        OR (relation = 'self' AND user_id IN (
+          SELECT uf.user_id FROM user_families uf WHERE uf.family_id = ?
+          UNION
+          SELECT u.id FROM users u WHERE u.family_id = ?
+        ))
       )
-    `, [id, familyId, userId]);
+    `, [id, familyId, familyId, familyId]);
     if (elders.length === 0) {
       return res.status(404).json({ error: '成员档案不存在' });
     }
@@ -152,12 +170,17 @@ async function deleteElder(req, res) {
     const familyId = req.familyId;
     const userId = req.user.id;
 
-    // 检查权限：当前家庭的成员 OR 当前用户的 self 档案
+    // 检查权限：当前家庭的成员 OR 家庭组成员的 self 档案
     const [elders] = await getPool().query(`
       SELECT * FROM elders WHERE id = ? AND (
-        family_id = ? OR (user_id = ? AND relation = 'self')
+        family_id = ?
+        OR (relation = 'self' AND user_id IN (
+          SELECT uf.user_id FROM user_families uf WHERE uf.family_id = ?
+          UNION
+          SELECT u.id FROM users u WHERE u.family_id = ?
+        ))
       )
-    `, [id, familyId, userId]);
+    `, [id, familyId, familyId, familyId]);
     if (elders.length === 0) {
       return res.status(404).json({ error: '老人档案不存在' });
     }

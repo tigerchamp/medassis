@@ -98,7 +98,9 @@ async function login(req, res) {
     let userFamilies = [];
     try {
       const [ufRows] = await getPool().query(`
-        SELECT f.id, f.name, f.invite_code, uf.role, uf.is_primary, uf.joined_at
+        SELECT f.id, f.name, f.invite_code, uf.role, uf.is_primary, uf.joined_at,
+               (SELECT u2.id FROM users u2 WHERE u2.family_id = f.id AND u2.role = 'admin' LIMIT 1) as creator_id,
+               (SELECT u2.name FROM users u2 WHERE u2.family_id = f.id AND u2.role = 'admin' LIMIT 1) as creator_name
         FROM user_families uf INNER JOIN families f ON f.id = uf.family_id
         WHERE uf.user_id = ? ORDER BY uf.is_primary DESC, uf.joined_at ASC
       `, [user.id]);
@@ -144,6 +146,7 @@ async function getProfile(req, res) {
     try {
       const [rows] = await getPool().query(`
         SELECT f.id, f.name, f.invite_code, uf.role, uf.is_primary, uf.joined_at,
+               (SELECT u2.id FROM users u2 WHERE u2.family_id = f.id AND u2.role = 'admin' LIMIT 1) as creator_id,
                (SELECT u2.name FROM users u2 WHERE u2.family_id = f.id AND u2.role = 'admin' LIMIT 1) as creator_name
         FROM user_families uf
         INNER JOIN families f ON f.id = uf.family_id
@@ -156,6 +159,7 @@ async function getProfile(req, res) {
       if (user.family_id) {
         const [rows] = await getPool().query(`
           SELECT f.id, f.name, f.invite_code, 'member' as role, 1 as is_primary, f.created_at as joined_at,
+                 (SELECT u2.id FROM users u2 WHERE u2.family_id = f.id AND u2.role = 'admin' LIMIT 1) as creator_id,
                  (SELECT u2.name FROM users u2 WHERE u2.family_id = f.id AND u2.role = 'admin' LIMIT 1) as creator_name
           FROM families f WHERE f.id = ?
         `, [user.family_id]);
@@ -300,7 +304,17 @@ async function getFamilyMembers(req, res) {
 async function updateFamily(req, res) {
   try {
     const familyId = req.familyId;
+    const userId = req.user.id;
     const { name } = req.body;
+
+    // 仅家庭创建者（admin 且 family_id 匹配的用户）可以修改家庭名称
+    const [admins] = await getPool().query(
+      'SELECT id FROM users WHERE family_id = ? AND role = ?',
+      [familyId, 'admin']
+    );
+    if (admins.length === 0 || admins[0].id !== userId) {
+      return res.status(403).json({ error: '仅家庭创建者可修改家庭信息' });
+    }
 
     if (name) {
       await getPool().query('UPDATE families SET name = ? WHERE id = ?', [name, familyId]);

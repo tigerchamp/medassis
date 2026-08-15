@@ -2,6 +2,7 @@ const { getPool } = require('../config/database');
 const { v4: uuidv4 } = require('uuid');
 const { resolveDrugCode } = require('../utils/drugLibrary');
 const { getEntityFiles, setEntityFiles, deleteEntityFiles } = require('../utils/entityFiles');
+const { familyAccessFilter } = require('../utils/familyAccess');
 
 function fmtDateTime(d) {
   if (d instanceof Date) {
@@ -59,6 +60,8 @@ function computeStatus(expiryDate, currentStatus) {
 }
 
 function formatDrug(d) {
+  // 分类优先：type1(用户友好名如"肠胃用药") > category(药理学分类) > "其他"
+  let category = d.type1 || d.category || '';
   return {
     id: d.id,
     familyId: d.family_id,
@@ -78,6 +81,7 @@ function formatDrug(d) {
     sourcePrescriptionId: d.source_prescription_id,
     sourceMedicationId: d.source_medication_id,
     note: d.note,
+    category: category,
     createdAt: fmtDateTime(d.created_at)
   };
 }
@@ -88,11 +92,12 @@ async function getDrugs(req, res) {
     const familyId = req.familyId;
     const { status } = req.query;
 
-    let query = `SELECT di.*, d.spec_dosage, d.spec_dosage_unit, d.unit_capacity, d.unit_capacity_unit
+    const access = familyAccessFilter(familyId, 'di.');
+    let query = `SELECT di.*, d.spec_dosage, d.spec_dosage_unit, d.unit_capacity, d.unit_capacity_unit, d.category, d.type1, d.category, d.type1
       FROM drug_inventory di
       LEFT JOIN drugs d ON di.drug_code COLLATE utf8mb4_unicode_ci = d.code
-      WHERE di.family_id = ?`;
-    const params = [familyId];
+      WHERE (${access.sql})`;
+    const params = access.params;
 
     if (status) {
       query += ' AND di.status = ?';
@@ -105,8 +110,9 @@ async function getDrugs(req, res) {
     const formattedDrugs = drugs.map(formatDrug);
 
     // 统计预警
-    const [expired] = await getPool().query('SELECT COUNT(*) as count FROM drug_inventory WHERE family_id = ? AND status = ?', [familyId, 'expired']);
-    const [expiring] = await getPool().query('SELECT COUNT(*) as count FROM drug_inventory WHERE family_id = ? AND status = ?', [familyId, 'expiring_soon']);
+    const cntAccess = familyAccessFilter(familyId);
+    const [expired] = await getPool().query(`SELECT COUNT(*) as count FROM drug_inventory WHERE (${cntAccess.sql}) AND status = ?`, [...cntAccess.params, 'expired']);
+    const [expiring] = await getPool().query(`SELECT COUNT(*) as count FROM drug_inventory WHERE (${cntAccess.sql}) AND status = ?`, [...cntAccess.params, 'expiring_soon']);
 
     res.json({
       drugs: formattedDrugs,
@@ -127,12 +133,13 @@ async function getDrug(req, res) {
     const { id } = req.params;
     const familyId = req.familyId;
 
+    const access = familyAccessFilter(familyId, 'di.');
     const [drugs] = await getPool().query(
-      `SELECT di.*, d.spec_dosage, d.spec_dosage_unit, d.unit_capacity, d.unit_capacity_unit
+      `SELECT di.*, d.spec_dosage, d.spec_dosage_unit, d.unit_capacity, d.unit_capacity_unit, d.category, d.type1
        FROM drug_inventory di
        LEFT JOIN drugs d ON di.drug_code COLLATE utf8mb4_unicode_ci = d.code
-       WHERE di.id = ? AND di.family_id = ?`,
-      [id, familyId]
+       WHERE di.id = ? AND (${access.sql})`,
+      [id, ...access.params]
     );
 
     if (drugs.length === 0) {
@@ -194,7 +201,7 @@ async function addDrug(req, res) {
         [newQuantity, quantityUnit || existingDrug.quantity_unit || null, req.user.id, existingDrug.id]
       );
       const [updated] = await getPool().query(
-        `SELECT di.*, d.spec_dosage, d.spec_dosage_unit, d.unit_capacity, d.unit_capacity_unit
+        `SELECT di.*, d.spec_dosage, d.spec_dosage_unit, d.unit_capacity, d.unit_capacity_unit, d.category, d.type1
          FROM drug_inventory di LEFT JOIN drugs d ON di.drug_code COLLATE utf8mb4_unicode_ci = d.code WHERE di.id = ?`,
         [existingDrug.id]
       );
@@ -214,7 +221,7 @@ async function addDrug(req, res) {
     }
 
     const [drugs] = await getPool().query(
-      `SELECT di.*, d.spec_dosage, d.spec_dosage_unit, d.unit_capacity, d.unit_capacity_unit
+      `SELECT di.*, d.spec_dosage, d.spec_dosage_unit, d.unit_capacity, d.unit_capacity_unit, d.category, d.type1
        FROM drug_inventory di LEFT JOIN drugs d ON di.drug_code COLLATE utf8mb4_unicode_ci = d.code WHERE di.id = ?`,
       [id]
     );
@@ -233,7 +240,8 @@ async function updateDrug(req, res) {
     const familyId = req.familyId;
     const { elderId, drugCode, name, specification, quantity, quantityUnit, expiryDate, note, fileIds } = req.body;
 
-    const [drugs] = await getPool().query('SELECT * FROM drug_inventory WHERE id = ? AND family_id = ?', [id, familyId]);
+    const access = familyAccessFilter(familyId);
+    const [drugs] = await getPool().query(`SELECT * FROM drug_inventory WHERE id = ? AND (${access.sql})`, [id, ...access.params]);
     if (drugs.length === 0) {
       return res.status(404).json({ error: '药品不存在' });
     }
@@ -289,7 +297,7 @@ async function updateDrug(req, res) {
     }
 
     const [updated] = await getPool().query(
-      `SELECT di.*, d.spec_dosage, d.spec_dosage_unit, d.unit_capacity, d.unit_capacity_unit
+      `SELECT di.*, d.spec_dosage, d.spec_dosage_unit, d.unit_capacity, d.unit_capacity_unit, d.category, d.type1
        FROM drug_inventory di LEFT JOIN drugs d ON di.drug_code COLLATE utf8mb4_unicode_ci = d.code WHERE di.id = ?`,
       [id]
     );
@@ -307,17 +315,118 @@ async function deleteDrug(req, res) {
     const { id } = req.params;
     const familyId = req.familyId;
 
-    const [drugs] = await getPool().query('SELECT * FROM drug_inventory WHERE id = ? AND family_id = ?', [id, familyId]);
+    const access = familyAccessFilter(familyId);
+    const [drugs] = await getPool().query(`SELECT * FROM drug_inventory WHERE id = ? AND (${access.sql})`, [id, ...access.params]);
     if (drugs.length === 0) {
       return res.status(404).json({ error: '药品不存在' });
     }
 
-    await getPool().query('DELETE FROM drug_inventory WHERE id = ? AND family_id = ?', [id, familyId]);
+    await getPool().query('DELETE FROM drug_inventory WHERE id = ?', [id]);
     await deleteEntityFiles('drug_inventory', id);
     res.json({ message: '删除成功' });
   } catch (err) {
     console.error('Delete drug error:', err);
     res.status(500).json({ error: '删除药品失败' });
+  }
+}
+
+// 获取当前用户的长期用药设置（带药箱详情）
+async function getChronicMeds(req, res) {
+  try {
+    const userId = req.user.id;
+    const familyId = req.familyId;
+
+    const access = familyAccessFilter(familyId, 'di.');
+    // 查询：长期用药表 LEFT JOIN 药箱（确保药箱存在且有权限）
+    const [rows] = await getPool().query(
+      `SELECT cm.id as cm_id, cm.drug_inventory_id, cm.drug_code, cm.drug_name, cm.sort_order,
+              di.*, d.spec_dosage, d.spec_dosage_unit, d.unit_capacity, d.unit_capacity_unit, d.category, d.type1
+       FROM chronic_medications cm
+       LEFT JOIN drug_inventory di ON cm.drug_inventory_id = di.id
+       LEFT JOIN drugs d ON di.drug_code COLLATE utf8mb4_unicode_ci = d.code
+       WHERE cm.user_id = ? AND cm.family_id = ? AND (${access.sql})
+       ORDER BY cm.sort_order ASC, cm.created_at ASC`,
+      [userId, familyId, ...access.params]
+    );
+
+    const chronicList = [];
+    rows.forEach(r => {
+      if (r.id) { // 药箱记录存在（没被删掉）才返回
+        chronicList.push({
+          cmId: r.cm_id,
+          drugInventoryId: r.drug_inventory_id,
+          sortOrder: r.sort_order,
+          drug: formatDrug(r)
+        });
+      }
+    });
+    res.json({ chronicMeds: chronicList });
+  } catch (err) {
+    console.error('Get chronic meds error:', err);
+    res.status(500).json({ error: '获取长期用药失败' });
+  }
+}
+
+// 批量保存长期用药（传入 drug_inventory_ids 数组，全量覆盖）
+async function saveChronicMeds(req, res) {
+  try {
+    const userId = req.user.id;
+    const familyId = req.familyId;
+    const { drugInventoryIds, elderId } = req.body;
+    const ids = Array.isArray(drugInventoryIds) ? drugInventoryIds : [];
+
+    const pool = getPool();
+
+    // 校验：确保每个 drug_inventory_id 都属于当前家庭且有权限
+    if (ids.length > 0) {
+      const placeholders = ids.map(() => '?').join(',');
+      const access = familyAccessFilter(familyId, 'di.');
+      const [validRows] = await pool.query(
+        `SELECT di.id, di.drug_code, di.name FROM drug_inventory di 
+         WHERE di.id IN (${placeholders}) AND (${access.sql})`,
+        [...ids, ...access.params]
+      );
+      if (validRows.length !== ids.length) {
+        // 找出非法ID
+        const validIds = new Set(validRows.map(r => r.id));
+        const invalid = ids.filter(id => !validIds.has(id));
+        return res.status(400).json({ error: `药品ID无效或无权限: ${invalid.join(', ')}` });
+      }
+
+      // 在事务里删除旧记录并写入新记录
+      const conn = await pool.getConnection();
+      try {
+        await conn.beginTransaction();
+        await conn.query(
+          'DELETE FROM chronic_medications WHERE user_id = ? AND family_id = ?',
+          [userId, familyId]
+        );
+        const { v4: uuidv4 } = require('uuid');
+        for (let i = 0; i < validRows.length; i++) {
+          const r = validRows[i];
+          await conn.query(
+            `INSERT INTO chronic_medications (id, user_id, family_id, elder_id, drug_inventory_id, drug_code, drug_name, sort_order)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            [uuidv4(), userId, familyId, elderId || null, r.id, r.drug_code || null, r.name, i]
+          );
+        }
+        await conn.commit();
+      } catch (txErr) {
+        await conn.rollback();
+        throw txErr;
+      } finally {
+        conn.release();
+      }
+    } else {
+      // 空数组：清空所有
+      await pool.query('DELETE FROM chronic_medications WHERE user_id = ? AND family_id = ?', [userId, familyId]);
+    }
+
+    // 返回更新后的列表
+    return getChronicMeds(req, res);
+  } catch (err) {
+    console.error('Save chronic meds error:', err);
+    res.status(500).json({ error: '保存长期用药失败' });
   }
 }
 
@@ -327,7 +436,9 @@ module.exports = {
   addDrug,
   updateDrug,
   deleteDrug,
-  getDrugRecords
+  getDrugRecords,
+  getChronicMeds,
+  saveChronicMeds
 };
 
 // 获取药品库存的添加记录（来源于 medications 表的同 drug_code 记录）
@@ -337,11 +448,12 @@ async function getDrugRecords(req, res) {
     const familyId = req.familyId;
 
     // 先获取药品库存信息
+    const access = familyAccessFilter(familyId, 'di.');
     const [drugs] = await getPool().query(
-      `SELECT di.*, d.spec_dosage, d.spec_dosage_unit, d.unit_capacity, d.unit_capacity_unit
+      `SELECT di.*, d.spec_dosage, d.spec_dosage_unit, d.unit_capacity, d.unit_capacity_unit, d.category, d.type1
        FROM drug_inventory di LEFT JOIN drugs d ON di.drug_code COLLATE utf8mb4_unicode_ci = d.code
-       WHERE di.id = ? AND di.family_id = ?`,
-      [id, familyId]
+       WHERE di.id = ? AND (${access.sql})`,
+      [id, ...access.params]
     );
     if (drugs.length === 0) {
       return res.status(404).json({ error: '药品不存在' });
@@ -353,13 +465,20 @@ async function getDrugRecords(req, res) {
     // 查找所有关联的用药记录（处方来源）
     let medicationRecords = [];
     if (drugCode) {
+      const medAccess = familyAccessFilter(familyId, 'm.');
       const [meds] = await getPool().query(
-        `SELECT m.*, COALESCE(d.specification, m.specification) as specification, e.name as elder_name FROM medications m
+        `SELECT m.*, COALESCE(d.specification, m.specification) as specification, e.name as elder_name,
+                COALESCE(u.name, eu.name) as created_by_name, r.id as record_id, r.record_no as record_no
+         FROM medications m
          LEFT JOIN drugs d ON m.drug_code COLLATE utf8mb4_unicode_ci = d.code
          LEFT JOIN elders e ON m.elder_id = e.id
-         WHERE m.family_id = ? AND m.drug_code = ?
+         LEFT JOIN users u ON m.created_by = u.id
+         LEFT JOIN elders ee ON m.elder_id = ee.id
+         LEFT JOIN users eu ON ee.user_id = eu.id
+         LEFT JOIN records r ON m.source_prescription_id = r.id
+         WHERE (${medAccess.sql}) AND m.drug_code = ?
          ORDER BY m.created_at DESC`,
-        [familyId, drugCode]
+        [...medAccess.params, drugCode]
       );
       medicationRecords = meds.map(m => ({
         id: m.id,
@@ -369,12 +488,16 @@ async function getDrugRecords(req, res) {
         specification: m.specification || '',
         dose: m.dose,
         quantity: m.quantity != null ? Number(m.quantity) : 1,
+        quantityUnit: m.quantity_unit || '',
         frequency: m.frequency,
         startDate: fmtDate(m.start_date),
         endDate: fmtDate(m.end_date),
         note: m.note,
         status: m.status,
-        createdAt: fmtDateTime(m.created_at)
+        createdByName: m.created_by_name || '',
+        createdAt: fmtDate(m.created_at),
+        recordId: m.record_id || '',
+        recordNo: m.record_no || ''
       }));
     }
 

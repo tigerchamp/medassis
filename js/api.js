@@ -77,6 +77,8 @@ const Api = {
         add: (d) => api('/drugs', { method: 'POST', body: JSON.stringify(d) }),
         update: (id, d) => api(`/drugs/${id}`, { method: 'PUT', body: JSON.stringify(d) }),
         delete: (id) => api(`/drugs/${id}`, { method: 'DELETE' }),
+        getChronic: () => api('/drugs/chronic/list'),
+        saveChronic: (drugInventoryIds, elderId) => api('/drugs/chronic/save', { method: 'POST', body: JSON.stringify({ drugInventoryIds, elderId }) }),
     },
     drugLibrary: {
         search: (q, limit = 20) => api(`/drug-library/search?q=${encodeURIComponent(q)}&limit=${limit}`),
@@ -96,6 +98,11 @@ const Api = {
         search: (q, limit = 20) => api(`/departments/search?q=${encodeURIComponent(q)}&limit=${limit}`),
         check: (name) => api(`/departments/check?name=${encodeURIComponent(name)}`),
         add: (name, abbreviation, alias, category) => api('/departments/add', { method: 'POST', body: JSON.stringify({ name, abbreviation, alias, category }) }),
+    },
+    feedback: {
+        save: (data) => api('/feedback/save', { method: 'POST', body: JSON.stringify(data) }),
+        list: () => api('/feedback/list'),
+        search: (q) => api(`/feedback/search?q=${encodeURIComponent(q)}`),
     },
     search: (keyword) => api(`/search?keyword=${encodeURIComponent(keyword)}`),
     upload: async (files) => {

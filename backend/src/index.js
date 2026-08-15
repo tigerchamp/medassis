@@ -17,6 +17,7 @@ const drugRoutes = require('./routes/drugs');
 const drugLibraryRoutes = require('./routes/drugLibrary');
 const hospitalRoutes = require('./routes/hospitals');
 const departmentRoutes = require('./routes/departments');
+const feedbackRoutes = require('./routes/feedback');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -45,6 +46,7 @@ app.use('/api/drugs', drugRoutes);
 app.use('/api/drug-library', drugLibraryRoutes);
 app.use('/api/hospitals', hospitalRoutes);
 app.use('/api/departments', departmentRoutes);
+app.use('/api/feedback', feedbackRoutes);
 
 // 健康检查
 app.get('/api/health', (req, res) => {

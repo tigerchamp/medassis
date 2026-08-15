@@ -1402,10 +1402,42 @@ const App = {
         if (memberNameEl) {
             memberNameEl.textContent = current ? current.name : '';
         }
+        this.updateNavState();
+    },
+
+    _isViewingSelf() {
+        const current = this.getCurrentMember();
+        return current && current.relation === 'self' && current.user_id === this.state.user?.id;
+    },
+
+    updateNavState() {
+        const profileBtn = document.querySelector('.bottom-nav .nav-item[data-page="profile"]');
+        if (!profileBtn) return;
+        const canViewSelf = this._isViewingSelf();
+        if (!canViewSelf) {
+            profileBtn.classList.add('disabled');
+            profileBtn.removeAttribute('onclick');
+            profileBtn.addEventListener('click', this._disabledProfileHandler);
+        } else {
+            profileBtn.classList.remove('disabled');
+            profileBtn.setAttribute('onclick', "App.switchPage('profile')");
+            profileBtn.removeEventListener('click', this._disabledProfileHandler);
+        }
+    },
+
+    _disabledProfileHandler(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        App.toast('查看他人资料时不可进入"我的"页面');
     },
 
     switchPage(page) {
         if (!this.state.user && page !== 'login') { this.switchPage('login'); return; }
+        // 非本人时禁止进入 profile 页面
+        if (page === 'profile' && !this._isViewingSelf()) {
+            this.toast('查看他人资料时不可进入"我的"页面');
+            return;
+        }
         if (page !== 'login' && page !== this.state.currentPage) {
             this.state.pageHistory.push(this.state.currentPage);
         }
@@ -1431,7 +1463,7 @@ const App = {
     },
 
     _getPageObj(page) {
-        const map = { drugInfo: PageDrugInfo, drugDetail: PageDrugDetail, home: PageHome, records: PageRecords, pharmacy: PagePharmacy, profile: PageProfile, messages: PageMessages, family: PageFamily, joinFamily: PageJoinFamily, addMed: PageAddMed, addRecord: PageAddRecord, addDrug: PageAddDrug, recordDetail: PageRecordDetail, elderDetail: PageElderDetail, profileEdit: PageProfileEdit, medEdit: PageMedEdit, medHistory: PageMedHistory, login: PageLogin };
+        const map = { drugInfo: PageDrugInfo, drugDetail: PageDrugDetail, home: PageHome, records: PageRecords, pharmacy: PagePharmacy, profile: PageProfile, messages: PageMessages, family: PageFamily, joinFamily: PageJoinFamily, addMed: PageAddMed, addRecord: PageAddRecord, addDrug: PageAddDrug, recordDetail: PageRecordDetail, elderDetail: PageElderDetail, profileEdit: PageProfileEdit, medEdit: PageMedEdit, medHistory: PageMedHistory, chronicMeds: PageChronicMeds, feedback: PageFeedback, feedbackList: PageFeedbackList, login: PageLogin };
         return map[page];
     },
 
@@ -1455,6 +1487,9 @@ const App = {
             profileEdit: () => PageProfileEdit.render(),
             medEdit: () => PageMedEdit.render(),
             medHistory: () => PageMedHistory.render(),
+            chronicMeds: () => PageChronicMeds.render(),
+            feedback: () => PageFeedback.render(),
+            feedbackList: () => PageFeedbackList.render(),
         };
         return (pages[page] || pages.home)();
     },
@@ -1586,20 +1621,15 @@ const App = {
         } catch {}
         await this.loadData();
         this.updateHeader();
-        if (['home', 'records', 'pharmacy'].includes(this.state.currentPage)) {
-            this.switchPage(this.state.currentPage);
-        }
+        this.switchPage('home');
     },
 
     selectMember(id) {
         this.state.currentMemberId = id;
         document.getElementById('familyDropdown').classList.remove('show');
         this.updateHeader();
-        if (['home', 'records', 'pharmacy'].includes(this.state.currentPage)) {
-            this.switchPage(this.state.currentPage);
-        }
+        this.switchPage('home');
     },
-
     openScanSelector() {
         // 直接调起拍照，不再选择类型（类型由OCR文本自动判定）
         this.startScan();
@@ -2260,19 +2290,41 @@ const App = {
         } catch (err) { this.toast(err.message); }
     },
 
-    // 右上角头像点击：如果当前选择的不是自己，则显示该成员的档案信息
-    // 否则切换到"我的"页面（个人档案）
+    // 右上角头像点击：查看自己时进入"我的"页面；查看他人时显示该成员的基本档案信息
     onAvatarClick() {
         const current = this.getCurrentMember();
         const isSelf = current && current.relation === 'self' && current.user_id === this.state.user?.id;
         if (isSelf) {
             this.switchPage('profile');
         } else if (current) {
-            this.state.currentMemberId = current.id;
             this.switchPage('elderDetail');
         } else {
             this.switchPage('profile');
         }
+    },
+
+    // 页面键 → 中文名（用于留言功能中"当前页面"字段）
+    _pageLabels: {
+        home: '首页', records: '病历', pharmacy: '药箱', profile: '我的',
+        family: '家庭组管理', joinFamily: '加入家庭组', messages: '消息中心',
+        addMed: '添加用药安排', addRecord: '添加记录', addDrug: '添加药品',
+        recordDetail: '记录详情', elderDetail: '成员详情',
+        drugInfo: '药品说明书', drugDetail: '药品详情',
+        profileEdit: '个人信息编辑', medEdit: '编辑用药安排', medHistory: '用药历史',
+        chronicMeds: '长期用药设置', feedback: '留言反馈', feedbackList: '留言列表'
+    },
+    getPageLabel(pageKey) {
+        return this._pageLabels && this._pageLabels[pageKey] ? this._pageLabels[pageKey] : (pageKey || '');
+    },
+    // 兼容旧调用（消息中心已隐藏）
+    openMessages() { this.switchPage('messages'); },
+    // 打开留言页：先记录用户当时所在的页面，再跳转
+    openFeedback() {
+        this._feedbackFromPage = {
+            key: this.state.page || '',
+            name: this.getPageLabel(this.state.page)
+        };
+        this.switchPage('feedback');
     },
 
     async doLogin() {
