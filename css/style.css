@@ -2,7 +2,7 @@
 body{font-family:'Inter',-apple-system,sans-serif;background:#f4f7fc;display:flex;justify-content:center;align-items:center;min-height:100vh;padding:16px}
 .phone-frame{max-width:420px;width:100%;background:#fff;border-radius:40px;box-shadow:0 25px 60px rgba(0,20,40,.12);overflow:hidden;position:relative;height:780px;display:flex;flex-direction:column}
 .app-header{padding:8px 24px 12px;display:flex;justify-content:space-between;align-items:center;background:#fff;border-bottom:1px solid rgba(0,0,0,.03);flex-shrink:0;position:relative}
-.header-left{display:flex;align-items:center;gap:8px}
+.header-left{display:flex;align-items:center;gap:8px;flex-shrink:0;min-width:0}
 .family-selector{display:flex;align-items:center;gap:6px;background:#e8f3f2;padding:6px 14px 6px 12px;border-radius:40px;cursor:pointer;font-weight:600;font-size:16px;color:#1a2639;transition:background .2s;border:none;font-family:inherit}
 .family-selector:hover{background:#d0e6e4}
 .family-selector i{font-size:18px;color:#2b7a78}
@@ -12,13 +12,25 @@ body{font-family:'Inter',-apple-system,sans-serif;background:#f4f7fc;display:fle
 .msg-icon:hover{background:#d0e6e4}
 .msg-icon .badge-dot{position:absolute;top:4px;right:4px;width:10px;height:10px;background:#b91c1c;border-radius:50%;border:2px solid #fff}
 .username{font-weight:600;font-size:16px;color:#1a2639}
-.avatar-icon{font-size:28px;color:#2b7a78;background:#e8f3f2;padding:6px;border-radius:50%;width:44px;height:44px;display:flex;align-items:center;justify-content:center;cursor:pointer}
-.dropdown-menu{position:absolute;top:60px;left:20px;background:#fff;border-radius:20px;box-shadow:0 10px 30px rgba(0,0,0,.15);width:220px;padding:8px 0;z-index:100;display:none;border:1px solid #e2e8f0}
-.dropdown-menu.show{display:block}
+.avatar-icon{position:relative;font-size:22px;color:#fff;padding:0;border-radius:50%;width:40px;height:40px;display:flex;align-items:center;justify-content:center;cursor:pointer;overflow:visible;box-shadow:none;flex-shrink:0;background:#94a3b8}
+.avatar-icon .self-badge{position:absolute;right:-4px;bottom:-4px;background:#2b7a78;color:#fff;font-size:9px;font-weight:700;border-radius:50%;width:18px;height:18px;display:flex;align-items:center;justify-content:center;border:2px solid #fff;line-height:1;z-index:2}
+.dropdown-menu{position:absolute;top:60px;left:20px;background:#fff;border-radius:20px;box-shadow:0 10px 30px rgba(0,0,0,.15);width:220px;padding:8px 0;z-index:100;display:none;border:1px solid #e2e8f0;max-height:420px;overflow-y:auto}
+.dropdown-menu.show{display:block !important}
 .dropdown-item{padding:12px 20px;display:flex;align-items:center;gap:12px;cursor:pointer;font-size:15px;color:#1e293b;border:none;background:none;width:100%;text-align:left;font-family:inherit}
 .dropdown-item:hover{background:#f1f5f9}
-.dropdown-item .avatar-small{width:32px;height:32px;border-radius:50%;background:#d1e0e8;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:#1e3a5f}
+.dropdown-item .avatar-small{position:relative;width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:#fff;overflow:visible;flex-shrink:0}
+.dropdown-item .avatar-small .self-badge{position:absolute;right:-3px;bottom:-3px;background:#2b7a78;color:#fff;font-size:8px;font-weight:700;border-radius:50%;width:15px;height:15px;display:flex;align-items:center;justify-content:center;border:2px solid #fff;line-height:1}
 .dropdown-item .check{margin-left:auto;color:#2b7a78}
+.avatar-bg-male-kid{background:linear-gradient(135deg,#93c5fd,#60a5fa)}
+.avatar-bg-female-kid{background:linear-gradient(135deg,#f9a8d4,#f472b6)}
+.avatar-bg-male-adult{background:linear-gradient(135deg,#60a5fa,#3b82f6)}
+.avatar-bg-female-adult{background:linear-gradient(135deg,#f472b6,#ec4899)}
+.avatar-bg-male-elder{background:linear-gradient(135deg,#94a3b8,#64748b)}
+.avatar-bg-female-elder{background:linear-gradient(135deg,#c084fc,#a855f7)}
+.avatar-bg-unknown{background:#d1e0e8;color:#1e3a5f}
+/* 大头像（用于个人中心页等）*/
+.avatar-large{position:relative;width:68px;height:68px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:32px;color:#fff;overflow:visible;box-shadow:0 4px 14px rgba(0,0,0,.08)}
+.avatar-large .self-badge{position:absolute;right:-2px;bottom:-2px;background:#2b7a78;color:#fff;font-size:10px;font-weight:700;border-radius:50%;width:22px;height:22px;display:flex;align-items:center;justify-content:center;border:2px solid #fff;line-height:1}
 .dropdown-divider{height:1px;background:#e2e8f0;margin:8px 12px}
 .dropdown-label{padding:8px 20px 4px;font-size:12px;color:#94a3b8;font-weight:600;letter-spacing:0.5px;text-transform:uppercase}
 .main-content{flex:1;overflow-y:auto;padding:20px;background:#f8fafd;scroll-behavior:smooth}

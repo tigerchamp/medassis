@@ -591,12 +591,18 @@ function renderImageGallery(images) {
 }
 
 const PageRecordDetail = {
+    _editing: false,
+    _rawRecord: null,
+
     render() {
         this.loadContent();
         return `
         <div class="sub-header">
             <button class="back-btn" onclick="App.switchPage('records')"><i class="fas fa-arrow-left"></i></button>
             <h2>详情</h2>
+            <div style="margin-left:auto;">
+                <button id="recordEditBtn" class="btn-outline" style="width:auto;padding:6px 14px;font-size:13px;" onclick="PageRecordDetail._startEdit()"><i class="fas fa-edit"></i> 编辑</button>
+            </div>
         </div>
         <div id="recordDetailContent"><p class="text-muted" style="text-align:center;padding:40px;">加载中...</p></div>`;
     },
@@ -620,6 +626,10 @@ const PageRecordDetail = {
         try {
             const res = await Api.records.get(id);
             const r = res.record;
+            this._rawRecord = r;
+            // 处方不允许编辑
+            const editBtn = document.getElementById('recordEditBtn');
+            if (editBtn) editBtn.style.display = (r.type === '药方') ? 'none' : '';
             const el = document.getElementById('recordDetailContent');
             if (!el) return;
             // 缓存 OCR 识别原文，供"查看识别内容"按钮使用
@@ -712,18 +722,122 @@ const PageRecordDetail = {
             const el = document.getElementById('recordDetailContent');
             if (el) el.innerHTML = `<p>加载失败: ${err.message}</p>`;
         }
+    },
+
+    _startEdit() {
+        const r = this._rawRecord;
+        if (!r || r.type === '药方') return;
+        const isReport = r.type === '检查报告';
+        const typeLabel = isReport ? '检查报告' : '病历';
+        const escAttr = (v) => String(v || '').replace(/"/g, '&quot;');
+        const escText = (v) => String(v || '').replace(/</g, '&lt;');
+
+        const dateId = isReport ? 'editRecordDate2' : 'editRecordDate';
+        const hospId = isReport ? 'editRecordHospital2' : 'editRecordHospital';
+        const deptId = isReport ? 'editRecordDept2' : 'editRecordDept';
+        const doctorId = isReport ? 'editRecordDoctor2' : 'editRecordDoctor';
+
+        let typeFields = '';
+        if (isReport) {
+            typeFields = `
+                <div class="form-group"><label>检查项目 *</label><input id="editRecordExamName" value="${escAttr(r.diagnosis)}" placeholder="如：胸部CT平扫"></div>
+                <div class="form-group"><label>检查所见</label><textarea id="editRecordFindings" rows="4" placeholder="检查所见内容">${escText(r.findings)}</textarea></div>
+                <div class="form-group"><label>报告结论</label><textarea id="editRecordConclusion" rows="3" placeholder="报告结论内容">${escText(r.conclusion)}</textarea></div>`;
+        } else {
+            typeFields = `
+                <div class="form-group"><label>主诉</label><textarea id="editRecordComplaint" rows="2" placeholder="主要症状">${escText(r.chiefComplaint)}</textarea></div>
+                <div class="form-group"><label>诊断 *</label><input id="editRecordDiagnosis" value="${escAttr(r.diagnosis)}" placeholder="诊断结果"></div>
+                <div class="form-group"><label>医嘱</label><textarea id="editRecordOrders" rows="3" placeholder="医嘱内容">${escText(r.orders)}</textarea></div>`;
+        }
+
+        App.openModal(`
+        <div style="padding:20px;max-height:85vh;overflow-y:auto;">
+            <div style="font-size:18px;font-weight:700;margin-bottom:16px;"><i class="fas fa-edit" style="color:#2b7a78;"></i> 编辑${typeLabel}</div>
+            <div class="form-group">
+                <label>${isReport ? '检查日期' : '就诊日期'}</label>
+                <input id="${dateId}" type="text" readonly value="${escAttr(r.visitDate)}" onclick="CalendarPicker.attach(this,{max:'today'})" placeholder="点击选择日期" style="background:#fff;">
+            </div>
+            <div class="form-group">
+                <label>医院 *</label>
+                <input id="${hospId}" value="${escAttr(r.hospital)}" placeholder="输入医院名称或拼音首字母" autocomplete="off" onclick="HospitalSuggest.showSuggestions(this)" oninput="HospitalSuggest.onInput(this)">
+            </div>
+            <div class="form-group">
+                <label>科室 *</label>
+                <input id="${deptId}" value="${escAttr(r.department)}" placeholder="输入科室名称或拼音首字母" autocomplete="off" onclick="DeptSuggest.showSuggestions(this)" oninput="DeptSuggest.onInput(this)">
+            </div>
+            ${typeFields}
+            <div class="form-group"><label>医生</label><input id="${doctorId}" value="${escAttr(r.doctor)}" placeholder="主治医生"></div>
+            <div style="display:flex;gap:12px;margin-top:16px;">
+                <button class="btn-secondary" onclick="App.closeModal()" style="flex:1;padding:10px;border-radius:24px;">取消</button>
+                <button class="btn-primary" onclick="PageRecordDetail._doEdit()" style="flex:1;padding:10px;border-radius:24px;">保存</button>
+            </div>
+        </div>`);
+
+        // 如果有医院/科室值，尝试匹配列表中的已有项
+        if (r.hospital) setTimeout(() => HospitalSuggest.matchAndFill(document.getElementById(hospId), r.hospital), 100);
+        if (r.department) setTimeout(() => DeptSuggest.matchAndFill(document.getElementById(deptId), r.department), 100);
+    },
+
+    async _doEdit() {
+        const r = this._rawRecord;
+        if (!r) return;
+        const isReport = r.type === '检查报告';
+        const hospId = isReport ? 'editRecordHospital2' : 'editRecordHospital';
+        const deptId = isReport ? 'editRecordDept2' : 'editRecordDept';
+
+        // 校验医院/科室
+        const hospEl = document.getElementById(hospId);
+        const deptEl = document.getElementById(deptId);
+        if (!hospEl?.value.trim()) { App.toast('请填写医院'); return; }
+        if (!deptEl?.value.trim()) { App.toast('请填写科室'); return; }
+        if (false === await HospitalSuggest.ensure(hospEl)) return;
+        if (false === await DeptSuggest.ensure(deptEl)) return;
+
+        const getVal = (id) => { const el = document.getElementById(id); return el ? el.value.trim() : ''; };
+        const data = {
+            visitDate: getVal(isReport ? 'editRecordDate2' : 'editRecordDate'),
+            hospital: getVal(hospId),
+            department: getVal(deptId),
+            doctor: getVal(isReport ? 'editRecordDoctor2' : 'editRecordDoctor'),
+        };
+
+        if (isReport) {
+            const examName = getVal('editRecordExamName');
+            if (!examName) { App.toast('请输入检查项目'); return; }
+            data.diagnosis = examName;
+            data.findings = getVal('editRecordFindings');
+            data.conclusion = getVal('editRecordConclusion');
+        } else {
+            const diagnosis = getVal('editRecordDiagnosis');
+            if (!diagnosis) { App.toast('请输入诊断'); return; }
+            data.diagnosis = diagnosis;
+            data.chiefComplaint = getVal('editRecordComplaint');
+            data.orders = getVal('editRecordOrders');
+        }
+
+        try {
+            App.toast('保存中...');
+            await Api.records.update(r.id, data);
+            App.closeModal();
+            App.toast('修改成功');
+            this.loadContent();
+        } catch (err) {
+            App.toast('保存失败: ' + (err.message || ''));
+        }
     }
 };
 
 // ---------- 药箱页 ----------
 const PagePharmacy = {
     _currentCat: '全部',
+    _currentStock: '有库存',
 
     render() {
         this.loadContent();
         return `
         <div class="card">
             <div class="card-title"><i class="fas fa-kit-medical"></i> 家庭药箱 <button class="btn-outline" style="width:auto;padding:6px 14px;font-size:13px;margin-left:auto;" onclick="App.switchPage('addDrug')"><i class="fas fa-plus"></i> 添加</button></div>
+            <div id="pharmacyStockFilter" style="margin-bottom:8px;"></div>
             <div id="pharmacyCats" style="margin-bottom:10px;"></div>
             <div id="pharmacyList"><p class="text-muted" style="text-align:center;padding:20px;">加载中...</p></div>
         </div>`;
@@ -772,16 +886,52 @@ const PagePharmacy = {
 
     async loadContent() {
         try {
+            // 先触发自动消耗计算，再加载列表
+            try {
+                await Api.drugs.autoConsume();
+            } catch (e) {
+                console.warn('自动消耗计算失败（不影响加载）:', e);
+            }
             const res = await Api.drugs.getAll();
             const drugs = res.drugs || [];
-            const warnings = res.warnings || {};
+            const stockFilterEl = document.getElementById('pharmacyStockFilter');
             const catsEl = document.getElementById('pharmacyCats');
             const listEl = document.getElementById('pharmacyList');
             if (!listEl) return;
 
-            // 生成分类列表：收集所有实际存在的分类，按数量排序
-            const catMap = {};
+            // === 库存状态筛选 ===
+            const stockCounts = { '全部': drugs.length, '有库存': 0, '已过期': 0 };
             drugs.forEach(d => {
+                if (d.quantity > 0) stockCounts['有库存']++;
+                if (d.status === 'expired') stockCounts['已过期']++;
+            });
+            const stockOptions = ['全部', '有库存', '已过期'];
+            if (stockFilterEl) {
+                stockFilterEl.innerHTML = `<div style="display:flex;gap:6px;flex-wrap:wrap;padding-bottom:4px;">
+                    ${stockOptions.map(s => {
+                        const active = s === this._currentStock;
+                        let bg = active ? 'background:#2b7a78;color:#fff;' : 'background:#f1f5f9;color:#475569;';
+                        if (s === '已过期' && active) bg = 'background:#dc2626;color:#fff;';
+                        else if (s === '已过期' && !active) bg = 'background:#fee2e2;color:#dc2626;';
+                        return `<span onclick="PagePharmacy._selectStock('${s}')"
+                            style="padding:4px 12px;border-radius:16px;cursor:pointer;font-size:13px;white-space:nowrap;${bg}">
+                            ${s} <span style="opacity:0.75;">(${stockCounts[s]})</span>
+                        </span>`;
+                    }).join('')}
+                </div>`;
+            }
+
+            // 先按库存状态筛选
+            let stockFiltered = drugs;
+            if (this._currentStock === '有库存') {
+                stockFiltered = drugs.filter(d => d.quantity > 0);
+            } else if (this._currentStock === '已过期') {
+                stockFiltered = drugs.filter(d => d.status === 'expired');
+            }
+
+            // === 分类筛选 ===
+            const catMap = {};
+            stockFiltered.forEach(d => {
                 const c = d.category && d.category.trim() ? d.category.trim() : '其他';
                 catMap[c] = (catMap[c] || 0) + 1;
             });
@@ -792,7 +942,7 @@ const PagePharmacy = {
             });
             const allCats = ['全部', ...catList];
 
-            // 如果当前选中的分类不在列表中（比如已无该分类药品），重置为全部
+            // 如果当前选中的分类不在列表中，重置为全部
             if (!allCats.includes(this._currentCat)) this._currentCat = '全部';
 
             // 渲染分类导航
@@ -800,7 +950,7 @@ const PagePharmacy = {
                 catsEl.innerHTML = `<div style="display:flex;gap:6px;flex-wrap:wrap;overflow-x:auto;padding-bottom:4px;">
                     ${allCats.map(c => {
                         const active = c === this._currentCat;
-                        const count = c === '全部' ? drugs.length : (catMap[c] || 0);
+                        const count = c === '全部' ? stockFiltered.length : (catMap[c] || 0);
                         return `<span onclick="PagePharmacy._selectCat('${c.replace(/'/g, "\\'")}')"
                             style="padding:4px 12px;border-radius:16px;cursor:pointer;font-size:13px;white-space:nowrap;
                             ${active ? 'background:#2b7a78;color:#fff;' : 'background:#f1f5f9;color:#475569;'}">
@@ -810,15 +960,15 @@ const PagePharmacy = {
                 </div>`;
             }
 
-            // 按当前分类筛选
+            // 按当前分类筛选（在库存筛选的基础上）
             const filtered = this._currentCat === '全部'
-                ? drugs
-                : drugs.filter(d => (d.category && d.category.trim() ? d.category.trim() : '其他') === this._currentCat);
+                ? stockFiltered
+                : stockFiltered.filter(d => (d.category && d.category.trim() ? d.category.trim() : '其他') === this._currentCat);
 
-            // 按分类分组显示（如果在"全部"标签，显示分类分组）
+            // 按分类分组显示
             let html = '';
             if (filtered.length === 0) {
-                html = '<p class="text-muted" style="text-align:center;padding:20px;">该分类暂无药品</p>';
+                html = '<p class="text-muted" style="text-align:center;padding:20px;">暂无符合条件的药品</p>';
             } else if (this._currentCat === '全部') {
                 // 全部：按分类分组展示
                 html = catList.map(cat => {
@@ -836,11 +986,6 @@ const PagePharmacy = {
                 html = filtered.map(d => this._renderDrugCard(d)).join('');
             }
 
-            if (warnings.expired > 0 || warnings.expiringSoon > 0) {
-                html += `<div style="margin-top:10px;background:#fee2e2;padding:10px 16px;border-radius:18px;color:#991b1b;font-size:14px;">
-                    <i class="fas fa-exclamation-triangle"></i> 提醒: ${warnings.expired}种已过期，${warnings.expiringSoon}种即将过期，请及时处理。
-                </div>`;
-            }
             listEl.innerHTML = html;
         } catch (err) {
             const el = document.getElementById('pharmacyList');
@@ -850,6 +995,11 @@ const PagePharmacy = {
 
     _selectCat(cat) {
         this._currentCat = cat;
+        this.loadContent();
+    },
+
+    _selectStock(stock) {
+        this._currentStock = stock;
         this.loadContent();
     },
 
@@ -863,6 +1013,14 @@ const PagePharmacy = {
     },
 
     _quickAddModal(name) {
+        const members = App.state.members || [];
+        const currentUserId = App.state.user?.id;
+        const memberOptions = members.map(m => {
+            const selected = m.id === App.state.currentMemberId ? 'selected' : '';
+            const isSelf = m.relation === 'self' && m.user_id === currentUserId;
+            const label = isSelf ? m.name + '（我）' : m.name;
+            return `<option value="${m.id}" ${selected}>${label}</option>`;
+        }).join('');
         return `
         <div style="padding:20px;min-width:280px;">
             <div style="font-size:16px;font-weight:600;margin-bottom:12px;display:flex;align-items:center;gap:8px;">
@@ -872,12 +1030,18 @@ const PagePharmacy = {
                 药品：<strong>${name}</strong>
             </div>
             <div class="form-group" style="margin-bottom:12px;">
+                <label>服药人</label>
+                <select id="quickAddElder" style="width:100%;padding:10px;border:1px solid #e2e8f0;border-radius:8px;font-size:15px;box-sizing:border-box;background:#fff;">
+                    ${memberOptions}
+                </select>
+            </div>
+            <div class="form-group" style="margin-bottom:16px;">
                 <label>添加数量</label>
                 <input id="quickAddQty" type="number" min="1" value="1" style="width:100%;padding:10px;border:1px solid #e2e8f0;border-radius:8px;font-size:15px;box-sizing:border-box;">
             </div>
-            <div style="display:flex;gap:8px;justify-content:flex-end;">
-                <button class="btn-secondary" onclick="App.closeModal()" style="padding:8px 16px;">取消</button>
-                <button class="btn-primary" onclick="PagePharmacy._doQuickAdd()" style="padding:8px 16px;">确认添加</button>
+            <div style="display:flex;gap:12px;">
+                <button class="btn-secondary" onclick="App.closeModal()" style="flex:1;padding:10px;border-radius:24px;">取消</button>
+                <button class="btn-primary" onclick="PagePharmacy._doQuickAdd()" style="flex:1;padding:10px;border-radius:24px;">确认添加</button>
             </div>
         </div>`;
     },
@@ -886,12 +1050,15 @@ const PagePharmacy = {
         const state = App.state._quickAddDrug;
         if (!state) return;
         const qtyInput = document.getElementById('quickAddQty');
+        const elderSel = document.getElementById('quickAddElder');
         const qty = parseInt(qtyInput?.value);
+        const elderId = elderSel?.value || App.state.currentMemberId;
         if (!qty || qty < 1) { App.toast('请输入有效数量'); return; }
+        if (!elderId) { App.toast('请选择服药人'); return; }
         App.closeModal();
         try {
             await Api.drugs.add({
-                elderId: App.state.currentMemberId,
+                elderId,
                 name: state.name,
                 drugCode: state.drugCode || undefined,
                 quantity: qty,
@@ -924,7 +1091,7 @@ const PageProfile = {
         return `
         <div class="card">
             <div class="flex" style="gap:16px;margin-bottom:12px;">
-                <div style="font-size:48px;color:#2b7a78;"><i class="fas fa-user-circle"></i></div>
+                ${App.renderAvatar(selfElder, 'xl')}
                 <div>
                     <div style="font-weight:700;font-size:20px;">${user.name}</div>
                     <div class="text-muted">${user.role === 'admin' ? '管理员' : '成员'} · ${user.phone || '未绑定手机'}</div>
@@ -2402,36 +2569,38 @@ const PageDrugDetail = {
             <div class="card">
                 <div class="card-title"><i class="fas fa-history"></i> 添加记录</div>
                 ${records.length === 0 ? '<p class="text-muted" style="text-align:center;padding:10px;">暂无入库记录</p>' : `
-                <table style="width:100%;border-collapse:collapse;font-size:0.9em;">
+                <div style="overflow-x:auto;">
+                <table style="width:100%;border-collapse:collapse;font-size:0.9em;table-layout:fixed;">
+                    <colgroup>
+                        <col style="width:22%;"><col style="width:18%;"><col style="width:35%;"><col style="width:25%;">
+                    </colgroup>
                     <thead>
                         <tr style="background:#f1f5f9;color:#475569;">
                             <th style="padding:10px 8px;text-align:left;font-weight:600;border-bottom:2px solid #e2e8f0;">服药人</th>
-                            <th style="padding:10px 8px;text-align:left;font-weight:600;border-bottom:2px solid #e2e8f0;">入库数量</th>
-                            <th style="padding:10px 8px;text-align:left;font-weight:600;border-bottom:2px solid #e2e8f0;">余量</th>
-                            <th style="padding:10px 8px;text-align:left;font-weight:600;border-bottom:2px solid #e2e8f0;">有效期</th>
-                            <th style="padding:10px 8px;text-align:left;font-weight:600;border-bottom:2px solid #e2e8f0;">入库日期</th>
-                            <th style="padding:10px 8px;text-align:left;font-weight:600;border-bottom:2px solid #e2e8f0;">关联处方</th>
+                            <th style="padding:10px 8px;text-align:left;font-weight:600;border-bottom:2px solid #e2e8f0;">数量</th>
+                            <th style="padding:10px 8px;text-align:left;font-weight:600;border-bottom:2px solid #e2e8f0;">日期</th>
+                            <th style="padding:10px 8px;text-align:left;font-weight:600;border-bottom:2px solid #e2e8f0;">处方</th>
                         </tr>
                     </thead>
                     <tbody>
                         ${records.map(r => {
                             const isDepleted = r.depleted || r.remainingQuantity <= 0;
-                            const rowStyle = isDepleted ? 'style="border-bottom:1px solid #f1f5f9;color:#94a3b8;background:#f8fafc;"' : 'style="border-bottom:1px solid #f1f5f9;"';
-                            return `<tr ${rowStyle}>
-                                <td style="padding:10px 8px;">${r.elderName || '-'}</td>
-                                <td style="padding:10px 8px;">${r.quantity != null ? `${r.quantity}${r.quantityUnit || '盒'}` : '-'}</td>
-                                <td style="padding:10px 8px;">
-                                    <input type="number" min="0" value="${r.remainingQuantity}" onchange="PageDrugDetail.updateItem('${r.id}','remainingQuantity',this.value)" style="width:50px;padding:2px 4px;border:1px solid ${isDepleted ? '#cbd5e1' : '#e2e8f0'};border-radius:4px;text-align:center;background:${isDepleted ? '#f1f5f9' : '#fff'};color:${isDepleted ? '#94a3b8' : 'inherit'};">
+                            const rowStyle = isDepleted ? 'background:#f8fafc;color:#94a3b8;' : '';
+                            return `<tr style="border-bottom:1px solid #f1f5f9;${rowStyle}">
+                                <td style="padding:10px 8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${r.elderName || '-'}</td>
+                                <td style="padding:10px 8px;white-space:nowrap;">${r.quantity != null ? `${r.quantity}${r.quantityUnit || '盒'}` : '-'}</td>
+                                <td style="padding:10px 8px;white-space:nowrap;">${r.createdAt || '-'}</td>
+                                <td style="padding:10px 8px;text-align:center;">${r.recordNo && r.recordId ? `<a title="查看处方：${r.recordNo}" style="color:#2b7a78;cursor:pointer;" onclick="App.viewRecord('${r.recordId}')"><i class="fas fa-file-prescription"></i></a>` : ''}</td>
+                            </tr>
+                            <tr id="invtr_${r.id}" style="border-bottom:1px solid #f1f5f9;${rowStyle}">
+                                <td colspan="4" style="padding:6px 10px 10px 10px;max-width:0;">
+                                    ${PageDrugDetail._renderSubRow(r, isDepleted)}
                                 </td>
-                                <td style="padding:10px 8px;">
-                                    <input type="date" value="${r.expiryDate || ''}" onchange="PageDrugDetail.updateItem('${r.id}','expiryDate',this.value)" style="padding:2px 4px;border:1px solid ${isDepleted ? '#cbd5e1' : '#e2e8f0'};border-radius:4px;background:${isDepleted ? '#f1f5f9' : '#fff'};color:${isDepleted ? '#94a3b8' : 'inherit'};">
-                                </td>
-                                <td style="padding:10px 8px;">${r.createdAt || '-'}</td>
-                                <td style="padding:10px 8px;">${r.recordNo && r.recordId ? `<a style="color:#2b7a78;text-decoration:underline;cursor:pointer;" onclick="App.viewRecord('${r.recordId}')">${r.recordNo}</a>` : '-'}</td>
                             </tr>`;
                         }).join('')}
                     </tbody>
-                </table>`}
+                </table>
+                </div>`}
             </div>`;
         } catch (err) {
             const el = document.getElementById('drugDetailContent');
@@ -2448,18 +2617,84 @@ const PageDrugDetail = {
                 const n = parseInt(value);
                 payload.remainingQuantity = isNaN(n) ? 0 : Math.max(0, n);
             }
-            const oldValue = field === 'remainingQuantity' ? parseInt(value) : value;
             await Api.drugs.updateInventoryItem(id, payload);
-            if (field === 'remainingQuantity') {
-                App.toast('余量已更新');
-            } else {
-                App.toast('有效期已更新');
-            }
-            // 重新加载当前页数据以刷新统计
+            App.toast('已更新');
             this.afterRender();
         } catch (err) {
             App.toast('更新失败: ' + (err.message || ''));
         }
+    },
+
+    _renderSubRow(r, isDepleted) {
+        const textColor = isDepleted ? '#94a3b8' : '#475569';
+        const bgStyle = isDepleted ? 'background:#f1f5f9;' : '';
+        const editing = this._editingRows && this._editingRows.has(r.id);
+        if (editing) {
+            return `<div style="display:flex;flex-wrap:wrap;gap:10px 14px;align-items:center;font-size:0.9em;width:100%;box-sizing:border-box;">
+                <div style="display:flex;align-items:center;gap:6px;">
+                    <span style="color:#64748b;white-space:nowrap;">余量</span>
+                    <input id="qty_${r.id}" type="number" min="0" value="${r.remainingQuantity}" style="width:56px;padding:4px 6px;border:1px solid #2b7a78;border-radius:4px;text-align:center;${bgStyle}">
+                </div>
+                <div style="display:flex;align-items:center;gap:6px;">
+                    <span style="color:#64748b;white-space:nowrap;">有效期</span>
+                    <input id="exp_${r.id}" type="date" value="${r.expiryDate || ''}" style="min-width:0;max-width:150px;padding:4px 6px;border:1px solid #2b7a78;border-radius:4px;${bgStyle}">
+                </div>
+                <div style="display:flex;gap:8px;margin-left:auto;">
+                    <button onclick="PageDrugDetail.saveRow('${r.id}')" style="background:#2b7a78;color:#fff;border:none;padding:5px 14px;border-radius:16px;cursor:pointer;font-size:0.82em;white-space:nowrap;">保存</button>
+                    <button onclick="PageDrugDetail.cancelEdit('${r.id}')" style="background:#e2e8f0;color:#475569;border:none;padding:5px 14px;border-radius:16px;cursor:pointer;font-size:0.82em;white-space:nowrap;">取消</button>
+                </div>
+            </div>`;
+        }
+        return `<div style="display:flex;flex-wrap:wrap;gap:10px 18px;align-items:center;font-size:0.9em;width:100%;box-sizing:border-box;">
+            <div style="display:flex;align-items:center;gap:6px;">
+                <span style="color:#64748b;white-space:nowrap;">余量</span>
+                <span style="color:${textColor};font-weight:500;">${r.remainingQuantity != null ? r.remainingQuantity : r.quantity}</span><span style="color:#64748b;">${r.quantityUnit || '盒'}</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:6px;">
+                <span style="color:#64748b;white-space:nowrap;">有效期</span>
+                <span style="color:${textColor};font-weight:500;">${r.expiryDate || '未设置'}</span>
+            </div>
+            <button onclick="PageDrugDetail.toggleEdit('${r.id}')" style="margin-left:auto;background:none;border:1px solid #cbd5e1;color:#475569;padding:4px 12px;border-radius:14px;cursor:pointer;font-size:0.82em;white-space:nowrap;"><i class="fas fa-pen"></i> 编辑</button>
+        </div>`;
+    },
+
+    toggleEdit(id) {
+        if (!this._editingRows) this._editingRows = new Set();
+        this._editingRows.add(id);
+        this._refreshSubRow(id);
+    },
+
+    cancelEdit(id) {
+        if (this._editingRows) this._editingRows.delete(id);
+        this._refreshSubRow(id);
+    },
+
+    async saveRow(id) {
+        const qtyEl = document.getElementById(`qty_${id}`);
+        const expEl = document.getElementById(`exp_${id}`);
+        if (!qtyEl || !expEl) return;
+        const qty = parseInt(qtyEl.value);
+        const exp = expEl.value || null;
+        if (isNaN(qty) || qty < 0) { App.toast('请输入有效的余量'); return; }
+        try {
+            await Api.drugs.updateInventoryItem(id, {
+                remainingQuantity: qty,
+                expiryDate: exp
+            });
+            if (this._editingRows) this._editingRows.delete(id);
+            App.toast('已保存');
+            this.afterRender();
+        } catch (err) {
+            App.toast('保存失败: ' + (err.message || ''));
+        }
+    },
+
+    _refreshSubRow(id) {
+        const row = document.getElementById(`invtr_${id}`);
+        if (!row) return;
+        // 从当前渲染中找到记录数据 - 通过重新渲染整个记录行
+        // 简化方案：重新加载整个详情页
+        this.afterRender();
     }
 };
 

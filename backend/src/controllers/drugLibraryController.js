@@ -341,9 +341,9 @@ async function fetchInfo(req, res) {
     const now = new Date();
     await getPool().query(
       `UPDATE drugs
-       SET type1 = ?, syz = ?, jx = ?, wyy = ?, fl = ?, description = ?, description_fetched_at = ?
+       SET type1 = ?, syz = ?, jx = ?, wyy = ?, fl = ?, yfyl = ?, description = ?, description_fetched_at = ?
        WHERE code = ?`,
-      [parsed.type1, parsed.syz, parsed.jx, parsed.wyy, parsed.fl, parsed.description, now, row.code]
+      [parsed.type1, parsed.syz, parsed.jx, parsed.wyy, parsed.fl, parsed.yfyl, parsed.description.description, now, row.code]
     );
 
     // 5. 返回更新后的数据

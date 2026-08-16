@@ -193,7 +193,7 @@ async function addMedication(req, res) {
     }
 
     // 同步到药箱：为该药品创建/合并一条库存记录
-    await _syncToDrugInventory(familyId, elderId, finalCode, finalName, finalSpec, quantity || 1, quantityUnit || null, req.body.expiryDate, id);
+    await _syncToDrugInventory(familyId, elderId, finalCode, finalName, finalSpec, quantity || 1, quantityUnit || null, req.body.expiryDate, id, sourcePrescriptionId || null);
 
     const [medications] = await getPool().query('SELECT * FROM medications WHERE id = ?', [id]);
     const images = await getEntityFiles('medication', id);
@@ -205,18 +205,21 @@ async function addMedication(req, res) {
 }
 
 // 同步用药记录到药箱
-async function _syncToDrugInventory(familyId, elderId, drugCode, name, specification, quantity, quantityUnit, expiryDate, medicationId) {
+async function _syncToDrugInventory(familyId, elderId, drugCode, name, specification, quantity, quantityUnit, expiryDate, medicationId, sourcePrescriptionId) {
   if (!drugCode) return;
   try {
     const status = computeStatus(expiryDate, 'valid');
-    // 查找同名同code的库存
+    // 查找同名同code的库存（同一服药人）
+    const matchElderSql = elderId ? 'elder_id = ?' : '(elder_id IS NULL OR elder_id = "")';
+    const matchElderVals = elderId ? [elderId] : [];
     const [existing] = await getPool().query(
-      `SELECT * FROM drug_inventory WHERE family_id = ? AND drug_code = ? LIMIT 1`,
-      [familyId, drugCode]
+      `SELECT * FROM drug_inventory WHERE family_id = ? AND drug_code = ? AND ${matchElderSql} LIMIT 1`,
+      [familyId, drugCode, ...matchElderVals]
     );
     if (existing.length > 0) {
       // 合并数量，更新有效期（取较晚的）
       const newQty = (existing[0].quantity || 0) + (quantity || 1);
+      const newRemain = (existing[0].remaining_quantity != null ? existing[0].remaining_quantity : (existing[0].quantity || 0)) + (quantity || 1);
       let effectiveExpiry = existing[0].expiry_date;
       if (expiryDate) {
         const newExp = new Date(expiryDate);
@@ -225,17 +228,20 @@ async function _syncToDrugInventory(familyId, elderId, drugCode, name, specifica
         }
       }
       const newStatus = computeStatus(effectiveExpiry, existing[0].status);
+      // 如果原本没有关联处方但现在有，则补上
+      const nextPrescriptionId = existing[0].source_prescription_id || sourcePrescriptionId;
       await getPool().query(
-        'UPDATE drug_inventory SET quantity = ?, quantity_unit = ?, elder_id = ?, expiry_date = ?, status = ? WHERE id = ?',
-        [newQty, quantityUnit || existing[0].quantity_unit || null, elderId || existing[0].elder_id, effectiveExpiry || null, newStatus, existing[0].id]
+        'UPDATE drug_inventory SET quantity = ?, remaining_quantity = ?, quantity_unit = ?, elder_id = ?, expiry_date = ?, status = ?, source_prescription_id = ? WHERE id = ?',
+        [newQty, newRemain, quantityUnit || existing[0].quantity_unit || null, elderId || existing[0].elder_id, effectiveExpiry || null, newStatus, nextPrescriptionId || null, existing[0].id]
       );
     } else {
       // 新增库存记录
       const invId = uuidv4();
+      const qty = quantity || 1;
       await getPool().query(
-        `INSERT INTO drug_inventory (id, family_id, elder_id, drug_code, name, specification, quantity, quantity_unit, expiry_date, status, source_medication_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [invId, familyId, elderId || null, drugCode, name, specification || null, quantity || 1, quantityUnit || null, expiryDate || null, status, medicationId]
+        `INSERT INTO drug_inventory (id, family_id, elder_id, drug_code, name, specification, quantity, remaining_quantity, quantity_unit, expiry_date, status, source_medication_id, source_prescription_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [invId, familyId, elderId || null, drugCode, name, specification || null, qty, qty, quantityUnit || null, expiryDate || null, status, medicationId, sourcePrescriptionId || null]
       );
     }
   } catch (err) {

@@ -1,4 +1,6 @@
 require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
+// 统一设置进程时区为中国时区（UTC+8），确保所有 Date 操作返回国内时间
+process.env.TZ = 'Asia/Shanghai';
 
 const express = require('express');
 const cors = require('cors');

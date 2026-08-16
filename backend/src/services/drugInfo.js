@@ -205,6 +205,7 @@ function parseDrugInfo(drug) {
   const jx = drug.jx || null;
   const wyy = drug.wyy === '是' || drug.wyy === 1 || drug.wyy === true ? 1 : 0;
   const fl = drug.fl || null;
+  const yfyl = drug.yfyl || null;
 
   // 组合药品说明
   const descParts = [];
@@ -237,7 +238,7 @@ function parseDrugInfo(drug) {
 
   const description = descParts.length > 0 ? descParts.join('\n') : null;
 
-  return { type1, syz, jx, wyy, fl, description };
+  return { type1, syz, jx, wyy, fl, yfyl, description };
 }
 
 module.exports = { fetchDrugInfo, parseDrugInfo, isConfigured };

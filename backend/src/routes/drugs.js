@@ -8,6 +8,7 @@ router.use(authMiddleware);
 router.get('/', drugController.getDrugs);
 router.get('/chronic/list', drugController.getChronicMeds);
 router.post('/chronic/save', drugController.saveChronicMeds);
+router.post('/auto-consume', drugController.autoConsume);
 router.get('/:id', drugController.getDrug);
 router.get('/:id/records', drugController.getDrugRecords);
 router.post('/', drugController.addDrug);

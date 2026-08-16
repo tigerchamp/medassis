@@ -514,6 +514,108 @@ async function saveChronicMeds(req, res) {
   }
 }
 
+// 自动消耗计算：根据家庭组里每个人的用药计划，自动扣减药品库存余量
+async function autoConsume(req, res) {
+  try {
+    const familyId = req.familyId;
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+    // 1. 获取家庭组所有活跃用药计划，JOIN drugs 表拿单位容量
+    const access = familyAccessFilter(familyId, 'm.');
+    const [meds] = await getPool().query(`
+      SELECT m.id, m.elder_id, m.family_id, m.drug_code, m.name,
+             m.dose_amount, m.dose_unit, m.frequency, m.times,
+             m.start_date, m.end_date, m.status, m.created_at,
+             d.unit_capacity, d.unit_capacity_unit
+      FROM medications m
+      LEFT JOIN drugs d ON m.drug_code COLLATE utf8mb4_unicode_ci = d.code
+      WHERE (${access.sql}) AND m.status = 'active'
+    `, access.params);
+
+    let totalConsumed = 0;
+    let updatedRecords = 0;
+
+    for (const med of meds) {
+      // 2. 计算每日消耗量（转换为库存单位）
+      let freq = med.frequency;
+      if ((!freq || freq <= 0) && med.times) {
+        try { freq = JSON.parse(med.times).length; } catch { freq = 1; }
+      }
+      if (!freq || freq <= 0) freq = 1;
+
+      const doseAmount = Number(med.dose_amount) || 1;
+      const unitCapacity = Number(med.unit_capacity) || 0;
+
+      // 如果有单位容量且剂量单位与包装单位一致，可以换算
+      // 否则按 1:1 处理（每次消耗 1 个库存单位）
+      let dailyConsumption;
+      if (unitCapacity > 0 && med.dose_unit && med.unit_capacity_unit &&
+          med.dose_unit === med.unit_capacity_unit) {
+        // 例如：每日3次×每次2片=6片，每盒20片 → 6/20=0.3盒/天
+        dailyConsumption = (freq * doseAmount) / unitCapacity;
+      } else if (unitCapacity > 0) {
+        // 单位不一致但有容量，尝试按数值换算
+        dailyConsumption = (freq * doseAmount) / unitCapacity;
+      } else {
+        // 无容量信息，无法换算，跳过
+        continue;
+      }
+
+      if (dailyConsumption <= 0) continue;
+
+      // 3. 找到匹配的库存记录（drug_code + elder_id, remaining_quantity > 0）
+      const invAccess = familyAccessFilter(familyId, 'di.');
+      const [invRows] = await getPool().query(`
+        SELECT di.id, di.remaining_quantity, di.last_auto_calc_date, di.created_at, di.expiry_date
+        FROM drug_inventory di
+        WHERE (${invAccess.sql})
+          AND di.remaining_quantity > 0
+          AND ${med.drug_code ? 'di.drug_code = ?' : 'di.name = ?'}
+          AND di.elder_id ${med.elder_id ? '= ?' : 'IS NULL'}
+        ORDER BY di.expiry_date ASC, di.created_at ASC
+      `, [
+        ...invAccess.params,
+        med.drug_code || med.name,
+        ...(med.elder_id ? [med.elder_id] : [])
+      ].filter(v => v !== undefined));
+
+      if (invRows.length === 0) continue;
+
+      for (const inv of invRows) {
+        // 4. 计算自上次计算以来的天数
+        const lastCalc = inv.last_auto_calc_date ? new Date(inv.last_auto_calc_date) : new Date(inv.created_at);
+        // 如果库存创建时间晚于用药开始时间，以库存创建时间为准
+        const medStart = med.start_date ? new Date(med.start_date) : new Date(med.created_at);
+        const calcStart = lastCalc > medStart ? lastCalc : medStart;
+
+        const daysElapsed = Math.floor((todayStart - calcStart) / (24 * 60 * 60 * 1000));
+        if (daysElapsed <= 0) continue;
+
+        // 5. 计算消耗量并扣减
+        const consumed = Math.floor(dailyConsumption * daysElapsed);
+        if (consumed <= 0) continue;
+
+        const newRemain = Math.max(0, inv.remaining_quantity - consumed);
+        const actualConsumed = inv.remaining_quantity - newRemain;
+        if (actualConsumed <= 0) continue;
+
+        await getPool().query(
+          `UPDATE drug_inventory SET remaining_quantity = ?, last_auto_calc_date = NOW(), updated_at = NOW() WHERE id = ?`,
+          [newRemain, inv.id]
+        );
+        totalConsumed += actualConsumed;
+        updatedRecords++;
+      }
+    }
+
+    res.json({ success: true, totalConsumed, updatedRecords });
+  } catch (err) {
+    console.error('Auto consume error:', err);
+    res.json({ success: false, error: err.message, totalConsumed: 0, updatedRecords: 0 });
+  }
+}
+
 module.exports = {
   getDrugs,
   getDrug,
@@ -522,6 +624,7 @@ module.exports = {
   deleteDrug,
   getDrugRecords,
   updateInventoryItem,
+  autoConsume,
   getChronicMeds,
   saveChronicMeds
 };
@@ -551,6 +654,8 @@ async function updateInventoryItem(req, res) {
     if (remainingQuantity !== undefined) {
       updates.push('remaining_quantity = ?');
       params.push(remainingQuantity);
+      // 手动修改余量时重置自动计算基准时间，避免下次自动消耗覆盖手动值
+      updates.push('last_auto_calc_date = NOW()');
     }
 
     if (updates.length > 0) {

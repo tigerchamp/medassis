@@ -23,7 +23,8 @@ const basePool = mysql.createPool({
   connectionLimit: 10,
   queueLimit: 0,
   enableKeepAlive: true,
-  keepAliveInitialDelay: 0
+  keepAliveInitialDelay: 0,
+  timezone: '+08:00'
 });
 
 // 带数据库的连接池（初始化后使用）
@@ -587,6 +588,36 @@ async function _ensureColumns(p) {
   // 初始化：将现有记录的 remaining_quantity 设为 quantity（如果为 NULL）
   await p.query(`UPDATE drug_inventory SET remaining_quantity = quantity WHERE remaining_quantity IS NULL`);
   console.log('已初始化 drug_inventory 表的 remaining_quantity 数据');
+  // 检查 drug_inventory 是否缺少 last_auto_calc_date 列
+  const [calcCols] = await p.query(`SHOW COLUMNS FROM drug_inventory LIKE 'last_auto_calc_date'`);
+  if (calcCols.length === 0) {
+    await p.query(`ALTER TABLE drug_inventory ADD COLUMN last_auto_calc_date DATETIME DEFAULT NULL COMMENT '上次自动消耗计算时间' AFTER remaining_quantity`);
+    console.log('已补充 drug_inventory 表的 last_auto_calc_date 列');
+  }
+  // 回填历史 drug_inventory 的 source_prescription_id：
+  // 1) 如果 source_medication_id 有值，通过 medications.id 关联拿到 medications.source_prescription_id
+  // 2) 否则按 family_id + elder_id + drug_code + 创建时间接近（±5分钟）匹配 medications 表
+  try {
+    const [upd1] = await p.query(`
+      UPDATE drug_inventory di
+      INNER JOIN medications m ON di.source_medication_id = m.id
+      SET di.source_prescription_id = m.source_prescription_id
+      WHERE di.source_prescription_id IS NULL AND m.source_prescription_id IS NOT NULL`);
+    if (upd1 && upd1.affectedRows > 0) console.log(`已通过 source_medication_id 关联回填 ${upd1.affectedRows} 条处方`);
+
+    const [upd2] = await p.query(`
+      UPDATE drug_inventory di
+      INNER JOIN medications m
+        ON di.family_id = m.family_id
+        AND (di.elder_id = m.elder_id OR (di.elder_id IS NULL AND m.elder_id IS NULL))
+        AND (di.drug_code = m.drug_code OR (di.drug_code IS NULL AND m.drug_code IS NULL))
+        AND ABS(TIMESTAMPDIFF(MINUTE, di.created_at, m.created_at)) <= 5
+      SET di.source_prescription_id = m.source_prescription_id
+      WHERE di.source_prescription_id IS NULL AND m.source_prescription_id IS NOT NULL`);
+    if (upd2 && upd2.affectedRows > 0) console.log(`已通过家庭+老人+编码+时间关联回填 ${upd2.affectedRows} 条处方`);
+  } catch (e) {
+    console.warn('回填历史 source_prescription_id 失败（非致命）:', e.message);
+  }
   // 检查elders表是否缺少relation列
   const [relCols] = await p.query(`SHOW COLUMNS FROM elders LIKE 'relation'`);
   if (relCols.length === 0) {

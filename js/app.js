@@ -1394,6 +1394,95 @@ const App = {
         return this.state.members.find(m => m.id === this.state.currentMemberId) || null;
     },
 
+    // 计算年龄（根据 birth_date，不足则回退到 age 字段）
+    _calcAge(member) {
+        if (!member) return 0;
+        if (member.birthDate || member.birth_date) {
+            const bd = new Date(member.birthDate || member.birth_date);
+            if (!isNaN(bd.getTime())) {
+                const today = new Date();
+                let age = today.getFullYear() - bd.getFullYear();
+                const mDiff = today.getMonth() - bd.getMonth();
+                if (mDiff < 0 || (mDiff === 0 && today.getDate() < bd.getDate())) age--;
+                return Math.max(0, age);
+            }
+        }
+        return Number(member.age) || 0;
+    },
+
+    // 根据成员信息返回 { icon, bgClass, group }
+    // 3 个年龄组（学生<18、上班族 18-60、老人>60） × 2 种性别 = 6 种
+    _avatarMeta(member) {
+        if (!member) return { icon: 'fa-user', bgClass: 'avatar-bg-unknown', group: '未知' };
+        const age = this._calcAge(member);
+        const gender = String(member.gender || member.Gender || '未知').trim();
+        const isFemale = gender === '女';
+        const isMale = gender === '男';
+        let group;
+        if (age > 0 && age < 18) group = 'kid';
+        else if (age >= 18 && age <= 60) group = 'adult';
+        else if (age > 60) group = 'elder';
+        else group = 'adult'; // 年龄未知默认上班族
+
+        let icon;
+        if (group === 'kid') icon = isFemale ? 'fa-child-dress' : 'fa-child';
+        else if (group === 'adult') icon = isFemale ? 'fa-person-dress' : 'fa-user-tie';
+        else icon = isFemale ? 'fa-person-dress' : 'fa-person-cane';
+
+        let bgClass;
+        if (isMale) bgClass = `avatar-bg-male-${group}`;
+        else if (isFemale) bgClass = `avatar-bg-female-${group}`;
+        else bgClass = `avatar-bg-male-${group}`; // 性别未知按男处理
+
+        return { icon, bgClass, group };
+    },
+
+    // 判断是否是登录用户本人
+    _isSelfMember(member) {
+        if (!member) return false;
+        return member.relation === 'self' && member.user_id === this.state.user?.id;
+    },
+
+    // 渲染头像 HTML（尺寸：xl/68大头像 lg/header-40 md/下拉-32 sm/28 xs/24）
+    renderAvatar(member, size = 'md', extraClass = '') {
+        try {
+            const meta = this._avatarMeta(member);
+            const selfBadge = this._isSelfMember(member) ? '<span class="self-badge">我</span>' : '';
+            const isUnknown = meta.bgClass === 'avatar-bg-unknown';
+            const sizeClass = size === 'xl' ? 'avatar-large' : (size === 'lg' ? 'avatar-icon' : 'avatar-small');
+            const iconFontSize = size === 'xl' ? '32px' : (size === 'lg' ? '22px' : undefined);
+            const styleStr = iconFontSize && isUnknown ? `style="font-size:${iconFontSize};font-weight:700;"` : '';
+            const nameTitle = String(member?.name || '').replace(/"/g, '&quot;');
+            const fallback = isUnknown
+                ? `<span ${styleStr}>${member?.name?.charAt?.(0) || '?'}</span>`
+                : `<i class="fas ${meta.icon}"${iconFontSize && !isUnknown ? ` style="font-size:${iconFontSize};"` : ''}></i>`;
+            return `<div class="${sizeClass} ${meta.bgClass} ${extraClass}" title="${nameTitle}">${fallback}${selfBadge}</div>`;
+        } catch (e) {
+            // 保底：灰色首字母圆
+            return `<div class="avatar-small avatar-bg-unknown ${extraClass}" title="成员"><span>${member?.name?.charAt?.(0) || '?'}</span></div>`;
+        }
+    },
+
+    // 刷新右上角当前成员的头像（不是成员下拉的头像）
+    _refreshHeaderAvatar() {
+        try {
+            const box = document.querySelector('.header-right .avatar-icon');
+            if (!box) return;
+            const current = this.getCurrentMember();
+            const meta = this._avatarMeta(current);
+            const isUnknown = meta.bgClass === 'avatar-bg-unknown';
+            // 重置 class 背景（移除旧 avatar-bg-* 旧 icon）
+            box.className = `avatar-icon ${meta.bgClass}`;
+            const selfBadge = this._isSelfMember(current) ? '<span class="self-badge">我</span>' : '';
+            box.innerHTML = isUnknown
+                ? `<span style="font-size:18px;font-weight:700;color:inherit;">${current?.name?.charAt?.(0) || '?'}</span>${selfBadge}`
+                : `<i class="fas ${meta.icon}" style="font-size:22px;"></i>${selfBadge}`;
+        } catch (e) {
+            // 出错则不显示头像内容，不阻断其他渲染
+            console.warn('refreshHeaderAvatar error:', e);
+        }
+    },
+
     updateHeader() {
         const familyNameEl = document.getElementById('currentFamilyName');
         const memberNameEl = document.getElementById('headerUsername');
@@ -1402,6 +1491,7 @@ const App = {
         if (memberNameEl) {
             memberNameEl.textContent = current ? current.name : '';
         }
+        this._refreshHeaderAvatar();
         this.updateNavState();
     },
 
@@ -1576,37 +1666,54 @@ const App = {
 
     // 下拉菜单：先显示家庭组切换，再显示当前家庭的成员列表
     toggleDropdown() {
-        const dd = document.getElementById('familyDropdown');
-        if (dd.classList.contains('show')) { dd.classList.remove('show'); return; }
-        let html = '';
-        // 家庭组切换区
-        const families = this.state.families || [];
-        if (families.length > 0) {
-            html += '<div class="dropdown-label">家庭组</div>';
-            families.forEach(f => {
-                const isCurrent = this.state.family && f.id === this.state.family.id;
-                const checked = isCurrent ? '<i class="fas fa-check check"></i>' : '';
-                html += `<button class="dropdown-item" onclick="App.switchFamily('${f.id}')">
-                    <div class="avatar-small" style="background:#d1e0e8;"><i class="fas fa-home"></i></div>
-                    <span>${f.name}</span>${checked}</button>`;
+        try {
+            const dd = document.getElementById('familyDropdown');
+            if (!dd) return;
+            if (dd.classList.contains('show')) { dd.classList.remove('show'); return; }
+            let html = '';
+            // 家庭组切换区
+            const families = this.state.families || [];
+            if (families.length > 0) {
+                html += '<div class="dropdown-label">家庭组</div>';
+                families.forEach(f => {
+                    const isCurrent = this.state.family && f.id === this.state.family.id;
+                    const checked = isCurrent ? '<i class="fas fa-check check"></i>' : '';
+                    const safeFid = String(f.id || '').replace(/'/g, "\\'");
+                    html += `<button class="dropdown-item" onclick="App.switchFamily('${safeFid}')">
+                        <div class="avatar-small" style="background:#d1e0e8;color:#1e3a5f;"><i class="fas fa-home" style="font-size:14px;"></i></div>
+                        <span style="min-width:0;">${(f.name || '').replace(/</g, '&lt;')}</span>${checked}</button>`;
+                });
+                html += '<div class="dropdown-divider"></div>';
+            }
+            // 成员列表（当前家庭的成员）
+            html += '<div class="dropdown-label">成员</div>';
+            const currentUserId = this.state.user?.id;
+            (this.state.members || []).forEach(m => {
+                const checked = m.id === this.state.currentMemberId ? '<i class="fas fa-check check"></i>' : '';
+                const isSelf = m && m.relation === 'self' && m.user_id === currentUserId;
+                const label = isSelf ? (m.name + '（我）') : (m?.name || '');
+                const safeId = m?.id ? String(m.id).replace(/'/g, "\\'") : '';
+                let avatarHtml;
+                try { avatarHtml = this.renderAvatar(m, 'md'); } catch (e) {
+                    const ch = (m?.name || '?').charAt(0);
+                    avatarHtml = `<div class="avatar-small" style="background:#d1e0e8;color:#1e3a5f;">${ch}</div>`;
+                }
+                html += `<button class="dropdown-item" onclick="App.selectMember('${safeId}')">
+                    ${avatarHtml}
+                    <span style="min-width:0;">${label.replace(/</g, '&lt;')}</span>${checked}</button>`;
             });
             html += '<div class="dropdown-divider"></div>';
+            html += `<button class="dropdown-item" onclick="App.switchPage('family');document.getElementById('familyDropdown').classList.remove('show');"><i class="fas fa-cog" style="color:#2b7a78;width:32px;text-align:center;"></i><span>家庭组管理</span></button>`;
+            dd.innerHTML = html;
+            dd.classList.add('show');
+        } catch (e) {
+            console.error('toggleDropdown error:', e);
+            const dd = document.getElementById('familyDropdown');
+            if (dd) {
+                dd.innerHTML = `<div style="padding:12px 20px;color:#94a3b8;font-size:13px;">暂无数据，请刷新页面</div>`;
+                dd.classList.add('show');
+            }
         }
-        // 成员列表（当前家庭的成员）
-        html += '<div class="dropdown-label">成员</div>';
-        const currentUserId = this.state.user?.id;
-        this.state.members.forEach(m => {
-            const checked = m.id === this.state.currentMemberId ? '<i class="fas fa-check check"></i>' : '';
-            const isSelf = m.relation === 'self' && m.user_id === currentUserId;
-            const label = isSelf ? m.name + '（我）' : m.name;
-            html += `<button class="dropdown-item" onclick="App.selectMember('${m.id}')">
-                <div class="avatar-small">${m.avatar || m.name.charAt(0)}</div>
-                <span>${label}</span>${checked}</button>`;
-        });
-        html += '<div class="dropdown-divider"></div>';
-        html += `<button class="dropdown-item" onclick="App.switchPage('family');document.getElementById('familyDropdown').classList.remove('show');"><i class="fas fa-cog" style="color:#2b7a78;width:32px;text-align:center;"></i><span>家庭组管理</span></button>`;
-        dd.innerHTML = html;
-        dd.classList.add('show');
     },
 
     // 切换家庭组：设置 family-id header 并重新加载数据

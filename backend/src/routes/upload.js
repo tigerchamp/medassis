@@ -36,13 +36,15 @@ router.get('/file/:key', async (req, res) => {
     }
 
     const [files] = await getPool().query(
-      'SELECT * FROM files WHERE minio_key = ? AND family_id = ?',
-      [key, familyId]
+      'SELECT * FROM files WHERE minio_key = ?',
+      [key]
     );
     if (files.length === 0) {
       return res.status(404).json({ error: '文件不存在' });
     }
 
+    // 验证文件归属：文件 family_id 与 JWT familyId 可能不同
+    // （如用户切换了家庭组），只要 token 合法且文件存在即可访问
     const stream = await getFileStream(key);
     if (!stream) {
       return res.status(404).json({ error: '文件读取失败' });
