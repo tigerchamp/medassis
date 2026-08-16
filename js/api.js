@@ -77,6 +77,7 @@ const Api = {
         add: (d) => api('/drugs', { method: 'POST', body: JSON.stringify(d) }),
         update: (id, d) => api(`/drugs/${id}`, { method: 'PUT', body: JSON.stringify(d) }),
         delete: (id) => api(`/drugs/${id}`, { method: 'DELETE' }),
+        updateInventoryItem: (id, data) => api(`/drugs/inventory/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
         getChronic: () => api('/drugs/chronic/list'),
         saveChronic: (drugInventoryIds, elderId) => api('/drugs/chronic/save', { method: 'POST', body: JSON.stringify({ drugInventoryIds, elderId }) }),
     },
@@ -103,6 +104,9 @@ const Api = {
         save: (data) => api('/feedback/save', { method: 'POST', body: JSON.stringify(data) }),
         list: () => api('/feedback/list'),
         search: (q) => api(`/feedback/search?q=${encodeURIComponent(q)}`),
+        detail: (id) => api(`/feedback/${encodeURIComponent(id)}`),
+        like: (id) => api(`/feedback/${encodeURIComponent(id)}/like`, { method: 'POST' }),
+        comment: (id, content) => api(`/feedback/${encodeURIComponent(id)}/comment`, { method: 'POST', body: JSON.stringify({ content }) }),
     },
     search: (keyword) => api(`/search?keyword=${encodeURIComponent(keyword)}`),
     upload: async (files) => {

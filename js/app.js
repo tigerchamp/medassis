@@ -1463,7 +1463,7 @@ const App = {
     },
 
     _getPageObj(page) {
-        const map = { drugInfo: PageDrugInfo, drugDetail: PageDrugDetail, home: PageHome, records: PageRecords, pharmacy: PagePharmacy, profile: PageProfile, messages: PageMessages, family: PageFamily, joinFamily: PageJoinFamily, addMed: PageAddMed, addRecord: PageAddRecord, addDrug: PageAddDrug, recordDetail: PageRecordDetail, elderDetail: PageElderDetail, profileEdit: PageProfileEdit, medEdit: PageMedEdit, medHistory: PageMedHistory, chronicMeds: PageChronicMeds, feedback: PageFeedback, feedbackList: PageFeedbackList, login: PageLogin };
+        const map = { drugInfo: PageDrugInfo, drugDetail: PageDrugDetail, home: PageHome, records: PageRecords, pharmacy: PagePharmacy, profile: PageProfile, messages: PageMessages, family: PageFamily, joinFamily: PageJoinFamily, addMed: PageAddMed, addRecord: PageAddRecord, addDrug: PageAddDrug, recordDetail: PageRecordDetail, elderDetail: PageElderDetail, profileEdit: PageProfileEdit, medEdit: PageMedEdit, medHistory: PageMedHistory, chronicMeds: PageChronicMeds, feedback: PageFeedback, feedbackList: PageFeedbackList, feedbackDetail: PageFeedbackDetail, login: PageLogin };
         return map[page];
     },
 
@@ -1490,6 +1490,7 @@ const App = {
             chronicMeds: () => PageChronicMeds.render(),
             feedback: () => PageFeedback.render(),
             feedbackList: () => PageFeedbackList.render(),
+            feedbackDetail: () => PageFeedbackDetail.render(),
         };
         return (pages[page] || pages.home)();
     },
@@ -2311,7 +2312,7 @@ const App = {
         recordDetail: '记录详情', elderDetail: '成员详情',
         drugInfo: '药品说明书', drugDetail: '药品详情',
         profileEdit: '个人信息编辑', medEdit: '编辑用药安排', medHistory: '用药历史',
-        chronicMeds: '长期用药设置', feedback: '留言反馈', feedbackList: '留言列表'
+        chronicMeds: '长期用药设置', feedback: '留言反馈', feedbackList: '留言列表', feedbackDetail: '留言详情'
     },
     getPageLabel(pageKey) {
         return this._pageLabels && this._pageLabels[pageKey] ? this._pageLabels[pageKey] : (pageKey || '');
@@ -2325,6 +2326,13 @@ const App = {
             name: this.getPageLabel(this.state.page)
         };
         this.switchPage('feedback');
+    },
+    // 进入留言详情页：把要查看的 id 先存入 PageFeedbackDetail，再切换页面
+    switchFeedbackDetail(id) {
+        if (typeof PageFeedbackDetail !== 'undefined') {
+            PageFeedbackDetail._id = id;
+        }
+        this.switchPage('feedbackDetail');
     },
 
     async doLogin() {
@@ -2674,6 +2682,8 @@ const App = {
         const name = document.getElementById('drugName').value.trim();
         const drugCode = (document.getElementById('drugCodeHidden') || {}).value || '';
         const expiryDate = document.getElementById('drugExp').value;
+        const elderId = document.getElementById('drugElder')?.value || this.state.currentMemberId;
+        if (!elderId) { this.toast('请选择服药人'); return; }
         if (!name) { this.toast('请输入药品名称'); return; }
         if (!expiryDate) { this.toast('请填写有效期'); return; }
         // 必填：规格/单位容量/数量（除生产厂家、备注、图片外）
@@ -2689,7 +2699,7 @@ const App = {
         const fileIds = ImageUploader.getFileIds('drugImages');
         try {
             await Api.drugs.add({
-                elderId: this.state.currentMemberId,
+                elderId,
                 name,
                 drugCode: finalDrugCode || undefined,
                 specDosage: specDosageVal ? parseFloat(specDosageVal) : undefined,

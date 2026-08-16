@@ -187,10 +187,13 @@ async function initDatabase() {
         name VARCHAR(100) NOT NULL,
         specification VARCHAR(100),
         manufacturer VARCHAR(100),
-        quantity INT DEFAULT 1,
+        quantity INT DEFAULT 1 COMMENT '入库数量',
+        remaining_quantity INT DEFAULT NULL COMMENT '剩余余量（NULL=未消耗）',
+        quantity_unit VARCHAR(10) DEFAULT NULL COMMENT '数量单位（盒/瓶/袋等）',
         expiry_date DATE,
         status ENUM('valid', 'expiring_soon', 'expired') DEFAULT 'valid',
         source_prescription_id VARCHAR(36),
+        source_medication_id VARCHAR(36) COMMENT '来源用药ID',
         note TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -575,6 +578,15 @@ async function _ensureColumns(p) {
     await p.query(`ALTER TABLE drug_inventory ADD COLUMN quantity_unit VARCHAR(10) DEFAULT NULL COMMENT '数量单位（盒/瓶/袋等）' AFTER quantity`);
     console.log('已补充 drug_inventory 表的 quantity_unit 列');
   }
+  // 检查drug_inventory表是否缺少remaining_quantity列（余量）
+  const [diRemainCols] = await p.query(`SHOW COLUMNS FROM drug_inventory LIKE 'remaining_quantity'`);
+  if (diRemainCols.length === 0) {
+    await p.query(`ALTER TABLE drug_inventory ADD COLUMN remaining_quantity INT DEFAULT NULL COMMENT '剩余余量（NULL=未消耗）' AFTER quantity`);
+    console.log('已补充 drug_inventory 表的 remaining_quantity 列');
+  }
+  // 初始化：将现有记录的 remaining_quantity 设为 quantity（如果为 NULL）
+  await p.query(`UPDATE drug_inventory SET remaining_quantity = quantity WHERE remaining_quantity IS NULL`);
+  console.log('已初始化 drug_inventory 表的 remaining_quantity 数据');
   // 检查elders表是否缺少relation列
   const [relCols] = await p.query(`SHOW COLUMNS FROM elders LIKE 'relation'`);
   if (relCols.length === 0) {
@@ -865,6 +877,39 @@ async function _ensureColumns(p) {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户留言/建议/Bug反馈表'
     `);
     console.log('已创建 feedback 留言反馈表');
+  }
+
+  // 留言点赞表
+  const [likeTable] = await p.query(`SHOW TABLES LIKE 'feedback_likes'`);
+  if (likeTable.length === 0) {
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS feedback_likes (
+        id VARCHAR(36) PRIMARY KEY,
+        feedback_id VARCHAR(36) NOT NULL,
+        user_id VARCHAR(36) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uk_feedback_user (feedback_id, user_id),
+        INDEX idx_feedback (feedback_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='留言点赞表'
+    `);
+    console.log('已创建 feedback_likes 留言点赞表');
+  }
+
+  // 留言评论（评价）表
+  const [cmtTable] = await p.query(`SHOW TABLES LIKE 'feedback_comments'`);
+  if (cmtTable.length === 0) {
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS feedback_comments (
+        id VARCHAR(36) PRIMARY KEY,
+        feedback_id VARCHAR(36) NOT NULL,
+        user_id VARCHAR(36) NOT NULL,
+        user_name VARCHAR(50) NOT NULL COMMENT '评论人姓名（冗余）',
+        content TEXT NOT NULL COMMENT '评论内容',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_feedback (feedback_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='留言评论/评价表'
+    `);
+    console.log('已创建 feedback_comments 留言评论表');
   }
 }
 

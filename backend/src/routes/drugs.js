@@ -12,6 +12,7 @@ router.get('/:id', drugController.getDrug);
 router.get('/:id/records', drugController.getDrugRecords);
 router.post('/', drugController.addDrug);
 router.put('/:id', drugController.updateDrug);
+router.put('/inventory/:id', drugController.updateInventoryItem);
 router.delete('/:id', drugController.deleteDrug);
 
 module.exports = router;

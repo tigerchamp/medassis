@@ -44,7 +44,25 @@ async function _getFamilyUserIds(req) {
   return userIds;
 }
 
-function fmtDate(d) { if (d instanceof Date) { const y = d.getFullYear(); const m = String(d.getMonth() + 1).padStart(2, '0'); const day = String(d.getDate()).padStart(2, '0'); return `${y}-${m}-${day}`; } return d; }
+function fmtDate(d) {
+  if (!d) return '';
+  if (d instanceof Date) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
+  if (typeof d === 'string') {
+    const dt = new Date(d);
+    if (!isNaN(dt)) {
+      const y = dt.getFullYear();
+      const m = String(dt.getMonth() + 1).padStart(2, '0');
+      const day = String(dt.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    }
+  }
+  return d;
+}
 
 function computeStatus(expiryDate, currentStatus) {
   let status = currentStatus || 'valid';
@@ -91,25 +109,81 @@ async function getDrugs(req, res) {
   try {
     const familyId = req.familyId;
     const { status } = req.query;
-
     const access = familyAccessFilter(familyId, 'di.');
-    let query = `SELECT di.*, d.spec_dosage, d.spec_dosage_unit, d.unit_capacity, d.unit_capacity_unit, d.category, d.type1, d.category, d.type1
-      FROM drug_inventory di
-      LEFT JOIN drugs d ON di.drug_code COLLATE utf8mb4_unicode_ci = d.code
-      WHERE (${access.sql})`;
     const params = access.params;
 
+    // 按 family + name(或 drug_code) 聚合同名药为 1 条记录，返回总数量 + 按人拆分
+    let where = `WHERE (${access.sql})`;
     if (status) {
-      query += ' AND di.status = ?';
+      where += ' AND di.status = ?';
       params.push(status);
     }
 
-    query += ' ORDER BY CASE di.status WHEN \'expired\' THEN 1 WHEN \'expiring_soon\' THEN 2 ELSE 3 END, di.expiry_date ASC';
+    // 1. 获取所有符合条件的 drug_inventory 原始行（不聚合，用于按 elder 拆分后自己拼装）
+    const [rows] = await getPool().query(
+      `SELECT di.*, d.spec_dosage, d.spec_dosage_unit, d.unit_capacity, d.unit_capacity_unit, d.category, d.type1,
+              e.name AS elder_name
+       FROM drug_inventory di
+       LEFT JOIN drugs d ON di.drug_code COLLATE utf8mb4_unicode_ci = d.code
+       LEFT JOIN elders e ON di.elder_id = e.id
+       ${where}
+       ORDER BY CASE di.status WHEN 'expired' THEN 1 WHEN 'expiring_soon' THEN 2 ELSE 3 END, di.expiry_date ASC`,
+      params
+    );
 
-    const [drugs] = await getPool().query(query, params);
-    const formattedDrugs = drugs.map(formatDrug);
+    // 2. 按 name（无 drug_code 时）或 drug_code 分组
+    const groupMap = new Map();
+    rows.forEach(r => {
+      const key = r.drug_code ? `CODE__${r.drug_code}` : `NAME__${r.name}`;
+      if (!groupMap.has(key)) {
+        groupMap.set(key, {
+          _anchor: r,
+          _rows: [],
+          _quantity: 0,
+          _byElder: new Map(),
+          _minExpiry: null,
+        });
+      }
+      const g = groupMap.get(key);
+      g._rows.push(r);
+      const remain = r.remaining_quantity != null ? Number(r.remaining_quantity) : Number(r.quantity || 0);
+      g._quantity += Math.max(0, remain);
+      const eid = r.elder_id || '__none__';
+      const ename = r.elder_name || '未指定';
+      if (!g._byElder.has(eid)) g._byElder.set(eid, { elderId: r.elder_id || null, elderName: ename, quantity: 0 });
+      g._byElder.get(eid).quantity += Math.max(0, remain);
+      // 计算最小有效期（仅统计余量>0的记录）
+      if (remain > 0 && r.expiry_date) {
+        const expStr = fmtDate(r.expiry_date);
+        if (expStr && (!g._minExpiry || expStr < g._minExpiry)) g._minExpiry = expStr;
+      }
+    });
 
-    // 统计预警
+    // 3. 组装返回的 drugs 列表
+    const formattedDrugs = [];
+    groupMap.forEach(g => {
+      const anchor = g._anchor;
+      anchor.quantity = g._quantity;
+      // 用余量>0的最小有效期覆盖 anchor 的 expiry_date
+      if (g._minExpiry) {
+        anchor.expiry_date = g._minExpiry;
+      }
+      // 重算状态
+      if (g._minExpiry) {
+        const today = new Date(); today.setHours(0, 0, 0, 0);
+        const exp = new Date(g._minExpiry); exp.setHours(0, 0, 0, 0);
+        if (exp < today) anchor.status = 'expired';
+        else if (exp <= new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000)) anchor.status = 'expiring_soon';
+        else anchor.status = 'valid';
+      }
+      const formatted = formatDrug(anchor);
+      formatted.byElder = Array.from(g._byElder.values())
+        .sort((a, b) => b.quantity - a.quantity);
+      formatted._anchorId = anchor.id;
+      formattedDrugs.push(formatted);
+    });
+
+    // 预警统计（按 family 统计，不需要聚合）
     const cntAccess = familyAccessFilter(familyId);
     const [expired] = await getPool().query(`SELECT COUNT(*) as count FROM drug_inventory WHERE (${cntAccess.sql}) AND status = ?`, [...cntAccess.params, 'expired']);
     const [expiring] = await getPool().query(`SELECT COUNT(*) as count FROM drug_inventory WHERE (${cntAccess.sql}) AND status = ?`, [...cntAccess.params, 'expiring_soon']);
@@ -184,21 +258,27 @@ async function addDrug(req, res) {
     const finalCode = resolved.code;
     const status = computeStatus(expiryDate, 'valid');
 
-    // 查重：以 drug_code + 到期日 为去重键
+    // 查重：drug_code + 到期日 + 服药人(elder_id) 三维都相同才合并数量，否则按人分开入库
+    const matchElderSql = elderId
+      ? 'elder_id = ?'
+      : '(elder_id IS NULL OR elder_id = "")';
+    const matchElderVals = elderId ? [elderId] : [];
     const [existing] = await getPool().query(
       `SELECT * FROM drug_inventory
        WHERE family_id = ? AND drug_code = ?
        AND (expiry_date = ? OR (expiry_date IS NULL AND ? IS NULL))
+       AND ${matchElderSql}
        LIMIT 1`,
-      [familyId, finalCode, expiryDate || null, expiryDate || null]
+      [familyId, finalCode, expiryDate || null, expiryDate || null, ...matchElderVals]
     );
 
     if (existing.length > 0) {
       const existingDrug = existing[0];
       const newQuantity = (existingDrug.quantity || 1) + (quantity || 1);
+      const newRemaining = (existingDrug.remaining_quantity != null ? existingDrug.remaining_quantity : (existingDrug.quantity || 1)) + (quantity || 1);
       await getPool().query(
-        'UPDATE drug_inventory SET quantity = ?, quantity_unit = ?, updated_by = ? WHERE id = ?',
-        [newQuantity, quantityUnit || existingDrug.quantity_unit || null, req.user.id, existingDrug.id]
+        'UPDATE drug_inventory SET quantity = ?, remaining_quantity = ?, quantity_unit = ?, updated_by = ? WHERE id = ?',
+        [newQuantity, newRemaining, quantityUnit || existingDrug.quantity_unit || null, req.user.id, existingDrug.id]
       );
       const [updated] = await getPool().query(
         `SELECT di.*, d.spec_dosage, d.spec_dosage_unit, d.unit_capacity, d.unit_capacity_unit, d.category, d.type1
@@ -209,10 +289,11 @@ async function addDrug(req, res) {
     }
 
     const id = uuidv4();
+    const qty = quantity || 1;
     await getPool().query(
-      `INSERT INTO drug_inventory (id, family_id, elder_id, drug_code, name, specification, manufacturer, quantity, quantity_unit, expiry_date, status, note, created_by, updated_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, familyId, elderId || null, finalCode, finalName, finalSpec || null, finalManu || null, quantity || 1, quantityUnit || null, expiryDate || null, status, note || null, req.user.id, req.user.id]
+      `INSERT INTO drug_inventory (id, family_id, elder_id, drug_code, name, specification, manufacturer, quantity, remaining_quantity, quantity_unit, expiry_date, status, note, created_by, updated_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, familyId, elderId || null, finalCode, finalName, finalSpec || null, finalManu || null, qty, qty, quantityUnit || null, expiryDate || null, status, note || null, req.user.id, req.user.id]
     );
 
     // 保存关联图片
@@ -339,7 +420,7 @@ async function getChronicMeds(req, res) {
     const access = familyAccessFilter(familyId, 'di.');
     // 查询：长期用药表 LEFT JOIN 药箱（确保药箱存在且有权限）
     const [rows] = await getPool().query(
-      `SELECT cm.id as cm_id, cm.drug_inventory_id, cm.drug_code, cm.drug_name, cm.sort_order,
+      `SELECT cm.id as cm_id, cm.drug_inventory_id, cm.drug_code, cm.drug_name, cm.sort_order, cm.elder_id,
               di.*, d.spec_dosage, d.spec_dosage_unit, d.unit_capacity, d.unit_capacity_unit, d.category, d.type1
        FROM chronic_medications cm
        LEFT JOIN drug_inventory di ON cm.drug_inventory_id = di.id
@@ -355,6 +436,9 @@ async function getChronicMeds(req, res) {
         chronicList.push({
           cmId: r.cm_id,
           drugInventoryId: r.drug_inventory_id,
+          drugCode: r.drug_code,
+          drugName: r.drug_name,
+          elderId: r.elder_id || null, // 长期用药针对的老人（优先 cm 自己的 elder_id，否则前端可退回 drug.elderId）
           sortOrder: r.sort_order,
           drug: formatDrug(r)
         });
@@ -437,74 +521,149 @@ module.exports = {
   updateDrug,
   deleteDrug,
   getDrugRecords,
+  updateInventoryItem,
   getChronicMeds,
   saveChronicMeds
 };
 
-// 获取药品库存的添加记录（来源于 medications 表的同 drug_code 记录）
+// 更新单条入库记录（有效期/余量）
+async function updateInventoryItem(req, res) {
+  try {
+    const { id } = req.params;
+    const { expiryDate, remainingQuantity } = req.body;
+    const familyId = req.familyId;
+
+    const access = familyAccessFilter(familyId);
+    const [rows] = await getPool().query(
+      `SELECT id FROM drug_inventory WHERE id = ? AND (${access.sql})`,
+      [id, ...access.params]
+    );
+    if (rows.length === 0) {
+      return res.status(404).json({ error: '记录不存在' });
+    }
+
+    const updates = [];
+    const params = [];
+    if (expiryDate !== undefined) {
+      updates.push('expiry_date = ?');
+      params.push(expiryDate || null);
+    }
+    if (remainingQuantity !== undefined) {
+      updates.push('remaining_quantity = ?');
+      params.push(remainingQuantity);
+    }
+
+    if (updates.length > 0) {
+      updates.push('updated_at = NOW()');
+      params.push(id);
+      await getPool().query(
+        `UPDATE drug_inventory SET ${updates.join(', ')} WHERE id = ?`,
+        params
+      );
+    }
+
+    // 重新计算状态
+    const [item] = await getPool().query('SELECT expiry_date, remaining_quantity FROM drug_inventory WHERE id = ?', [id]);
+    if (item.length > 0) {
+      const expDate = item[0].expiry_date;
+      const remain = item[0].remaining_quantity;
+      let status = 'valid';
+      if (remain != null && remain <= 0) status = 'valid';
+      else if (expDate) {
+        const today = new Date(); today.setHours(0, 0, 0, 0);
+        const exp = new Date(expDate); exp.setHours(0, 0, 0, 0);
+        if (exp < today) status = 'expired';
+        else if (exp <= new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000)) status = 'expiring_soon';
+      }
+      await getPool().query('UPDATE drug_inventory SET status = ? WHERE id = ?', [status, id]);
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Update inventory item error:', err);
+    res.status(500).json({ error: '更新失败' });
+  }
+}
+
+// 药品详情：按 family+name 聚合同名药，返回总库存、按服药人拆分、以及每条入库历史（即"添加记录"）
 async function getDrugRecords(req, res) {
   try {
     const { id } = req.params;
     const familyId = req.familyId;
 
-    // 先获取药品库存信息
+    // 先找到 anchor 行，确定要查的药名/编码
     const access = familyAccessFilter(familyId, 'di.');
-    const [drugs] = await getPool().query(
+    const [anchors] = await getPool().query(
       `SELECT di.*, d.spec_dosage, d.spec_dosage_unit, d.unit_capacity, d.unit_capacity_unit, d.category, d.type1
        FROM drug_inventory di LEFT JOIN drugs d ON di.drug_code COLLATE utf8mb4_unicode_ci = d.code
        WHERE di.id = ? AND (${access.sql})`,
       [id, ...access.params]
     );
-    if (drugs.length === 0) {
+    if (anchors.length === 0) {
+      return res.status(404).json({ error: '药品不存在' });
+    }
+    const anchor = anchors[0];
+
+    // 根据 anchor 查 family 下所有同名/同编码的 drug_inventory 行（每一行 = 一次入库记录）
+    const whereCode = anchor.drug_code ? 'di.drug_code COLLATE utf8mb4_unicode_ci = ?' : 'di.name = ?';
+    const whereVal = anchor.drug_code ? anchor.drug_code : anchor.name;
+    const fullAccess = familyAccessFilter(familyId, 'di.');
+    const [logs] = await getPool().query(
+      `SELECT di.*, e.name AS elder_name, r.id AS record_id, r.record_no AS record_no
+       FROM drug_inventory di
+       LEFT JOIN elders e ON di.elder_id = e.id
+       LEFT JOIN records r ON di.source_prescription_id = r.id
+       WHERE (${fullAccess.sql}) AND ${whereCode}
+       ORDER BY di.created_at DESC`,
+      [...fullAccess.params, whereVal]
+    );
+
+    if (logs.length === 0) {
       return res.status(404).json({ error: '药品不存在' });
     }
 
-    const drug = drugs[0];
-    const drugCode = drug.drug_code;
+    // 聚合：总剩余数量 + 按 elder 拆分（基于 remaining_quantity）
+    let totalQty = 0;
+    const byElderMap = new Map();
+    logs.forEach(l => {
+      const q = l.remaining_quantity != null ? Number(l.remaining_quantity) : Number(l.quantity || 0);
+      totalQty += Math.max(0, q);
+      const eid = l.elder_id || '__none__';
+      const ename = l.elder_name || '未指定';
+      if (!byElderMap.has(eid)) byElderMap.set(eid, { elderId: l.elder_id || null, elderName: ename, quantity: 0 });
+      byElderMap.get(eid).quantity += Math.max(0, q);
+    });
+    const byElder = Array.from(byElderMap.values()).sort((a, b) => b.quantity - a.quantity);
 
-    // 查找所有关联的用药记录（处方来源）
-    let medicationRecords = [];
-    if (drugCode) {
-      const medAccess = familyAccessFilter(familyId, 'm.');
-      const [meds] = await getPool().query(
-        `SELECT m.*, COALESCE(d.specification, m.specification) as specification, e.name as elder_name,
-                COALESCE(u.name, eu.name) as created_by_name, r.id as record_id, r.record_no as record_no
-         FROM medications m
-         LEFT JOIN drugs d ON m.drug_code COLLATE utf8mb4_unicode_ci = d.code
-         LEFT JOIN elders e ON m.elder_id = e.id
-         LEFT JOIN users u ON m.created_by = u.id
-         LEFT JOIN elders ee ON m.elder_id = ee.id
-         LEFT JOIN users eu ON ee.user_id = eu.id
-         LEFT JOIN records r ON m.source_prescription_id = r.id
-         WHERE (${medAccess.sql}) AND m.drug_code = ?
-         ORDER BY m.created_at DESC`,
-        [...medAccess.params, drugCode]
-      );
-      medicationRecords = meds.map(m => ({
-        id: m.id,
-        elderId: m.elder_id,
-        elderName: m.elder_name || '',
-        name: m.name,
-        specification: m.specification || '',
-        dose: m.dose,
-        quantity: m.quantity != null ? Number(m.quantity) : 1,
-        quantityUnit: m.quantity_unit || '',
-        frequency: m.frequency,
-        startDate: fmtDate(m.start_date),
-        endDate: fmtDate(m.end_date),
-        note: m.note,
-        status: m.status,
-        createdByName: m.created_by_name || '',
-        createdAt: fmtDate(m.created_at),
-        recordId: m.record_id || '',
-        recordNo: m.record_no || ''
-      }));
-    }
+    // 主 drug 对象（属性用 anchor，quantity 覆盖为总数）
+    anchor.quantity = totalQty;
+    const mainDrug = formatDrug(anchor);
+    mainDrug.byElder = byElder;
 
-    const images = await getEntityFiles('drug_inventory', id);
+    // inventoryLogs = 每条入库历史（用于前端"添加记录"表格）
+    const inventoryLogs = logs.map(l => {
+      const qty = l.quantity != null ? Number(l.quantity) : 0;
+      const remain = l.remaining_quantity != null ? Number(l.remaining_quantity) : qty;
+      return {
+        id: l.id,
+        elderId: l.elder_id || null,
+        elderName: l.elder_name || '未指定',
+        quantity: qty,
+        remainingQuantity: remain,
+        depleted: remain <= 0,
+        quantityUnit: l.quantity_unit || '盒',
+        expiryDate: fmtDate(l.expiry_date),
+        createdAt: fmtDate(l.created_at),
+        recordId: l.record_id || '',
+        recordNo: l.record_no || ''
+      };
+    });
+
+    // 图片取第一条 anchor 的
+    const images = await getEntityFiles('drug_inventory', anchor.id);
     res.json({
-      drug: { ...formatDrug(drug), images },
-      medicationRecords
+      drug: { ...mainDrug, images },
+      inventoryLogs
     });
   } catch (err) {
     console.error('Get drug records error:', err);
