@@ -189,7 +189,7 @@ const PageHome = {
         return `
         <div class="card">
             <div class="card-title" style="display:flex;align-items:center;">
-                <span style="flex:1;"><i class="fas fa-pills"></i> 最新用药安排</span>
+                <span style="flex:1;"><i class="fas fa-pills"></i> 用药安排</span>
                 <button class="btn-outline" style="width:auto;padding:3px 10px;font-size:12px;margin-left:8px;" onclick="App.switchPage('medEdit')"><i class="fas fa-edit"></i> 编辑</button>
                 <button class="btn-outline" style="width:auto;padding:3px 10px;font-size:12px;margin-left:4px;" onclick="App.switchPage('medHistory')"><i class="fas fa-history"></i> 历史</button>
             </div>
@@ -475,7 +475,10 @@ const PageHome = {
                                 <div class="sub">${r.hospital || '未填写'}</div>
                                 <div class="title">${r.diagnosis || '未填写诊断'}</div>
                             ` : `
-                                <div><span class="record-no">${r.recordNo || ''}</span>${r.relatedRecordNo ? `　<span class="record-no-link" onclick="event.stopPropagation();App.viewRecord('${r.relatedRecordId}')">病历：${r.relatedRecordNo}</span>` : ''}</div>
+                                <div style="display:flex;justify-content:space-between;align-items:center;">
+                                    <span class="record-no">${r.recordNo || ''}</span>${r.relatedRecordNo ? `　<span class="record-no-link" onclick="event.stopPropagation();App.viewRecord('${r.relatedRecordId}')">病历：${r.relatedRecordNo}</span>` : ''}
+                                </div>
+                                
                                 <div class="title">${r.diagnosis || '未填写'}</div>
                             `}
                         </div>
@@ -544,7 +547,10 @@ const PageRecords = {
             } else {
                 reportsEl.innerHTML = reports.map(r => `
                     <div class="record-item" onclick="App.viewRecord('${r.id}')">
-                        <div><span class="record-no">${r.recordNo || ''}</span>${r.relatedRecordNo ? `　<span class="record-no-link" onclick="event.stopPropagation();App.viewRecord('${r.relatedRecordId}')">病历：${r.relatedRecordNo}</span>` : ''}</div>
+                        <div style="display:flex;justify-content:space-between;align-items:center;">
+                            <span class="record-no">${r.recordNo || ''}</span>
+                            ${r.relatedRecordNo ? `　<span class="record-no-link" onclick="event.stopPropagation();App.viewRecord('${r.relatedRecordId}')">病历：${r.relatedRecordNo}</span>` : ''}
+                        </div>
                         <div class="title">${r.diagnosis || '未填写'}</div>
                     </div>`).join('');
             }
@@ -599,7 +605,7 @@ const PageRecordDetail = {
         return `
         <div class="sub-header">
             <button class="back-btn" onclick="App.switchPage('records')"><i class="fas fa-arrow-left"></i></button>
-            <h2>详情</h2>
+            <h2 id="recordDetailTitle">详情</h2>
             <div style="margin-left:auto;">
                 <button id="recordEditBtn" class="btn-outline" style="width:auto;padding:6px 14px;font-size:13px;" onclick="PageRecordDetail._startEdit()"><i class="fas fa-edit"></i> 编辑</button>
             </div>
@@ -627,6 +633,12 @@ const PageRecordDetail = {
             const res = await Api.records.get(id);
             const r = res.record;
             this._rawRecord = r;
+            // 更新标题：药方→处方，其他保留原类型名
+            const titleEl = document.getElementById('recordDetailTitle');
+            if (titleEl) {
+                const typeLabel = r.type === '药方' ? '处方' : (r.type || '记录');
+                titleEl.textContent = `${typeLabel}详情`;
+            }
             // 处方不允许编辑
             const editBtn = document.getElementById('recordEditBtn');
             if (editBtn) editBtn.style.display = (r.type === '药方') ? 'none' : '';
@@ -862,7 +874,8 @@ const PagePharmacy = {
         }
         const unit = d.quantityUnit || '盒';
         const qtyLine = `${d.quantity || 0}${unit}`;
-        const qtySpecLine = `剩余 ${qtyLine}${specLine ? ' · ' + specLine : ''}`;
+        const qtySpecLine = `${qtyLine}`;
+//        const qtySpecLine = `剩余 ${qtyLine}${specLine ? ' · ' + specLine : ''}`;
         const textColor = isDepleted ? 'color:#94a3b8;' : '';
         // 用真正的 anchorId 打开详情（确保后端能按 name 聚合到所有同名人的库存）
         const openId = d._anchorId || d.id;
@@ -871,7 +884,7 @@ const PagePharmacy = {
             <div class="drug-info" style="flex:1;min-width:0;">
                 <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;">
                     <div class="dname" style="color:#2b7a78;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;${textColor}">${d.name}</div>
-                    <div class="qty" style="flex-shrink:0;width:180px;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;${textColor}">${qtySpecLine}</div>
+                    <div class="qty" style="flex-shrink:0;width:50px;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;${textColor}">${qtySpecLine}</div>
                 </div>
                 <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
                     <div class="dexp">📅 过期: <span style="${dateColor}">${d.expiryDate || '未设置'}</span>${statusHtml}</div>
@@ -2953,10 +2966,10 @@ const PageMedEdit = {
                     <div class="med-edit-dose">${doseText}</div>
                 </div>
                 <div class="med-edit-footer">
-                    <div class="med-edit-time">${timesHtml || '<span class="text-muted">未设置</span>'}${m.note ? ' · ' + m.note : ''}</div>
+                    <div class="med-edit-time">${timesHtml || '<span class="text-muted">未设置</span>'}</div>
                     <div class="med-edit-actions">
                         <button class="med-edit-btn btn-edit" onclick="PageMedEdit.showEditForm('${m.id}')"><i class="fas fa-edit"></i> 修改</button>
-                        <button class="med-edit-btn btn-end" onclick="PageMedEdit.endMed('${m.id}','${m.name.replace(/'/g, "\\'")}')"><i class="fas fa-stop-circle"></i> 结束用药</button>
+                        <button class="med-edit-btn btn-end" onclick="PageMedEdit.endMed('${m.id}','${m.name.replace(/'/g, "\\'")}')"><i class="fas fa-stop-circle"></i> 结束</button>
                         <button class="med-edit-btn btn-delete" onclick="PageMedEdit.deleteMed('${m.id}','${m.name.replace(/'/g, "\\'")}')"><i class="fas fa-trash"></i> 删除</button>
                     </div>
                 </div>
