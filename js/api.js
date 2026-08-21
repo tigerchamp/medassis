@@ -79,7 +79,7 @@ const Api = {
         delete: (id) => api(`/drugs/${id}`, { method: 'DELETE' }),
         updateInventoryItem: (id, data) => api(`/drugs/inventory/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
         autoConsume: () => api('/drugs/auto-consume', { method: 'POST' }),
-        getChronic: () => api('/drugs/chronic/list'),
+        getChronic: (elderId) => api(`/drugs/chronic/list${elderId ? '?elderId=' + encodeURIComponent(elderId) : ''}`),
         saveChronic: (drugInventoryIds, elderId) => api('/drugs/chronic/save', { method: 'POST', body: JSON.stringify({ drugInventoryIds, elderId }) }),
     },
     drugLibrary: {

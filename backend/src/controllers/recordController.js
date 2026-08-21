@@ -328,12 +328,17 @@ async function addRecord(req, res) {
       return res.status(400).json({ error: '必须关联老人' });
     }
 
-    // 检查老人是否存在（当前家庭的 OR self 档案跨家庭共享）
+    // 检查老人是否存在（当前家庭 OR 家庭组成员的 self 档案跨家庭共享）
     const [elders] = await getPool().query(`
       SELECT id FROM elders WHERE id = ? AND (
-        family_id = ? OR (user_id = ? AND relation = 'self')
+        family_id = ?
+        OR (relation = 'self' AND user_id IN (
+          SELECT uf.user_id FROM user_families uf WHERE uf.family_id = ?
+          UNION
+          SELECT u.id FROM users u WHERE u.family_id = ?
+        ))
       )
-    `, [elderId, familyId, userId]);
+    `, [elderId, familyId, familyId, familyId]);
     if (elders.length === 0) {
       return res.status(400).json({ error: '老人档案不存在' });
     }

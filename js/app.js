@@ -1603,6 +1603,56 @@ const App = {
         this._toastTimer = setTimeout(() => el.classList.remove('show'), 2000);
     },
 
+    confirm(message, title) {
+        return new Promise(resolve => {
+            const overlay = document.getElementById('dialogOverlay');
+            document.getElementById('dialogTitle').textContent = title || '提示';
+            document.getElementById('dialogMessage').textContent = message;
+            document.getElementById('dialogInputRow').style.display = 'none';
+            document.getElementById('dialogOkBtn').textContent = '确定';
+            const okBtn = document.getElementById('dialogOkBtn');
+            const cancelBtn = document.getElementById('dialogCancelBtn');
+            const cleanup = () => {
+                overlay.classList.remove('show');
+                okBtn.removeEventListener('click', onOk);
+                cancelBtn.removeEventListener('click', onCancel);
+            };
+            const onOk = () => { cleanup(); resolve(true); };
+            const onCancel = () => { cleanup(); resolve(false); };
+            okBtn.addEventListener('click', onOk);
+            cancelBtn.addEventListener('click', onCancel);
+            overlay.classList.add('show');
+        });
+    },
+
+    prompt(message, defaultValue, title) {
+        return new Promise(resolve => {
+            const overlay = document.getElementById('dialogOverlay');
+            document.getElementById('dialogTitle').textContent = title || '提示';
+            document.getElementById('dialogMessage').textContent = message;
+            document.getElementById('dialogInputRow').style.display = '';
+            const input = document.getElementById('dialogInput');
+            input.value = defaultValue || '';
+            document.getElementById('dialogOkBtn').textContent = '确定';
+            const okBtn = document.getElementById('dialogOkBtn');
+            const cancelBtn = document.getElementById('dialogCancelBtn');
+            const cleanup = () => {
+                overlay.classList.remove('show');
+                okBtn.removeEventListener('click', onOk);
+                cancelBtn.removeEventListener('click', onCancel);
+                input.removeEventListener('keydown', onKey);
+            };
+            const onOk = () => { cleanup(); resolve(input.value); };
+            const onCancel = () => { cleanup(); resolve(null); };
+            const onKey = (e) => { if (e.key === 'Enter') onOk(); };
+            okBtn.addEventListener('click', onOk);
+            cancelBtn.addEventListener('click', onCancel);
+            input.addEventListener('keydown', onKey);
+            overlay.classList.add('show');
+            setTimeout(() => input.focus(), 50);
+        });
+    },
+
     openModal(html) {
         document.getElementById('modalContent').innerHTML = html;
         document.getElementById('modalOverlay').classList.add('show');
@@ -1944,13 +1994,13 @@ const App = {
                 return `
                 <div style="background:#f8fafd;border-radius:12px;padding:12px;margin-bottom:8px;">
                     <div class="form-group"><label>药品${i + 1}名称 *</label><input id="${p}Name" value="${this._escAttr(m.name)}" placeholder="输入名称或拼音首字母" autocomplete="off" onclick="DrugSuggest.showSuggestions(this)" oninput="DrugSuggest.onInput(this,'${p}Code',{specDosage:'${p}SpecDosage',specDosageUnit:'${p}SpecDosageUnit',unitCapacity:'${p}UnitCap',unitCapacityUnit:'${p}UnitCapUnit',manufacturer:'${p}Manu'})"><input type="hidden" id="${p}Code"></div>
-                    <div class="form-group"><label>规格（每片/袋含量） *</label><div style="display:flex;gap:8px"><input id="${p}SpecDosage" type="number" step="0.001" value="${m.specDosage || ''}" placeholder="如 0.25" style="flex:2"><select id="${p}SpecDosageUnit" style="flex:1">${optsSel(specUnitOpts, sdu)}</select></div></div>
-                    <div class="form-group"><label>单位容量（每盒/瓶数量） *</label><div style="display:flex;gap:8px"><input id="${p}UnitCap" type="number" value="${m.unitCap || ''}" placeholder="如 20" style="flex:2"><select id="${p}UnitCapUnit" style="flex:1">${opts(capUnitOpts)}</select></div></div>
+                    <div class="form-group"><label>规格（每片/袋含量） *</label><div style="display:flex;gap:8px"><input id="${p}SpecDosage" type="number" step="1" min="0" value="${m.specDosage || ''}" placeholder="如 0.25" style="flex:2"><select id="${p}SpecDosageUnit" style="flex:1">${optsSel(specUnitOpts, sdu)}</select></div></div>
+                    <div class="form-group"><label>单位容量（每盒/瓶数量） *</label><div style="display:flex;gap:8px"><input id="${p}UnitCap" type="number" step="1" min="0" value="${m.unitCap || ''}" placeholder="如 20" style="flex:2"><select id="${p}UnitCapUnit" style="flex:1">${opts(capUnitOpts)}</select></div></div>
                     <div class="form-group"><label>生产厂商</label><input id="${p}Manu" value="${this._escAttr(m.manufacturer || '')}" placeholder="生产单位"></div>
-                    <div class="form-group"><label>数量 *</label><div style="display:flex;gap:8px"><input id="${p}Qty" type="number" value="${m.quantity || 1}" min="1" style="flex:2"><select id="${p}QtyUnit" style="flex:1">${optsSel(qtyUnitOpts, m.quantityUnit)}</select></div></div>
+                    <div class="form-group"><label>数量 *</label><div style="display:flex;gap:8px"><input id="${p}Qty" type="number" step="1" min="1" value="${m.quantity || 1}" style="flex:2"><select id="${p}QtyUnit" style="flex:1">${optsSel(qtyUnitOpts, m.quantityUnit)}</select></div></div>
                     <div class="form-group"><label>有效期</label><input id="${p}Expiry" type="text" readonly onclick="CalendarPicker.attach(this)" placeholder="点击选择日期" style="background:#fff;"></div>
-                    <div class="form-group"><label>每次剂量 *</label><div style="display:flex;gap:8px"><input id="${p}DoseAmount" type="number" step="0.001" value="${m.doseAmount || ''}" placeholder="如 5" style="flex:2"><select id="${p}DoseUnit" style="flex:1">${optsSel(doseUnitOpts, du)}</select></div></div>
-                    <div class="form-group"><label>每日次数 *</label><input id="${p}Freq" type="number" min="1" max="4" value="${freqN}" oninput="MedTimesUI.render('${p}')"></div>
+                    <div class="form-group"><label>每次剂量 *</label><div style="display:flex;gap:8px"><input id="${p}DoseAmount" type="number" step="1" min="0" value="${m.doseAmount || ''}" placeholder="如 5" style="flex:2"><select id="${p}DoseUnit" style="flex:1">${optsSel(doseUnitOpts, du)}</select></div></div>
+                    <div class="form-group"><label>每日次数 *</label><input id="${p}Freq" type="number" step="1" min="1" max="4" value="${freqN}" oninput="MedTimesUI.render('${p}')"></div>
                     <div class="form-group"><label>服用时间段 *</label><div id="${p}TimeSlots"></div></div>
                     <div class="form-group"><label>开始日期</label><input id="${p}Start" type="text" readonly value="${today}" onclick="CalendarPicker.attach(this,{max:'today'})" placeholder="点击选择日期" style="background:#fff;"></div>
                     <div class="form-group"><label>备注</label><input id="${p}Note" value="${this._escAttr(m.note)}" placeholder="如：餐后服用"></div>
@@ -2005,11 +2055,11 @@ const App = {
                 ${thumbsHtml}
                 ${ocrTextHtml}
                 <div class="form-group"><label>药品名称 *</label><input id="ocr-drug-name" value="${this._escAttr(parsed.name)}" onclick="DrugSuggest.showSuggestions(this)" oninput="DrugSuggest.onInput(this,'drugCodeHidden',{specDosage:'ocr-drug-specdosage',specDosageUnit:'ocr-drug-specdosageunit',unitCapacity:'ocr-drug-unitcap',unitCapacityUnit:'ocr-drug-unitcapunit',specification:'ocr-drug-spec',manufacturer:'ocr-drug-manufacturer'})"><input type="hidden" id="drugCodeHidden"></div>
-                <div class="form-group"><label>规格（每片/袋含量） *</label><div style="display:flex;gap:8px"><input id="ocr-drug-specdosage" type="number" step="0.001" value="${this._escAttr(parsed.specDosage || '')}" placeholder="如 0.25" style="flex:2"><select id="ocr-drug-specdosageunit" style="flex:1"><option value="g">g</option><option value="mg">mg</option><option value="ml">ml</option><option value="μg">μg</option></select></div></div>
-                <div class="form-group"><label>单位容量（每盒/瓶数量） *</label><div style="display:flex;gap:8px"><input id="ocr-drug-unitcap" type="number" value="${this._escAttr(parsed.unitCap || '')}" placeholder="如 20" style="flex:2"><select id="ocr-drug-unitcapunit" style="flex:1"><option value="片">片</option><option value="粒">粒</option><option value="袋">袋</option><option value="支">支</option><option value="瓶">瓶</option><option value="贴">贴</option></select></div></div>
+                <div class="form-group"><label>规格（每片/袋含量） *</label><div style="display:flex;gap:8px"><input id="ocr-drug-specdosage" type="number" step="1" min="0" value="${this._escAttr(parsed.specDosage || '')}" placeholder="如 0.25" style="flex:2"><select id="ocr-drug-specdosageunit" style="flex:1"><option value="g">g</option><option value="mg">mg</option><option value="ml">ml</option><option value="μg">μg</option></select></div></div>
+                <div class="form-group"><label>单位容量（每盒/瓶数量） *</label><div style="display:flex;gap:8px"><input id="ocr-drug-unitcap" type="number" step="1" min="0" value="${this._escAttr(parsed.unitCap || '')}" placeholder="如 20" style="flex:2"><select id="ocr-drug-unitcapunit" style="flex:1"><option value="片">片</option><option value="粒">粒</option><option value="袋">袋</option><option value="支">支</option><option value="瓶">瓶</option><option value="贴">贴</option></select></div></div>
                 <div class="form-group"><label>规格文本</label><input id="ocr-drug-spec" value="${this._escAttr(parsed.specification)}" placeholder="如：0.25g/片"></div>
                 <div class="form-group"><label>厂商</label><input id="ocr-drug-manufacturer" value="${this._escAttr(parsed.manufacturer)}" placeholder="如：扬子江药业"></div>
-                <div class="form-group"><label>数量 *</label><div style="display:flex;gap:8px"><input id="ocr-drug-qty" type="number" value="1" min="1" style="flex:2"><select id="ocr-drug-qty-unit" style="flex:1"><option value="盒">盒</option><option value="瓶">瓶</option><option value="袋">袋</option><option value="支">支</option><option value="包">包</option><option value="板">板</option></select></div></div>
+                <div class="form-group"><label>数量 *</label><div style="display:flex;gap:8px"><input id="ocr-drug-qty" type="number" step="1" min="1" value="1" style="flex:2"><select id="ocr-drug-qty-unit" style="flex:1"><option value="盒">盒</option><option value="瓶">瓶</option><option value="袋">袋</option><option value="支">支</option><option value="包">包</option><option value="板">板</option></select></div></div>
                 <div class="form-group"><label>有效期 *</label><input id="ocr-drug-exp" type="text" readonly onclick="CalendarPicker.attach(this)" placeholder="点击选择日期" style="background:#fff;"></div>
                 <div class="form-group"><label>备注</label><input id="ocr-drug-note" placeholder="备注信息"></div>
                 <button class="btn-primary" onclick="App.saveOcrDrug()">录入药箱</button>
@@ -2557,12 +2607,12 @@ const App = {
     },
 
     async deleteRecord(id) {
-        if (!confirm('确认删除此病历？')) return;
+        if (!await App.confirm('确认删除此病历？')) return;
         try { await Api.records.delete(id); this.toast('已删除'); this.goBack(); } catch (err) { this.toast(err.message); }
     },
 
     async deleteDrug(id) {
-        if (!confirm('确认删除此药品？')) return;
+        if (!await App.confirm('确认删除此药品？')) return;
         try { await Api.drugs.delete(id); this.toast('已删除'); this.switchPage('pharmacy'); } catch (err) { this.toast(err.message); }
     },
 
@@ -2851,7 +2901,7 @@ const App = {
     async deleteElder(id) {
         const member = this.state.members.find(m => m.id === id);
         if (member && member.relation === 'self' && member.user_id === this.state.user?.id) { this.toast('不能删除自己的档案'); return; }
-        if (!confirm('确认删除此成员档案？相关病历和用药记录也会被删除。')) return;
+        if (!await App.confirm('确认删除此成员档案？相关病历和用药记录也会被删除。')) return;
         try { await Api.elders.delete(id); this.toast('已删除'); await this.loadData(); this.switchPage('home'); } catch (err) { this.toast(err.message); }
     },
 
@@ -2876,7 +2926,7 @@ const App = {
     },
 
     async editFamilyName(familyId, currentName) {
-        const newName = prompt('修改家庭组名称', currentName);
+        const newName = await App.prompt('修改家庭组名称', currentName);
         if (!newName || newName === currentName) return;
         try {
             await Api.auth.updateFamily(newName);

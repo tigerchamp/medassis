@@ -41,6 +41,19 @@
         <div class="modal-content" id="modalContent" onclick="event.stopPropagation();"></div>
     </div>
     <div class="toast" id="toast"></div>
+    <div class="dialog-overlay" id="dialogOverlay">
+        <div class="dialog-box">
+            <div class="dialog-title" id="dialogTitle">提示</div>
+            <div class="dialog-message" id="dialogMessage"></div>
+            <div class="dialog-input-row" id="dialogInputRow" style="display:none;">
+                <input type="text" id="dialogInput" class="dialog-input" />
+            </div>
+            <div class="dialog-actions">
+                <button class="dialog-btn dialog-btn-cancel" id="dialogCancelBtn">取消</button>
+                <button class="dialog-btn dialog-btn-ok" id="dialogOkBtn">确定</button>
+            </div>
+        </div>
+    </div>
 </div>
 <script src="js/api.js"></script>
 <script src="js/pages.js"></script>

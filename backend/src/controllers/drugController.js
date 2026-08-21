@@ -411,38 +411,61 @@ async function deleteDrug(req, res) {
   }
 }
 
-// 获取当前用户的长期用药设置（带药箱详情）
+// 获取长期用药设置（带药箱详情）
+// 按 elderId（服药人）过滤，不按设置人过滤——因为查看家人资料时需要显示该家人的长期用药
 async function getChronicMeds(req, res) {
   try {
-    const userId = req.user.id;
     const familyId = req.familyId;
+    const { elderId } = req.query;
 
-    const access = familyAccessFilter(familyId, 'di.');
-    // 查询：长期用药表 LEFT JOIN 药箱（确保药箱存在且有权限）
-    const [rows] = await getPool().query(
-      `SELECT cm.id as cm_id, cm.drug_inventory_id, cm.drug_code, cm.drug_name, cm.sort_order, cm.elder_id,
-              di.*, d.spec_dosage, d.spec_dosage_unit, d.unit_capacity, d.unit_capacity_unit, d.category, d.type1
-       FROM chronic_medications cm
-       LEFT JOIN drug_inventory di ON cm.drug_inventory_id = di.id
-       LEFT JOIN drugs d ON di.drug_code COLLATE utf8mb4_unicode_ci = d.code
-       WHERE cm.user_id = ? AND cm.family_id = ? AND (${access.sql})
-       ORDER BY cm.sort_order ASC, cm.created_at ASC`,
-      [userId, familyId, ...access.params]
-    );
+    // 简单 LEFT JOIN：chronic_medications 本身有 family_id 做权限隔离
+    // 不在 ON 子句放 familyAccessFilter，避免权限不匹配时 di.* 全 null 被丢弃
+    let sql = `SELECT cm.id as cm_id, cm.drug_inventory_id, cm.drug_code, cm.drug_name, cm.sort_order, cm.elder_id,
+            di.*, d.spec_dosage, d.spec_dosage_unit, d.unit_capacity, d.unit_capacity_unit, d.category, d.type1
+     FROM chronic_medications cm
+     LEFT JOIN drug_inventory di ON cm.drug_inventory_id = di.id
+     LEFT JOIN drugs d ON di.drug_code COLLATE utf8mb4_unicode_ci = d.code
+     WHERE cm.family_id = ?`;
+    const params = [familyId];
+
+    // 按 elderId（服药人）过滤：cm.elder_id 优先，为 null 时用 di.elder_id 兜底
+    if (elderId) {
+      sql += ` AND (cm.elder_id = ? OR (cm.elder_id IS NULL AND di.elder_id = ?))`;
+      params.push(elderId, elderId);
+    }
+
+    sql += ` ORDER BY cm.sort_order ASC, cm.created_at ASC`;
+
+    const [rows] = await getPool().query(sql, params);
 
     const chronicList = [];
     rows.forEach(r => {
-      if (r.id) { // 药箱记录存在（没被删掉）才返回
-        chronicList.push({
-          cmId: r.cm_id,
-          drugInventoryId: r.drug_inventory_id,
+      // 即使 drug_inventory 被删除（di.id 为 null），也返回 chronic 记录，用 cm.drug_name 兜底
+      const hasInv = !!r.id;
+      chronicList.push({
+        cmId: r.cm_id,
+        drugInventoryId: r.drug_inventory_id,
+        drugCode: r.drug_code,
+        drugName: r.drug_name,
+        elderId: r.elder_id || null,
+        sortOrder: r.sort_order,
+        drug: hasInv ? formatDrug(r) : {
+          id: r.drug_inventory_id,
           drugCode: r.drug_code,
-          drugName: r.drug_name,
-          elderId: r.elder_id || null, // 长期用药针对的老人（优先 cm 自己的 elder_id，否则前端可退回 drug.elderId）
-          sortOrder: r.sort_order,
-          drug: formatDrug(r)
-        });
-      }
+          name: r.drug_name,
+          quantity: 0,
+          quantityUnit: '',
+          unitCapacity: null,
+          unitCapacityUnit: '',
+          specDosage: null,
+          specDosageUnit: '',
+          category: '',
+          elderId: null,
+          expiryDate: null,
+          status: 'unknown',
+          createdAt: null
+        }
+      });
     });
     res.json({ chronicMeds: chronicList });
   } catch (err) {

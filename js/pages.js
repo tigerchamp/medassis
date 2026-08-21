@@ -204,7 +204,7 @@ const PageHome = {
             // 并行拉取：用药计划表 + 长期用药设置 + 药箱（用于长期用药提醒）
             const [medsRes, chronicRes, drugsRes] = await Promise.all([
                 Api.medications.getAll(memberId, true),
-                Api.drugs.getChronic().catch(() => ({ chronicMeds: [] })),
+                Api.drugs.getChronic(memberId).catch(() => ({ chronicMeds: [] })),
                 Api.drugs.getAll().catch(() => ({ drugs: [] })),
             ]);
             const meds = medsRes.medications || [];
@@ -266,12 +266,9 @@ const PageHome = {
             today.setHours(0, 0, 0, 0);
             const todayTs = today.getTime();
             const DAY_MS = 86400000;
-            const DEFAULT_PER_DAY_PILLS = 3; // 默认每日按 3 片/粒 估算
-            const DEFAULT_PACK_DAYS = 30;    // 无规格信息时兜底：每盒约 30 天
+            const DEFAULT_PER_DAY_PILLS = 3;
+            const DEFAULT_PACK_DAYS = 30;
 
-            // 辅助：估算每盒可供服用的天数
-            //   unitCapacity: 每盒片/粒数 (来自药箱)
-            //   perDayPills:  每日服用片/粒数
             const calcPackDays = (unitCapacity, perDayPills) => {
                 const pillsPerDay = Math.max(1, perDayPills || DEFAULT_PER_DAY_PILLS);
                 if (unitCapacity && unitCapacity > 0) {
@@ -280,101 +277,56 @@ const PageHome = {
                 return DEFAULT_PACK_DAYS;
             };
 
-            // 优先基于长期用药设置（从药箱选的）计算开药提醒
-            // ★ 按 elder（服药人）关联个人库存单独算倒计时
+            // 长期用药倒计时：直接遍历 chronicList，用 cm.drug 的库存计算
             let medStats = [];
             const chronicList = (chronicRes && chronicRes.chronicMeds) || [];
             const allDrugs = (drugsRes && drugsRes.drugs) || [];
 
-            // 聚合药物建 name → d 和 drugCode → d 两个索引（因为 getDrugs 已按 family+name 合并，同名药只有 1 条聚合）
-            const drugsByName = new Map();
-            const drugsByCode = new Map();
-            allDrugs.forEach(d => {
-                if (!drugsByName.has(d.name)) drugsByName.set(d.name, d);
-                if (d.drugCode && !drugsByCode.has(d.drugCode)) drugsByCode.set(d.drugCode, d);
-            });
-
-            // 成员 id→name
-            const memberMap = new Map((App.state.members || []).map(m => [m.id, m.name || '未命名成员']));
-
-            // 构建 药名 → medication 映射（方便借用用药计划的剂量信息）
+            // 药名 → medication（借用剂量信息）
             const medsByName = new Map();
             meds.filter(m => m.status === 'active').forEach(m => {
                 if (!medsByName.has(m.name)) medsByName.set(m.name, m);
             });
 
-            if (chronicList.length > 0) {
-                chronicList.forEach(cm => {
-                    // 仅显示当前成员自己的长期用药
-                    const cmElderId = cm.elderId || (cm.drug && cm.drug.elderId) || null;
-                    if (cmElderId && memberId && cmElderId !== memberId) return;
-                    if (!cmElderId && !memberId) { /* both null: treat as mine */ }
-                    else if (!cmElderId && memberId) return; // chronic 未指定服药人，跳过他人视图
-                    // 找到聚合后的 drug（优先按 drugCode，其次按 name）
-                    let d = null;
-                    if (cm.drugCode) d = drugsByCode.get(cm.drugCode) || drugsByName.get(cm.drugName);
-                    if (!d) d = drugsByName.get(cm.drugName) || drugsByName.get(cm.drug && cm.drug.name);
-                    if (!d) {
-                        // 退化：用 chronic 关联的单条 drug（可能未被聚合到 allDrugs，不应该发生但兜底）
-                        d = cm.drug || null;
-                    }
-                    if (!d) return;
+            // 直接遍历长期用药，每个都显示
+            chronicList.forEach(cm => {
+                const d = cm.drug || {};
+                const drugName = cm.drugName || d.name || '未命名药品';
+                const qty = d.quantity || 0;
+                const unitCapacity = d.unitCapacity;
+                const unitCapacityUnit = d.unitCapacityUnit || '';
+                const specDosageUnit = d.specDosageUnit || '';
 
-                    const elderId = cmElderId;
-                    const elderName = (elderId && memberMap.get(elderId)) || '未指定';
+                // 借用用药计划的剂量信息
+                const mm = medsByName.get(drugName);
+                const timesLen = (mm && mm.times && mm.times.length) ? mm.times.length : (mm && mm.frequency) || 2;
+                const doseEach = (mm && mm.doseAmount != null) ? mm.doseAmount : 1;
+                const perDayPills = timesLen * doseEach;
 
-                    // 取这个人在这种药上的个人库存（在聚合 drug.byElder 里找 elderId 对应的条目）
-                    let personalQty = d.quantity || 0;
-                    if (elderId && Array.isArray(d.byElder)) {
-                        const hit = d.byElder.find(b => b.elderId === elderId);
-                        if (hit) personalQty = hit.quantity;
-                        else personalQty = 0; // 这个人在该药上无库存，不参与提醒（或 0，剩余天数 0）
-                    }
-                    if (!personalQty || personalQty <= 0) return; // 这个人无库存，跳过
+                // 起点：medication.startDate 优先，否则 drug.createdAt，否则今天
+                let startDt = (mm && mm.startDate) ? new Date(mm.startDate)
+                          : (d.createdAt ? new Date(d.createdAt) : new Date());
+                startDt.setHours(0, 0, 0, 0);
+                const daysUsed = Math.max(0, Math.floor((todayTs - startDt.getTime()) / DAY_MS));
 
-                    // 尝试从同名 medication 借用每日剂量信息
-                    const mm = medsByName.get(d.name);
-                    const timesLen = (mm && mm.times && mm.times.length) ? mm.times.length : (mm && mm.frequency) || 2;
-                    const doseEach = (mm && mm.doseAmount != null) ? mm.doseAmount : 1;
-                    const perDayPills = timesLen * doseEach;
+                const packDays = calcPackDays(unitCapacity, perDayPills);
+                const totalDays = Math.max(1, qty * packDays);
+                const daysLeft = qty <= 0 ? 0 : Math.max(0, totalDays - daysUsed);
+                const progress = Math.max(0, Math.min(100, (daysLeft / Math.max(1, totalDays)) * 100));
 
-                    // 起点：优先借用 medication.startDate；否则用最早入库日期（或 drug.createdAt）
-                    let startDt = (mm && mm.startDate) ? new Date(mm.startDate)
-                              : (d.createdAt ? new Date(d.createdAt) : new Date());
-                    startDt.setHours(0, 0, 0, 0);
-                    const daysUsed = Math.max(0, Math.floor((todayTs - startDt.getTime()) / DAY_MS));
+                const basis = unitCapacity
+                    ? `按每日 ${timesLen} 次 × 每次 ${doseEach}${specDosageUnit || '片'} · 每盒 ${unitCapacity}${unitCapacityUnit || '片'} 估算`
+                    : `按每盒约 ${packDays} 天 · 每日 ${timesLen} 次估算`;
 
-                    const packDays = calcPackDays(d.unitCapacity, perDayPills);
-                    const totalDays = Math.max(1, personalQty * packDays); // ★ 按个人数量算总量
-                    const daysLeft = Math.max(0, totalDays - daysUsed);
-                    const progress = Math.max(0, Math.min(100, (daysLeft / Math.max(1, totalDays)) * 100));
+                medStats.push({ name: drugName, daysLeft, progress, totalDays, basis });
+            });
 
-                    // 估算依据
-                    const basis = d.unitCapacity
-                        ? `按每日 ${timesLen} 次 × 每次 ${doseEach}${d.specDosageUnit || '片'} · 每盒 ${d.unitCapacity}${d.unitCapacityUnit || '片'} 估算`
-                        : `按每盒约 ${packDays} 天 · 每日 ${timesLen} 次估算`;
-
-                    medStats.push({
-                        name: d.name,
-                        elderId,
-                        elderName,
-                        daysLeft,
-                        progress,
-                        totalDays,
-                        daily: timesLen,
-                        basis
-                    });
-                });
-            }
-
-            // 若没设置长期用药，回退到基于用药计划表(medications)的计算
-            if (medStats.length === 0 && meds.length > 0) {
-                // 再构建一个 药名 -> drug_inventory 映射，尽量借用药箱的 unitCapacity 精确计算
+            // 没有长期用药时，回退到用药计划表
+            if (chronicList.length === 0 && meds.length > 0) {
                 const invByName = new Map();
                 allDrugs.forEach(dr => { if (!invByName.has(dr.name)) invByName.set(dr.name, dr); });
 
                 medStats = meds.filter(m => m.status === 'active').map(m => {
-                    // 仅显示当前成员自己的用药计划
                     const mElderId = m.elderId || null;
                     if (mElderId && memberId && mElderId !== memberId) return null;
                     if (!mElderId && memberId) return null;
@@ -384,7 +336,6 @@ const PageHome = {
                     const elderId = mElderId;
                     const elderName = (elderId && memberMap.get(elderId)) || (m.elderName || '未指定');
 
-                    // 起点：startDate 优先，退回 createdAt
                     const startDt = m.startDate ? new Date(m.startDate) : new Date(m.createdAt);
                     startDt.setHours(0, 0, 0, 0);
                     const daysUsed = Math.max(0, Math.floor((todayTs - startDt.getTime()) / DAY_MS));
@@ -398,7 +349,6 @@ const PageHome = {
                         daysLeft = Math.max(0, Math.ceil((endDt.getTime() - todayTs) / DAY_MS));
                         basis = `按处方结束日期 ${m.endDate} 计算`;
                     } else {
-                        // 先尝试借用药箱同药品的 unitCapacity；有 elderId 时尽量取个人库存
                         const inv = invByName.get(m.name);
                         const unitCap = (inv && inv.unitCapacity) ? inv.unitCapacity : null;
                         const unitCapUnit = (inv && inv.unitCapacityUnit) ? inv.unitCapacityUnit : '片';
@@ -415,7 +365,7 @@ const PageHome = {
                             : `按每盒约 ${packDays} 天 · 每日 ${timesLen} 次估算`;
                     }
                     const progress = Math.max(0, Math.min(100, (daysLeft / Math.max(1, totalDays)) * 100));
-                    return { name: m.name, elderId, elderName, daysLeft, progress, totalDays, daily: timesLen, basis };
+                    return { name: m.name, daysLeft, progress, totalDays, basis };
                 }).filter(Boolean);
             }
 
@@ -430,20 +380,32 @@ const PageHome = {
                 } else {
                     // 按剩余天数从少到多排序，优先显示最需要开药的
                     medStats.sort((a, b) => a.daysLeft - b.daysLeft);
-                    const top = medStats[0];
-                    const suggestDate = new Date(todayTs + Math.max(1, top.daysLeft) * DAY_MS).toISOString().slice(0, 10);
-                    const warn = top.daysLeft <= 7 ? 'color:#dc2626;' : (top.daysLeft <= 14 ? 'color:#d97706;' : '');
-                    const topNameLabel = top.name;
+                    // 每个药品独立显示：剩余天数、进度条、建议开药日、估算依据
+                    const items = medStats.map(s => {
+                        const warn = s.daysLeft <= 7 ? 'color:#dc2626;' : (s.daysLeft <= 14 ? 'color:#d97706;' : '');
+                        const badgeColor = s.daysLeft <= 7 ? '#fee2e2' : (s.daysLeft <= 14 ? '#fef3c7' : '#e0f2fe');
+                        const badgeText = s.daysLeft <= 7 ? '#991b1b' : (s.daysLeft <= 14 ? '#92400e' : '#075985');
+                        const suggestDate = new Date(todayTs + Math.max(1, s.daysLeft) * DAY_MS).toISOString().slice(0, 10);
+                        const barColor = s.daysLeft <= 7 ? '#dc2626' : (s.daysLeft <= 14 ? '#d97706' : '#2b7a78');
+                        return `<div style="padding:10px 0;border-bottom:1px solid #f1f5f9;">
+                            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+                                <span style="font-weight:600;">${s.name}</span>
+                                <span class="badge" style="background:${badgeColor};color:${badgeText};">剩余 ${s.daysLeft} 天</span>
+                            </div>
+                            <div class="refill-progress"><div class="bar-bg"><div class="bar-fill" style="width:${s.progress}%;background:${barColor};"></div></div></div>
+                            <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;">
+                                <div class="refill-date" style="margin:0;">
+                                    <span>建议开药日: ${suggestDate}</span>
+                                </div>
+                                <div style="font-size:11px;color:#94a3b8;line-height:1.4;">
+                                    <i class="fas fa-info-circle"></i> ${s.basis || '估算值'}
+                                </div>
+                            </div>
+                        </div>`;
+                    }).join('');
                     refillEl.innerHTML = `<div class="card">
                         <div class="card-title"><i class="fas fa-calculator"></i> 开药倒计时 <span class="text-muted" style="font-size:12px;font-weight:400;">(${chronicList.length > 0 ? '基于长期用药' : '基于用药计划'})</span></div>
-                        <div><span style="font-weight:600;">${topNameLabel}</span> <span class="badge" style="${warn}">剩余 ${top.daysLeft} 天</span></div>
-                        <div class="refill-progress"><div class="bar-bg"><div class="bar-fill" style="width:${top.progress}%;"></div></div></div>
-                        <div class="refill-date">
-                            <span>建议开药日: ${suggestDate}</span>
-                        </div>
-                        <div style="font-size:12px;color:#94a3b8;margin-top:6px;line-height:1.5;">
-                            <i class="fas fa-info-circle"></i> ${top.basis || '估算值'}
-                        </div>
+                        ${items}
                     </div>`;
                 }
             }
@@ -1250,7 +1212,7 @@ const PageChronicMeds = {
         try {
             const [drugsRes, chronicRes] = await Promise.all([
                 Api.drugs.getAll(),
-                Api.drugs.getChronic()
+                Api.drugs.getChronic(App.state.currentMemberId)
             ]);
             this._allDrugs = drugsRes.drugs || [];
             const chronicList = chronicRes.chronicMeds || [];
@@ -1834,12 +1796,12 @@ const PageAddMed = {
         <div class="card">
             <div class="form-group"><label>关联成员 *</label><select id="medElderId">${memberOptions}</select></div>
             <div class="form-group"><label>药品名称 *</label><input id="medName" placeholder="输入名称或拼音首字母（如 SHP）" autocomplete="off" onclick="DrugSuggest.showSuggestions(this)" oninput="DrugSuggest.onInput(this,'medDrugCode',{specDosage:'medSpecDosage',specDosageUnit:'medSpecDosageUnit',unitCapacity:'medUnitCap',unitCapacityUnit:'medUnitCapUnit',manufacturer:'medManu'})"><input type="hidden" id="medDrugCode"></div>
-            <div class="form-group"><label>规格（每片/袋含量）</label><div style="display:flex;gap:8px"><input id="medSpecDosage" type="number" step="0.001" placeholder="如 0.25" style="flex:2"><select id="medSpecDosageUnit" style="flex:1"><option value="g">g</option><option value="mg">mg</option><option value="ml">ml</option><option value="μg">μg</option></select></div></div>
-            <div class="form-group"><label>单位容量（每盒/瓶数量）</label><div style="display:flex;gap:8px"><input id="medUnitCap" type="number" placeholder="如 20" style="flex:2"><select id="medUnitCapUnit" style="flex:1"><option value="片">片</option><option value="粒">粒</option><option value="袋">袋</option><option value="支">支</option><option value="瓶">瓶</option><option value="贴">贴</option></select></div></div>
+            <div class="form-group"><label>规格（每片/袋含量）</label><div style="display:flex;gap:8px"><input id="medSpecDosage" type="number" step="1" min="0" placeholder="如 0.25" style="flex:2"><select id="medSpecDosageUnit" style="flex:1"><option value="g">g</option><option value="mg">mg</option><option value="ml">ml</option><option value="μg">μg</option></select></div></div>
+            <div class="form-group"><label>单位容量（每盒/瓶数量）</label><div style="display:flex;gap:8px"><input id="medUnitCap" type="number" step="1" min="0" placeholder="如 20" style="flex:2"><select id="medUnitCapUnit" style="flex:1"><option value="片">片</option><option value="粒">粒</option><option value="袋">袋</option><option value="支">支</option><option value="瓶">瓶</option><option value="贴">贴</option></select></div></div>
             <div class="form-group"><label>生产厂商</label><input id="medManu" placeholder="生产单位"></div>
-            <div class="form-group"><label>数量</label><div style="display:flex;gap:8px"><input id="medQty" type="number" value="1" min="1" style="flex:2"><select id="medQtyUnit" style="flex:1"><option value="盒">盒</option><option value="瓶">瓶</option><option value="件">件</option><option value="包">包</option></select></div></div>
-            <div class="form-group"><label>每次剂量</label><div style="display:flex;gap:8px"><input id="medDoseAmount" type="number" step="0.001" placeholder="如 5" style="flex:2"><select id="medDoseUnit" style="flex:1"><option value="mg">mg</option><option value="g">g</option><option value="ml">ml</option><option value="μg">μg</option><option value="片">片</option><option value="粒">粒</option><option value="袋">袋</option><option value="支">支</option><option value="贴">贴</option></select></div></div>
-            <div class="form-group"><label>每日次数</label><input id="medFreq" type="number" min="1" max="4" value="1" oninput="MedTimesUI.render('med')"></div>
+            <div class="form-group"><label>数量</label><div style="display:flex;gap:8px"><input id="medQty" type="number" step="1" min="1" value="1" style="flex:2"><select id="medQtyUnit" style="flex:1"><option value="盒">盒</option><option value="瓶">瓶</option><option value="件">件</option><option value="包">包</option></select></div></div>
+            <div class="form-group"><label>每次剂量</label><div style="display:flex;gap:8px"><input id="medDoseAmount" type="number" step="1" min="0" placeholder="如 5" style="flex:2"><select id="medDoseUnit" style="flex:1"><option value="mg">mg</option><option value="g">g</option><option value="ml">ml</option><option value="μg">μg</option><option value="片">片</option><option value="粒">粒</option><option value="袋">袋</option><option value="支">支</option><option value="贴">贴</option></select></div></div>
+            <div class="form-group"><label>每日次数</label><input id="medFreq" type="number" step="1" min="1" max="4" value="1" oninput="MedTimesUI.render('med')"></div>
             <div class="form-group"><label>服用时间段</label><div id="medTimeSlots"></div></div>
             <div class="form-group"><label>开始日期</label><input id="medStart" type="text" readonly onclick="CalendarPicker.attach(this,{max:'today'})" placeholder="点击选择日期" style="background:#fff;"></div>
             <div class="form-group"><label>有效期 *</label><input id="medExpiryDate" type="text" readonly onclick="CalendarPicker.attach(this)" placeholder="点击选择日期" style="background:#fff;"></div>
@@ -2095,13 +2057,13 @@ const PageAddRecord = {
             </div>
             <div class="med-block-content">
                 <div class="form-group"><label>药品名称 *</label><input id="${p}Name" placeholder="输入名称或拼音首字母" autocomplete="off" onclick="DrugSuggest.showSuggestions(this)" oninput="DrugSuggest.onInput(this,'${p}Code',{specDosage:'${p}SpecDosage',specDosageUnit:'${p}SpecDosageUnit',unitCapacity:'${p}UnitCap',unitCapacityUnit:'${p}UnitCapUnit',manufacturer:'${p}Manu'});PageAddRecord._updateHeader(${uid})"><input type="hidden" id="${p}Code"></div>
-                <div class="form-group"><label>规格（每片/袋含量） *</label><div style="display:flex;gap:8px"><input id="${p}SpecDosage" type="number" step="0.001" placeholder="如 0.25" style="flex:2"><select id="${p}SpecDosageUnit" style="flex:1"><option value="g">g</option><option value="mg">mg</option><option value="ml">ml</option><option value="μg">μg</option></select></div></div>
-                <div class="form-group"><label>单位容量（每盒/瓶数量） *</label><div style="display:flex;gap:8px"><input id="${p}UnitCap" type="number" placeholder="如 20" style="flex:2"><select id="${p}UnitCapUnit" style="flex:1"><option value="片">片</option><option value="粒">粒</option><option value="袋">袋</option><option value="支">支</option><option value="瓶">瓶</option><option value="贴">贴</option></select></div></div>
+                <div class="form-group"><label>规格（每片/袋含量） *</label><div style="display:flex;gap:8px"><input id="${p}SpecDosage" type="number" step="1" min="0" placeholder="如 0.25" style="flex:2"><select id="${p}SpecDosageUnit" style="flex:1"><option value="g">g</option><option value="mg">mg</option><option value="ml">ml</option><option value="μg">μg</option></select></div></div>
+                <div class="form-group"><label>单位容量（每盒/瓶数量） *</label><div style="display:flex;gap:8px"><input id="${p}UnitCap" type="number" step="1" min="0" placeholder="如 20" style="flex:2"><select id="${p}UnitCapUnit" style="flex:1"><option value="片">片</option><option value="粒">粒</option><option value="袋">袋</option><option value="支">支</option><option value="瓶">瓶</option><option value="贴">贴</option></select></div></div>
                 <div class="form-group"><label>生产厂商</label><input id="${p}Manu" placeholder="生产单位"></div>
-                <div class="form-group"><label>数量 *</label><div style="display:flex;gap:8px"><input id="${p}Qty" type="number" value="1" min="1" style="flex:2"><select id="${p}QtyUnit" style="flex:1"><option value="盒">盒</option><option value="瓶">瓶</option><option value="件">件</option><option value="包">包</option></select></div></div>
+                <div class="form-group"><label>数量 *</label><div style="display:flex;gap:8px"><input id="${p}Qty" type="number" step="1" min="1" value="1" style="flex:2"><select id="${p}QtyUnit" style="flex:1"><option value="盒">盒</option><option value="瓶">瓶</option><option value="件">件</option><option value="包">包</option></select></div></div>
                 <div class="form-group"><label>有效期</label><input id="${p}ExpiryDate" type="text" readonly onclick="CalendarPicker.attach(this)" placeholder="点击选择日期" style="background:#fff;"></div>
-                <div class="form-group"><label>每次剂量 *</label><div style="display:flex;gap:8px"><input id="${p}DoseAmount" type="number" step="0.001" placeholder="如 5" style="flex:2"><select id="${p}DoseUnit" style="flex:1"><option value="mg">mg</option><option value="g">g</option><option value="ml">ml</option><option value="μg">μg</option><option value="片">片</option><option value="粒">粒</option><option value="袋">袋</option><option value="支">支</option><option value="贴">贴</option></select></div></div>
-                <div class="form-group"><label>每日次数 *</label><input id="${p}Freq" type="number" min="1" max="4" value="1" oninput="MedTimesUI.render('${p}')"></div>
+                <div class="form-group"><label>每次剂量 *</label><div style="display:flex;gap:8px"><input id="${p}DoseAmount" type="number" step="1" min="0" placeholder="如 5" style="flex:2"><select id="${p}DoseUnit" style="flex:1"><option value="mg">mg</option><option value="g">g</option><option value="ml">ml</option><option value="μg">μg</option><option value="片">片</option><option value="粒">粒</option><option value="袋">袋</option><option value="支">支</option><option value="贴">贴</option></select></div></div>
+                <div class="form-group"><label>每日次数 *</label><input id="${p}Freq" type="number" step="1" min="1" max="4" value="1" oninput="MedTimesUI.render('${p}')"></div>
                 <div class="form-group"><label>服用时间段 *</label><div id="${p}TimeSlots"></div></div>
                 <div class="form-group"><label>备注</label><input id="${p}Note" placeholder="如：餐后服用"></div>
                 <button type="button" class="add-next-btn" onclick="PageAddRecord.addNextMed()">+ 添加下一个</button>
@@ -2496,10 +2458,10 @@ const PageAddDrug = {
         <div class="card">
             <div class="form-group"><label>服药人 *</label><select id="drugElder">${elderOptions || '<option value="">请先添加家庭成员</option>'}</select></div>
             <div class="form-group"><label>药品名称 *</label><input id="drugName" placeholder="输入名称或拼音首字母（如 SHP）" autocomplete="off" onclick="DrugSuggest.showSuggestions(this)" oninput="DrugSuggest.onInput(this,'drugCodeHidden',{specDosage:'specDosage',specDosageUnit:'specDosageUnit',unitCapacity:'unitCap',unitCapacityUnit:'unitCapUnit',manufacturer:'drugManu'})"><input type="hidden" id="drugCodeHidden"></div>
-            <div class="form-group"><label>规格（每片/袋含量） *</label><div style="display:flex;gap:8px"><input id="specDosage" type="number" step="0.001" placeholder="如 0.25" style="flex:2"><select id="specDosageUnit" style="flex:1"><option value="g">g</option><option value="mg">mg</option><option value="ml">ml</option><option value="μg">μg</option></select></div></div>
-            <div class="form-group"><label>单位容量（每盒/瓶数量） *</label><div style="display:flex;gap:8px"><input id="unitCap" type="number" placeholder="如 20" style="flex:2"><select id="unitCapUnit" style="flex:1"><option value="片">片</option><option value="粒">粒</option><option value="袋">袋</option><option value="支">支</option><option value="瓶">瓶</option><option value="贴">贴</option></select></div></div>
+            <div class="form-group"><label>规格（每片/袋含量） *</label><div style="display:flex;gap:8px"><input id="specDosage" type="number" step="1" min="0" placeholder="如 0.25" style="flex:2"><select id="specDosageUnit" style="flex:1"><option value="g">g</option><option value="mg">mg</option><option value="ml">ml</option><option value="μg">μg</option></select></div></div>
+            <div class="form-group"><label>单位容量（每盒/瓶数量） *</label><div style="display:flex;gap:8px"><input id="unitCap" type="number" step="1" min="0" placeholder="如 20" style="flex:2"><select id="unitCapUnit" style="flex:1"><option value="片">片</option><option value="粒">粒</option><option value="袋">袋</option><option value="支">支</option><option value="瓶">瓶</option><option value="贴">贴</option></select></div></div>
             <div class="form-group"><label>生产厂商</label><input id="drugManu" placeholder="生产单位"></div>
-            <div class="form-group"><label>数量 *</label><div style="display:flex;gap:8px"><input id="drugQty" type="number" value="1" min="1" style="flex:2"><select id="drugQtyUnit" style="flex:1"><option value="盒">盒</option><option value="瓶">瓶</option><option value="袋">袋</option><option value="支">支</option><option value="包">包</option><option value="板">板</option></select></div></div>
+            <div class="form-group"><label>数量 *</label><div style="display:flex;gap:8px"><input id="drugQty" type="number" step="1" min="1" value="1" style="flex:2"><select id="drugQtyUnit" style="flex:1"><option value="盒">盒</option><option value="瓶">瓶</option><option value="袋">袋</option><option value="支">支</option><option value="包">包</option><option value="板">板</option></select></div></div>
             <div class="form-group"><label>有效期 *</label><input id="drugExp" type="text" readonly onclick="CalendarPicker.attach(this)" placeholder="点击选择日期" style="background:#fff;"></div>
             <div class="form-group"><label>备注</label><textarea id="drugNote" placeholder="备注信息"></textarea></div>
             <div class="form-group"><label>图片</label><div id="drugImages"></div></div>
@@ -2946,8 +2908,16 @@ const PageMedEdit = {
             const el = document.getElementById('medEditContent');
             if (!el) return;
 
+            // 顶部添加按钮 + 新增表单（默认折叠）
+            const addBtnHtml = `<div style="margin-bottom:12px;">
+                <button class="btn-primary" style="width:100%;" onclick="PageMedEdit.toggleAddForm()">
+                    <i class="fas fa-plus"></i> 添加用药计划
+                </button>
+                <div id="medAddForm" style="display:none;margin-top:12px;padding:12px;background:#f8fafd;border-radius:12px;"></div>
+            </div>`;
+
             if (meds.length === 0) {
-                el.innerHTML = '<p class="text-muted" style="text-align:center;padding:20px;">暂无活跃用药计划</p>';
+                el.innerHTML = addBtnHtml + '<p class="text-muted" style="text-align:center;padding:20px;">暂无活跃用药计划</p>';
                 return;
             }
 
@@ -2957,9 +2927,16 @@ const PageMedEdit = {
                 return cls ? `<span class="time-tag ${cls}">${txt}</span>` : txt;
             }).join(' ');
 
-            el.innerHTML = meds.map(m => {
+            const cardsHtml = meds.map(m => {
                 const timesHtml = formatTimes(m.times);
                 const doseText = [m.doseAmount != null ? cleanNumber(m.doseAmount) + (m.doseUnit || '') : (m.dose || ''), m.frequency ? m.frequency + '次/日' : ''].filter(Boolean).join(' ');
+                // 添加后48小时内可删除，超过48小时只能结束
+                const createdTs = m.createdAt ? new Date(m.createdAt).getTime() : (m.startDate ? new Date(m.startDate).getTime() : Date.now());
+                const hoursElapsed = (Date.now() - createdTs) / 3600000;
+                const canDelete = hoursElapsed < 48;
+                const actionBtn = canDelete
+                    ? `<button class="med-edit-btn btn-delete" onclick="PageMedEdit.deleteMed('${m.id}','${m.name.replace(/'/g, "\\'")}')"><i class="fas fa-trash"></i> 删除</button>`
+                    : `<button class="med-edit-btn btn-end" onclick="PageMedEdit.endMed('${m.id}','${m.name.replace(/'/g, "\\'")}')"><i class="fas fa-stop-circle"></i> 结束</button>`;
                 return `<div class="med-edit-card">
                 <div class="med-edit-header">
                     <div class="med-edit-name">${m.name}</div>
@@ -2969,16 +2946,86 @@ const PageMedEdit = {
                     <div class="med-edit-time">${timesHtml || '<span class="text-muted">未设置</span>'}</div>
                     <div class="med-edit-actions">
                         <button class="med-edit-btn btn-edit" onclick="PageMedEdit.showEditForm('${m.id}')"><i class="fas fa-edit"></i> 修改</button>
-                        <button class="med-edit-btn btn-end" onclick="PageMedEdit.endMed('${m.id}','${m.name.replace(/'/g, "\\'")}')"><i class="fas fa-stop-circle"></i> 结束</button>
-                        <button class="med-edit-btn btn-delete" onclick="PageMedEdit.deleteMed('${m.id}','${m.name.replace(/'/g, "\\'")}')"><i class="fas fa-trash"></i> 删除</button>
+                        ${actionBtn}
                     </div>
                 </div>
                 <div id="editForm-${m.id}" style="display:none;margin-top:10px;"></div>
             </div>`;
             }).join('');
+
+            el.innerHTML = addBtnHtml + cardsHtml;
         } catch (err) {
             console.error('用药编辑加载失败:', err);
             el.innerHTML = `<p style="color:#dc2626;">加载失败: ${err.message || err}</p>`;
+        }
+    },
+
+    toggleAddForm() {
+        const container = document.getElementById('medAddForm');
+        if (!container) return;
+        if (container.style.display !== 'none') {
+            container.style.display = 'none';
+            container.innerHTML = '';
+            delete MedTimesUI._state['medAdd'];
+            return;
+        }
+        const p = 'medAdd';
+        const memberId = App.state.currentMemberId;
+        const memberName = (App.state.members || []).find(m => m.id === memberId)?.name || '当前成员';
+        container.style.display = 'block';
+        const escAttr = (v) => String(v || '').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        MedTimesUI._state[p] = new Set(['morning']);
+        container.innerHTML = `
+            <div style="font-weight:600;margin-bottom:10px;">为 ${escAttr(memberName)} 添加用药计划</div>
+            <div class="form-group"><label class="form-label">药品名称 *</label><input class="form-input" id="${p}Name" placeholder="输入名称或拼音首字母" autocomplete="off" onclick="DrugSuggest.showSuggestions(this)" oninput="DrugSuggest.onInput(this,'${p}Code')"><input type="hidden" id="${p}Code"></div>
+            <div class="form-group"><label class="form-label">每次剂量</label><div style="display:flex;gap:8px;"><input class="form-input" id="${p}DoseAmount" type="number" step="1" min="0" placeholder="如 5" style="flex:2"><select id="${p}DoseUnit" style="flex:1"><option value="mg">mg</option><option value="g">g</option><option value="ml">ml</option><option value="μg">μg</option><option value="片">片</option><option value="粒">粒</option><option value="袋">袋</option><option value="支">支</option><option value="贴">贴</option></select></div></div>
+            <div class="form-group"><label class="form-label">每日次数</label><input class="form-input" id="${p}Freq" type="number" step="1" min="1" max="4" value="1" oninput="MedTimesUI.render('${p}')"></div>
+            <div class="form-group"><label class="form-label">服药时间</label><div id="${p}TimeSlots"></div></div>
+            <div class="form-group"><label class="form-label">开始日期</label><input class="form-input" id="${p}Start" type="text" readonly onclick="CalendarPicker.attach(this,{max:'today'})" placeholder="点击选择日期" style="background:#fff;"></div>
+            <div class="form-group"><label class="form-label">备注</label><input class="form-input" id="${p}Note" placeholder="如：餐后服用"></div>
+            <div style="display:flex;gap:8px;margin-top:8px;">
+                <button class="btn-primary" style="flex:1;" onclick="PageMedEdit.saveAdd()">保存</button>
+                <button class="btn-outline" style="flex:1;" onclick="PageMedEdit.toggleAddForm()">取消</button>
+            </div>
+        `;
+        MedTimesUI.render(p);
+        document.getElementById(p + 'Start').value = new Date().toISOString().slice(0, 10);
+    },
+
+    async saveAdd() {
+        const p = 'medAdd';
+        const memberId = App.state.currentMemberId;
+        const name = document.getElementById(p + 'Name')?.value?.trim();
+        if (!name) { App.toast('请输入药品名称'); return; }
+        if (!memberId) { App.toast('请先选择成员'); return; }
+        if (false === await DrugSuggest.ensure(document.getElementById(p + 'Name'))) return;
+        const drugCode = document.getElementById(p + 'Code')?.value || undefined;
+        const doseAmountVal = document.getElementById(p + 'DoseAmount')?.value;
+        const doseUnit = document.getElementById(p + 'DoseUnit')?.value;
+        const frequency = parseInt(document.getElementById(p + 'Freq')?.value) || 1;
+        const times = MedTimesUI.getTimes(p);
+        const startDate = document.getElementById(p + 'Start')?.value || new Date().toISOString().slice(0, 10);
+        const note = document.getElementById(p + 'Note')?.value;
+
+        try {
+            await Api.medications.add({
+                elderId: memberId,
+                name,
+                drugCode,
+                dose: doseAmountVal ? `${doseAmountVal}${doseUnit || ''}` : undefined,
+                doseAmount: doseAmountVal ? parseFloat(doseAmountVal) : undefined,
+                doseUnit: doseAmountVal ? doseUnit : undefined,
+                frequency,
+                times,
+                startDate,
+                note,
+                status: 'active',
+            });
+            App.toast('添加成功');
+            PageMedEdit.toggleAddForm();
+            PageMedEdit.loadContent();
+        } catch (err) {
+            App.toast('保存失败: ' + err.message);
         }
     },
 
@@ -2990,39 +3037,61 @@ const PageMedEdit = {
         // 先获取当前用药详情
         Api.medications.get(medId).then(res => {
             const m = res.medication;
-            const timesStr = (m.times || []).join(', ');
+            const escAttr = (v) => String(v || '').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            const p = 'ef' + medId; // 唯一前缀，避免 ID 冲突
+            const freq = m.frequency || (m.times && m.times.length) || 1;
+
+            // 初始化 MedTimesUI 选中状态
+            const timeKeyMap = { '08:00': 'morning', '12:00': 'noon', '18:00': 'evening', '21:00': 'night' };
+            const selectedKeys = (m.times || []).map(t => timeKeyMap[t] || '').filter(Boolean);
+            MedTimesUI._state[p] = new Set(selectedKeys.length > 0 ? selectedKeys : MedTimesUI.slots.slice(0, freq).map(s => s.key));
+
             container.style.display = 'block';
             container.innerHTML = `
             <div style="border-top:1px solid #eee;padding-top:10px;">
                 <div style="font-weight:600;margin-bottom:8px;">修改用药</div>
-                <div class="form-group"><label class="form-label">药品名称</label><input class="form-input" id="ef-name-${medId}" value="${m.name || ''}"></div>
-                <div class="form-group"><label class="form-label">每次剂量</label><input class="form-input" id="ef-dose-${medId}" value="${m.dose || ''}"></div>
-                <div class="form-group"><label class="form-label">频次</label><input class="form-input" id="ef-freq-${medId}" value="${m.frequency || ''}" placeholder="如: 每日2次"></div>
-                <div class="form-group"><label class="form-label">服药时间</label><input class="form-input" id="ef-times-${medId}" value="${timesStr}" placeholder="如: 08:00, 20:00"></div>
-                <div class="form-group"><label class="form-label">备注</label><input class="form-input" id="ef-note-${medId}" value="${m.note || ''}"></div>
+                <div class="form-group"><label class="form-label">药品名称</label><input class="form-input" id="${p}Name" value="${escAttr(m.name || '')}" disabled style="background:#f5f5f5;color:#999;cursor:not-allowed;"><input type="hidden" id="${p}Code" value="${escAttr(m.drug_code || m.drugCode || '')}"></div>
+                <div class="form-group"><label class="form-label">每次剂量</label><input class="form-input" id="${p}Dose" type="number" step="1" min="0" value="${m.doseAmount != null ? m.doseAmount : (m.dose || '')}"></div>
+                <div class="form-group"><label class="form-label">每日次数</label><input class="form-input" id="${p}Freq" type="number" step="1" min="1" max="4" value="${freq}" oninput="MedTimesUI.render('${p}')"></div>
+                <div class="form-group"><label class="form-label">服药时间</label><div id="${p}TimeSlots"></div></div>
+                <div class="form-group"><label class="form-label">备注</label><input class="form-input" id="${p}Note" value="${escAttr(m.note || '')}"></div>
                 <div style="display:flex;gap:8px;margin-top:8px;">
-                    <button class="btn-primary" style="flex:1;" onclick="PageMedEdit.saveEdit('${medId}')">保存</button>
+                    <button class="btn-primary" style="flex:1;" onclick="PageMedEdit.saveEdit('${medId}','${p}')">保存</button>
                     <button class="btn-outline" style="flex:1;" onclick="document.getElementById('editForm-${medId}').style.display='none'">取消</button>
                 </div>
             </div>`;
+            // 渲染时间段选择
+            MedTimesUI.render(p);
+            // 恢复各时间段的实际时间值
+            if (m.times && m.times.length > 0) {
+                const slotOrder = ['morning', 'noon', 'evening', 'night'];
+                m.times.forEach((t, i) => {
+                    const key = timeKeyMap[t] || slotOrder[i];
+                    if (key) {
+                        const timeInput = document.getElementById(`${p}Time_${key}`);
+                        if (timeInput) timeInput.value = t;
+                    }
+                });
+            }
         }).catch(err => { container.innerHTML = `<p class="text-muted">获取详情失败</p>`; });
     },
 
-    async saveEdit(medId) {
-        const name = document.getElementById('ef-name-' + medId)?.value;
-        const dose = document.getElementById('ef-dose-' + medId)?.value;
-        const frequency = document.getElementById('ef-freq-' + medId)?.value;
-        const timesStr = document.getElementById('ef-times-' + medId)?.value;
-        const note = document.getElementById('ef-note-' + medId)?.value;
+    async saveEdit(medId, p) {
+        const name = document.getElementById(p + 'Name')?.value;
+        const doseAmount = document.getElementById(p + 'Dose')?.value;
+        const frequency = document.getElementById(p + 'Freq')?.value;
+        const times = MedTimesUI.getTimes(p);
+        const note = document.getElementById(p + 'Note')?.value;
+        const drugCode = document.getElementById(p + 'Code')?.value;
 
-        const times = timesStr ? timesStr.split(/[,，\s]+/).filter(t => t) : undefined;
+        if (!name || !name.trim()) { App.toast('请输入药品名称'); return; }
 
         try {
             // 保存历史：先获取旧用药，记录到历史
             const oldRes = await Api.medications.get(medId);
             const oldMed = oldRes.medication;
 
-            await Api.medications.update(medId, { name, dose, frequency, times, note });
+            await Api.medications.update(medId, { name: name.trim(), doseAmount: doseAmount ? Number(doseAmount) : undefined, frequency: frequency ? Number(frequency) : undefined, times, note, drugCode });
 
             // 保存历史记录（用 addMedication 添加一条 status=ended 的记录作为快照）
             await Api.medications.add({
@@ -3046,7 +3115,7 @@ const PageMedEdit = {
     },
 
     async endMed(medId, medName) {
-        if (!confirm(`确定结束「${medName}」的用药？\n当前用药安排将被归档到历史记录。`)) return;
+        if (!await App.confirm(`确定结束「${medName}」的用药？\n当前用药安排将被归档到历史记录。`)) return;
         try {
             const oldRes = await Api.medications.get(medId);
             const oldMed = oldRes.medication;
@@ -3063,7 +3132,7 @@ const PageMedEdit = {
     },
 
     async deleteMed(medId, medName) {
-        if (!confirm(`确定删除「${medName}」？\n删除后不可恢复！`)) return;
+        if (!await App.confirm(`确定删除「${medName}」？\n删除后不可恢复！`)) return;
         try {
             await Api.medications.delete(medId);
             App.toast('已删除');
