@@ -11,6 +11,7 @@ router.post('/login', authController.login);
 router.get('/profile', authMiddleware, authController.getProfile);
 router.put('/profile', authMiddleware, authController.updateProfile);
 router.post('/join-family', authMiddleware, authController.joinFamily);
+router.post('/create-family', authMiddleware, authController.createFamily);
 router.get('/family-members', authMiddleware, authController.getFamilyMembers);
 router.get('/families', authMiddleware, authController.getUserFamilies);
 router.put('/family', authMiddleware, authController.updateFamily);

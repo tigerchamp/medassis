@@ -11,24 +11,56 @@ async function getElders(req, res) {
     // self 档案根据 user_id + relation='self' 定位，不依赖 family_id
     // 通过 user_families 表找到当前家庭组的所有用户，包含他们的 self 档案
     const [elders] = await getPool().query(`
-      SELECT * FROM elders
-      WHERE family_id = ?
-         OR (relation = 'self' AND user_id IN (
+      SELECT e.*, u.phone AS user_phone, u.role AS user_role
+      FROM elders e
+      LEFT JOIN users u ON e.user_id = u.id
+      WHERE e.family_id = ?
+         OR (e.relation = 'self' AND e.user_id IN (
            SELECT uf.user_id FROM user_families uf WHERE uf.family_id = ?
            UNION
-           SELECT u.id FROM users u WHERE u.family_id = ?
+           SELECT u2.id FROM users u2 WHERE u2.family_id = ?
          ))
-      ORDER BY FIELD(relation, 'self') DESC, created_at DESC
+      ORDER BY FIELD(e.relation, 'self') DESC, e.created_at DESC
     `, [familyId, familyId, familyId]);
 
-    // 获取每个成员的病历和用药数量
+    // 获取每个成员的病历/用药数量 + 注入双向授权字段（canModifyHim / heCanModifyMe）
     const eldersWithCount = await Promise.all(elders.map(async (elder) => {
       const [records] = await getPool().query('SELECT COUNT(*) as count FROM records WHERE elder_id = ?', [elder.id]);
       const [meds] = await getPool().query('SELECT COUNT(*) as count FROM medications WHERE elder_id = ?', [elder.id]);
+
+      // 授权状态
+      let canModifyHim = false;
+      let heCanModifyMe = false;
+
+      if (elder.relation === 'self' && elder.user_id === userId) {
+        // 自己的 self 档案：双向都允许
+        canModifyHim = true;
+        heCanModifyMe = true;
+      } else {
+        // 其他成员：查询 member_authorizations 表双向授权
+        // 我能否修改他 = 他是否授权了我 (granter=他, grantee=我)
+        const [canModifyRows] = await getPool().query(
+          'SELECT authorized FROM member_authorizations WHERE granter_user_id = ? AND grantee_user_id = ? LIMIT 1',
+          [elder.user_id, userId]
+        );
+        canModifyHim = canModifyRows.length > 0 && !!canModifyRows[0].authorized;
+
+        // 他能否修改我 = 我是否授权了他 (granter=我, grantee=他)
+        const [heCanRows] = await getPool().query(
+          'SELECT authorized FROM member_authorizations WHERE granter_user_id = ? AND grantee_user_id = ? LIMIT 1',
+          [userId, elder.user_id]
+        );
+        heCanModifyMe = heCanRows.length > 0 && !!heCanRows[0].authorized;
+      }
+
       return {
         ...elder,
+        phone: elder.user_phone || elder.phone || null,
+        role: elder.user_role || null,
         recordCount: records[0]?.count || 0,
-        medCount: meds[0]?.count || 0
+        medCount: meds[0]?.count || 0,
+        canModifyHim,
+        heCanModifyMe,
       };
     }));
 

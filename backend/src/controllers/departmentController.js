@@ -10,7 +10,12 @@ async function _getFamilyUserIds(req) {
   const familyId = req.familyId || (req.user && req.user.family_id);
   let userIds = [req.user.id];
   if (familyId) {
-    const [rows] = await getPool().query('SELECT id FROM users WHERE family_id = ?', [familyId]);
+    const [rows] = await getPool().query(
+      `SELECT id FROM users WHERE family_id = ?
+       UNION
+       SELECT u.id FROM users u INNER JOIN user_families uf ON uf.user_id = u.id WHERE uf.family_id = ?`,
+      [familyId, familyId]
+    );
     const ids = rows.map(r => r.id);
     if (ids.length) userIds = ids;
     if (!userIds.includes(req.user.id)) userIds.push(req.user.id);

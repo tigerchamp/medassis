@@ -26,4 +26,29 @@ function familyAccessFilter(familyId, prefix = '') {
   };
 }
 
-module.exports = { familyAccessFilter };
+/**
+ * 检查当前用户是否可以修改指定老人（elderId）的资料
+ * 规则：
+ *   1. 该老人是当前用户的 self 档案（elder.user_id === currentUserId）→ 允许
+ *   2. 或 member_authorizations 表中存在：granter=该老人的user_id, grantee=currentUserId, authorized=true → 允许
+ */
+async function canModifyElder(pool, elderId, currentUserId) {
+  if (!elderId || !currentUserId) return false;
+  const [elders] = await pool.query(
+    'SELECT id, user_id FROM elders WHERE id = ? LIMIT 1',
+    [elderId]
+  );
+  if (elders.length === 0) return false;
+  const elder = elders[0];
+  // 是自己的 self 档案 → 允许
+  if (elder.user_id && elder.user_id === currentUserId) return true;
+  // 检查授权记录：对方（granter）授权了我（grantee）修改
+  if (!elder.user_id) return false;
+  const [authRows] = await pool.query(
+    'SELECT authorized FROM member_authorizations WHERE granter_user_id = ? AND grantee_user_id = ? LIMIT 1',
+    [elder.user_id, currentUserId]
+  );
+  return authRows.length > 0 && !!authRows[0].authorized;
+}
+
+module.exports = { familyAccessFilter, canModifyElder };

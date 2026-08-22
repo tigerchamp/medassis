@@ -1,7 +1,7 @@
 const { getPool } = require('../config/database');
 const { v4: uuidv4 } = require('uuid');
 const { getEntityFiles, setEntityFiles, deleteEntityFiles } = require('../utils/entityFiles');
-const { familyAccessFilter } = require('../utils/familyAccess');
+const { familyAccessFilter, canModifyElder } = require('../utils/familyAccess');
 
 function fmtDate(d) { if (d instanceof Date) { const y = d.getFullYear(); const m = String(d.getMonth() + 1).padStart(2, '0'); const day = String(d.getDate()).padStart(2, '0'); return `${y}-${m}-${day}`; } return d; }
 function fmtDateTime(d) {
@@ -343,6 +343,12 @@ async function addRecord(req, res) {
       return res.status(400).json({ error: '老人档案不存在' });
     }
 
+    // 权限校验：必须是本人或被授权修改
+    const allow = await canModifyElder(getPool(), elderId, userId);
+    if (!allow) {
+      return res.status(403).json({ error: '您无权修改该成员的资料，请先获得授权' });
+    }
+
     const id = uuidv4();
     const metricsJson = JSON.stringify(metrics || []);
     const notesJson = JSON.stringify([]);
@@ -415,6 +421,13 @@ async function updateRecord(req, res) {
       return res.status(404).json({ error: '病历不存在' });
     }
 
+    // 权限校验：必须是本人或被授权修改（基于记录原有的elder_id，或如果body传了新的elder_id也要校验）
+    const recordElderId = elderId || records[0].elder_id;
+    const allow = await canModifyElder(getPool(), recordElderId, userId);
+    if (!allow) {
+      return res.status(403).json({ error: '您无权修改该成员的资料，请先获得授权' });
+    }
+
     const updates = [];
     const values = [];
 
@@ -484,6 +497,7 @@ async function deleteRecord(req, res) {
   try {
     const { id } = req.params;
     const familyId = req.familyId;
+    const userId = req.user.id;
 
     // 查询：当前家庭的病历 OR 家庭组成员 self 档案的病历
     const access = familyAccessFilter(familyId);
@@ -492,6 +506,12 @@ async function deleteRecord(req, res) {
     `, [id, ...access.params]);
     if (records.length === 0) {
       return res.status(404).json({ error: '病历不存在' });
+    }
+
+    // 权限校验：必须是本人或被授权修改
+    const allow = await canModifyElder(getPool(), records[0].elder_id, userId);
+    if (!allow) {
+      return res.status(403).json({ error: '您无权修改该成员的资料，请先获得授权' });
     }
 
     await getPool().query('DELETE FROM records WHERE id = ?', [id]);

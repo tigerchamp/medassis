@@ -1500,6 +1500,29 @@ const App = {
         return current && current.relation === 'self' && current.user_id === this.state.user?.id;
     },
 
+    // 检查当前用户是否可以修改指定成员（或当前查看成员）的资料
+    // 规则：1. 是自己的档案；2. 其他成员需要授权 canModifyHim=true
+    _canModifyMember(memberOrId) {
+        let member;
+        if (typeof memberOrId === 'string') {
+            member = this.state.members.find(m => m.id === memberOrId);
+        } else {
+            member = memberOrId || this.getCurrentMember();
+        }
+        if (!member) return false;
+        // 自己的档案始终可修改
+        if (member.relation === 'self' && member.user_id === this.state.user?.id) {
+            return true;
+        }
+        // 其他人需要授权 canModifyHim=true
+        return !!member.canModifyHim;
+    },
+
+    // 快捷方法：检查是否可以修改当前查看的成员
+    _canModifyCurrent() {
+        return this._canModifyMember();
+    },
+
     updateNavState() {
         const profileBtn = document.querySelector('.bottom-nav .nav-item[data-page="profile"]');
         if (!profileBtn) return;
@@ -2061,6 +2084,7 @@ const App = {
                 <div class="form-group"><label>厂商</label><input id="ocr-drug-manufacturer" value="${this._escAttr(parsed.manufacturer)}" placeholder="如：扬子江药业"></div>
                 <div class="form-group"><label>数量 *</label><div style="display:flex;gap:8px"><input id="ocr-drug-qty" type="number" step="1" min="1" value="1" style="flex:2"><select id="ocr-drug-qty-unit" style="flex:1"><option value="盒">盒</option><option value="瓶">瓶</option><option value="袋">袋</option><option value="支">支</option><option value="包">包</option><option value="板">板</option></select></div></div>
                 <div class="form-group"><label>有效期 *</label><input id="ocr-drug-exp" type="text" readonly onclick="CalendarPicker.attach(this)" placeholder="点击选择日期" style="background:#fff;"></div>
+                <div class="form-group"><label>服药人</label><select id="ocr-drug-elder">${this._memberOptions()}</select></div>
                 <div class="form-group"><label>备注</label><input id="ocr-drug-note" placeholder="备注信息"></div>
                 <button class="btn-primary" onclick="App.saveOcrDrug()">录入药箱</button>
                 <button class="btn-outline" style="margin-top:8px;" onclick="App.closeModal()">取消</button>
@@ -2075,13 +2099,28 @@ const App = {
         return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     },
 
-    // 生成成员下拉选项html
+    // 生成成员下拉选项html（带权限过滤：仅本人或可修改的成员可选，默认值：优先当前查看成员，无权限则默认选自己）
     _memberOptions() {
         const currentUserId = this.state.user?.id;
-        return this.state.members.map(m => {
+        const selfMember = this.state.members.find(m => m.relation === 'self' && m.user_id === currentUserId);
+        const currentMember = this.state.members.find(m => m.id === this.state.currentMemberId);
+
+        // 过滤：仅保留自己 / canModifyHim=true 的成员
+        const allowedMembers = this.state.members.filter(m => {
+            const isSelf = m.relation === 'self' && m.user_id === currentUserId;
+            return isSelf || !!m.canModifyHim;
+        });
+
+        // 决定默认选中：优先当前查看的成员（如果在允许列表里），否则选自己
+        let defaultId = selfMember?.id || (allowedMembers[0]?.id);
+        if (currentMember && allowedMembers.some(m => m.id === currentMember.id)) {
+            defaultId = currentMember.id;
+        }
+
+        return allowedMembers.map(m => {
             const isSelf = m.relation === 'self' && m.user_id === currentUserId;
             const label = isSelf ? m.name + '（我）' : m.name;
-            return `<option value="${m.id}" ${m.id === this.state.currentMemberId ? 'selected' : ''}>${label}</option>`;
+            return `<option value="${m.id}" ${m.id === defaultId ? 'selected' : ''}>${label}</option>`;
         }).join('');
     },
 
@@ -2427,7 +2466,7 @@ const App = {
             const specDosageVal = document.getElementById('ocr-drug-specdosage')?.value;
             const unitCapVal = document.getElementById('ocr-drug-unitcap')?.value;
             await Api.drugs.add({
-                elderId: this.state.currentMemberId,
+                elderId: document.getElementById('ocr-drug-elder')?.value || this.state.currentMemberId,
                 name: document.getElementById('ocr-drug-name').value,
                 drugCode: (document.getElementById('drugCodeHidden') || {}).value || undefined,
                 specDosage: specDosageVal ? parseFloat(specDosageVal) : undefined,
@@ -2559,6 +2598,8 @@ const App = {
         const allergies = document.getElementById('pe-allergies')?.value.trim() || null;
         const conditions = document.getElementById('pe-conditions')?.value.trim() || null;
         if (!name) { this.toast('姓名不能为空'); return; }
+        if (!gender || gender === '未知') { this.toast('请选择性别'); return; }
+        if (!birthDate) { this.toast('请选择出生日期'); return; }
         try {
             await Api.elders.update(selfElder.id, { name, gender, birthDate, bloodType, allergies, conditions });
             if (name !== this.state.user.name) {
@@ -2627,24 +2668,16 @@ const App = {
         if (false === await DrugSuggest.ensure(document.getElementById('medName'))) return;
         // ensure 可能已回填 drugCode，重新读取
         const finalDrugCode = (document.getElementById('medDrugCode') || {}).value || drugCode;
-        const specDosageVal = document.getElementById('medSpecDosage').value;
-        const unitCapVal = document.getElementById('medUnitCap')?.value;
         try {
             const times = MedTimesUI.getTimes('med');
             const fileIds = ImageUploader.getFileIds('medImages');
             const doseAmountVal = document.getElementById('medDoseAmount').value;
             await Api.medications.add({
                 elderId, name, drugCode: finalDrugCode || undefined,
-                specDosage: specDosageVal ? parseFloat(specDosageVal) : undefined,
-                specDosageUnit: specDosageVal ? document.getElementById('medSpecDosageUnit').value : undefined,
-                unitCapacity: unitCapVal ? parseInt(unitCapVal, 10) : undefined,
-                unitCapacityUnit: document.getElementById('medUnitCapUnit')?.value || undefined,
-                manufacturer: document.getElementById('medManu')?.value || undefined,
                 dose: doseAmountVal ? `${doseAmountVal}${document.getElementById('medDoseUnit').value}` : undefined,
                 doseAmount: doseAmountVal ? parseFloat(doseAmountVal) : undefined,
                 doseUnit: doseAmountVal ? document.getElementById('medDoseUnit').value : undefined,
                 quantity: parseInt(document.getElementById('medQty').value) || 1,
-                quantityUnit: document.getElementById('medQtyUnit')?.value || undefined,
                 frequency: parseInt(document.getElementById('medFreq').value) || 1,
                 times,
                 startDate: document.getElementById('medStart').value || new Date().toISOString().slice(0, 10),
@@ -2891,6 +2924,22 @@ const App = {
         } catch (err) { this.toast(err.message); }
     },
 
+    async createFamily() {
+        const name = await App.prompt('创建家庭组', '我的新家庭');
+        if (!name) return;
+        try {
+            const res = await Api.auth.createFamily(name);
+            this.toast('创建成功');
+            // 自动切换到新创建的家庭组
+            if (res.family && res.family.id) {
+                await this.switchFamily(res.family.id);
+            } else {
+                await this.loadData();
+            }
+            this.switchPage('home');
+        } catch (err) { this.toast(err.message); }
+    },
+
     copyInviteCode() {
         const codeEl = document.querySelector('.invite-code-text');
         if (codeEl) {
@@ -2905,10 +2954,11 @@ const App = {
         try { await Api.elders.delete(id); this.toast('已删除'); await this.loadData(); this.switchPage('home'); } catch (err) { this.toast(err.message); }
     },
 
-    async toggleMemberAuth(userId) {
+    async toggleMemberAuth(userId, type) {
         try {
-            const res = await Api.auth.toggleAuthorize(userId);
-            this.toast(res.authorized ? '已授权' : '已取消授权');
+            const res = await Api.auth.toggleAuthorize(userId, type);
+            this.toast(`${res.authorized ? '已授权' : '已取消'}：${type === 'canModifyHim' ? '可修改您' : '您可修改'}`);
+            this.loadMembers?.();
         } catch (err) { this.toast(err.message); }
     },
 

@@ -942,6 +942,25 @@ async function _ensureColumns(p) {
     `);
     console.log('已创建 feedback_comments 留言评论表');
   }
+
+  // 创建 member_authorizations 表（成员间双向授权）
+  const [maTable] = await p.query(`SHOW TABLES LIKE 'member_authorizations'`);
+  if (maTable.length === 0) {
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS member_authorizations (
+        id VARCHAR(36) PRIMARY KEY,
+        granter_user_id VARCHAR(36) NOT NULL COMMENT '授权人（给予权限的一方）',
+        grantee_user_id VARCHAR(36) NOT NULL COMMENT '被授权人（获得权限的一方）',
+        authorized BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uk_grant (granter_user_id, grantee_user_id),
+        INDEX idx_granter (granter_user_id),
+        INDEX idx_grantee (grantee_user_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='成员间编辑权限表'
+    `);
+    console.log('已创建 member_authorizations 授权表');
+  }
 }
 
 // 获取连接池（初始化后可用）

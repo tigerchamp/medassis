@@ -2,7 +2,7 @@ const { getPool } = require('../config/database');
 const { v4: uuidv4 } = require('uuid');
 const { resolveDrugCode } = require('../utils/drugLibrary');
 const { getEntityFiles, setEntityFiles, deleteEntityFiles } = require('../utils/entityFiles');
-const { familyAccessFilter } = require('../utils/familyAccess');
+const { familyAccessFilter, canModifyElder } = require('../utils/familyAccess');
 
 function fmtDateTime(d) {
   if (d instanceof Date) {
@@ -36,7 +36,12 @@ async function _getFamilyUserIds(req) {
   const familyId = req.familyId || (req.user && req.user.family_id);
   let userIds = [req.user.id];
   if (familyId) {
-    const [rows] = await getPool().query('SELECT id FROM users WHERE family_id = ?', [familyId]);
+    const [rows] = await getPool().query(
+      `SELECT id FROM users WHERE family_id = ?
+       UNION
+       SELECT u.id FROM users u INNER JOIN user_families uf ON uf.user_id = u.id WHERE uf.family_id = ?`,
+      [familyId, familyId]
+    );
     const ids = rows.map(r => r.id);
     if (ids.length) userIds = ids;
     if (!userIds.includes(req.user.id)) userIds.push(req.user.id);
@@ -166,6 +171,12 @@ async function addMedication(req, res) {
       return res.status(400).json({ error: '老人档案不存在' });
     }
 
+    // 权限校验：必须是本人或被授权修改
+    const allow = await canModifyElder(getPool(), elderId, userId);
+    if (!allow) {
+      return res.status(403).json({ error: '您无权修改该成员的资料，请先获得授权' });
+    }
+
     const familyUserIds = await _getFamilyUserIds(req);
     // 关联药品库：传入规格/单位容量/厂商，新建时写入 owner_user_id（私有数据隔离）
     const resolved = await resolveDrugCode({
@@ -279,6 +290,13 @@ async function updateMedication(req, res) {
       return res.status(404).json({ error: '用药记录不存在' });
     }
 
+    // 权限校验：必须是本人或被授权修改
+    const medElderId = elderId || medications[0].elder_id;
+    const allow = await canModifyElder(getPool(), medElderId, userId);
+    if (!allow) {
+      return res.status(403).json({ error: '您无权修改该成员的资料，请先获得授权' });
+    }
+
     const updates = [];
     const values = [];
 
@@ -331,6 +349,7 @@ async function deleteMedication(req, res) {
   try {
     const { id } = req.params;
     const familyId = req.familyId;
+    const userId = req.user.id;
 
     const access = familyAccessFilter(familyId);
     const [medications] = await getPool().query(`
@@ -338,6 +357,12 @@ async function deleteMedication(req, res) {
     `, [id, ...access.params]);
     if (medications.length === 0) {
       return res.status(404).json({ error: '用药记录不存在' });
+    }
+
+    // 权限校验：必须是本人或被授权修改
+    const allow = await canModifyElder(getPool(), medications[0].elder_id, userId);
+    if (!allow) {
+      return res.status(403).json({ error: '您无权修改该成员的资料，请先获得授权' });
     }
 
     // 删除服药记录

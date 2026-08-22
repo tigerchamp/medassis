@@ -185,13 +185,14 @@ const PageHome = {
         if (!member) {
             return `<div class="empty-state"><i class="fas fa-users"></i><h3>暂无成员</h3><p>请通过家庭组管理邀请家人加入</p></div>`;
         }
+        const canModify = App._canModifyCurrent();
         this.loadContent(memberId);
         return `
         <div class="card">
             <div class="card-title" style="display:flex;align-items:center;">
                 <span style="flex:1;"><i class="fas fa-pills"></i> 用药安排</span>
-                <button class="btn-outline" style="width:auto;padding:3px 10px;font-size:12px;margin-left:8px;" onclick="App.switchPage('medEdit')"><i class="fas fa-edit"></i> 编辑</button>
-                <button class="btn-outline" style="width:auto;padding:3px 10px;font-size:12px;margin-left:4px;" onclick="App.switchPage('medHistory')"><i class="fas fa-history"></i> 历史</button>
+                ${canModify ? `<button class="btn-outline" style="width:auto;padding:3px 10px;font-size:12px;margin-left:8px;" onclick="App.switchPage('medEdit')"><i class="fas fa-edit"></i> 编辑</button>` : ''}
+                <button class="btn-outline" style="width:auto;padding:3px 10px;font-size:12px;margin-left:${canModify ? '4px' : 'auto'};" onclick="App.switchPage('medHistory')"><i class="fas fa-history"></i> 历史</button>
             </div>
             <div id="homeMeds"><p class="text-muted" style="text-align:center;padding:12px;">加载中...</p></div>
         </div>
@@ -393,11 +394,11 @@ const PageHome = {
                                 <span class="badge" style="background:${badgeColor};color:${badgeText};">剩余 ${s.daysLeft} 天</span>
                             </div>
                             <div class="refill-progress"><div class="bar-bg"><div class="bar-fill" style="width:${s.progress}%;background:${barColor};"></div></div></div>
-                            <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;">
+                            <div style="margin-top:6px;">
                                 <div class="refill-date" style="margin:0;">
                                     <span>建议开药日: ${suggestDate}</span>
                                 </div>
-                                <div style="font-size:11px;color:#94a3b8;line-height:1.4;">
+                                <div style="font-size:11px;color:#94a3b8;line-height:1.4;margin-top:4px;">
                                     <i class="fas fa-info-circle"></i> ${s.basis || '估算值'}
                                 </div>
                             </div>
@@ -458,12 +459,13 @@ const PageRecords = {
     render() {
         const member = App.getCurrentMember();
         const memberId = App.state.currentMemberId;
+        const canModify = App._canModifyCurrent();
         this.loadContent(memberId);
         return `
         <div class="sub-header">
             <button class="back-btn" onclick="App.switchPage('home')"><i class="fas fa-arrow-left"></i></button>
             <h2>${member ? member.name + '的' : ''}病历</h2>
-            <button class="btn-outline" style="width:auto;padding:8px 16px;font-size:13px;margin-left:auto;" onclick="App.switchPage('addRecord')"><i class="fas fa-plus"></i> 添加</button>
+            ${canModify ? `<button class="btn-outline" style="width:auto;padding:8px 16px;font-size:13px;margin-left:auto;" onclick="App.switchPage('addRecord')"><i class="fas fa-plus"></i> 添加</button>` : '<div style="margin-left:auto;"></div>'}
         </div>
         <div class="card">
             <div class="card-title"><i class="fas fa-notes-medical"></i> 病历记录</div>
@@ -569,7 +571,7 @@ const PageRecordDetail = {
             <button class="back-btn" onclick="App.switchPage('records')"><i class="fas fa-arrow-left"></i></button>
             <h2 id="recordDetailTitle">详情</h2>
             <div style="margin-left:auto;">
-                <button id="recordEditBtn" class="btn-outline" style="width:auto;padding:6px 14px;font-size:13px;" onclick="PageRecordDetail._startEdit()"><i class="fas fa-edit"></i> 编辑</button>
+                <button id="recordEditBtn" class="btn-outline" style="display:none;width:auto;padding:6px 14px;font-size:13px;" onclick="PageRecordDetail._startEdit()"><i class="fas fa-edit"></i> 编辑</button>
             </div>
         </div>
         <div id="recordDetailContent"><p class="text-muted" style="text-align:center;padding:40px;">加载中...</p></div>`;
@@ -595,19 +597,25 @@ const PageRecordDetail = {
             const res = await Api.records.get(id);
             const r = res.record;
             this._rawRecord = r;
+            // 基于老人ID检查是否有修改权限
+            const canModify = App._canModifyMember(r.elderId);
             // 更新标题：药方→处方，其他保留原类型名
             const titleEl = document.getElementById('recordDetailTitle');
             if (titleEl) {
                 const typeLabel = r.type === '药方' ? '处方' : (r.type || '记录');
                 titleEl.textContent = `${typeLabel}详情`;
             }
-            // 处方不允许编辑
+            // 处方不允许编辑 且 需要权限
             const editBtn = document.getElementById('recordEditBtn');
-            if (editBtn) editBtn.style.display = (r.type === '药方') ? 'none' : '';
+            if (editBtn) editBtn.style.display = (r.type !== '药方' && canModify) ? '' : 'none';
             const el = document.getElementById('recordDetailContent');
             if (!el) return;
             // 缓存 OCR 识别原文，供"查看识别内容"按钮使用
             App._viewOcrText = r.ocrText || '';
+
+            const deleteBtnHtml = canModify
+                ? `<button class="btn-danger" style="margin-top:8px;" onclick="App.deleteRecord('${r.id}')">删除此${r.type === '检查报告' ? '报告' : (r.type === '药方' ? '处方' : '病历')}</button>`
+                : '';
 
             if (r.type === '检查报告') {
                 // 报告类型：显示检查所见、报告结论
@@ -625,7 +633,7 @@ const PageRecordDetail = {
                 ${renderImageGallery(r.images)}
                 ${r.ocrText ? `<button class="btn-outline" style="margin-top:8px;" onclick="App.showOcrTextFullscreen(App._viewOcrText)"><i class="fas fa-file-alt"></i> 查看识别内容</button>` : ''}
                 ${this._auditHtml(r)}
-                <button class="btn-danger" style="margin-top:8px;" onclick="App.deleteRecord('${r.id}')">删除此报告</button>`;
+                ${deleteBtnHtml}`;
             } else if (r.type === '药方') {
                 // 处方类型：显示诊断、医院、医生、用药明细
                 const meds = r.medications || [];
@@ -659,7 +667,7 @@ const PageRecordDetail = {
                 ${renderImageGallery(r.images)}
                 ${r.ocrText ? `<button class="btn-outline" style="margin-top:8px;" onclick="App.showOcrTextFullscreen(App._viewOcrText)"><i class="fas fa-file-alt"></i> 查看识别内容</button>` : ''}
                 ${this._auditHtml(r)}
-                <button class="btn-danger" style="margin-top:8px;" onclick="App.deleteRecord('${r.id}')">删除此处方</button>`;
+                ${deleteBtnHtml}`;
             } else {
                 // 病历类型：显示主诉、医嘱，及关联的处方/报告
                 const related = r.relatedRecords || [];
@@ -690,7 +698,7 @@ const PageRecordDetail = {
                 ${renderImageGallery(r.images)}
                 ${r.ocrText ? `<button class="btn-outline" style="margin-top:8px;" onclick="App.showOcrTextFullscreen(App._viewOcrText)"><i class="fas fa-file-alt"></i> 查看识别内容</button>` : ''}
                 ${this._auditHtml(r)}
-                <button class="btn-danger" style="margin-top:8px;" onclick="App.deleteRecord('${r.id}')">删除此病历</button>`;
+                ${deleteBtnHtml}`;
             }
         } catch (err) {
             const el = document.getElementById('recordDetailContent');
@@ -805,16 +813,37 @@ const PageRecordDetail = {
 const PagePharmacy = {
     _currentCat: '全部',
     _currentStock: '有库存',
+    _currentElder: '全部',
 
     render() {
         this.loadContent();
         return `
         <div class="card">
-            <div class="card-title"><i class="fas fa-kit-medical"></i> 家庭药箱 <button class="btn-outline" style="width:auto;padding:6px 14px;font-size:13px;margin-left:auto;" onclick="App.switchPage('addDrug')"><i class="fas fa-plus"></i> 添加</button></div>
-            <div id="pharmacyStockFilter" style="margin-bottom:8px;"></div>
-            <div id="pharmacyCats" style="margin-bottom:10px;"></div>
+            <div class="card-title"><i class="fas fa-kit-medical"></i> 家庭药箱
+                <div style="margin-left:auto;display:flex;gap:8px;">
+                    <button class="btn-outline" style="width:auto;padding:6px 14px;font-size:13px;" onclick="PagePharmacy._toggleDrawer()"><i id="pharmacyFilterIcon" class="fas fa-filter" style="opacity:.4;"></i> 筛选</button>
+                    <button class="btn-outline" style="width:auto;padding:6px 14px;font-size:13px;" onclick="App.switchPage('addDrug')"><i class="fas fa-plus"></i> 添加</button>
+                </div>
+            </div>
+            <div id="pharmacyDrawer" class="filter-drawer" style="display:none;">
+                <div class="filter-drawer-content">
+                    <div id="pharmacyElderFilter"></div>
+                    <div id="pharmacyStockFilter"></div>
+                    <div id="pharmacyCats"></div>
+                </div>
+            </div>
             <div id="pharmacyList"><p class="text-muted" style="text-align:center;padding:20px;">加载中...</p></div>
         </div>`;
+    },
+
+    _toggleDrawer() {
+        const d = document.getElementById('pharmacyDrawer');
+        if (!d) return;
+        if (d.style.display === 'none') {
+            d.style.display = 'block';
+        } else {
+            d.style.display = 'none';
+        }
     },
 
     _renderDrugCard(d) {
@@ -851,7 +880,8 @@ const PagePharmacy = {
                 <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
                     <div class="dexp">📅 过期: <span style="${dateColor}">${d.expiryDate || '未设置'}</span>${statusHtml}</div>
                     <div style="display:flex;gap:2px;flex-shrink:0;">
-                        <button style="background:none;border:none;color:#2b7a78;cursor:pointer;padding:2px 8px;" title="快速添加库存" onclick="event.stopPropagation();PagePharmacy.quickAdd('${d.name.replace(/'/g, "\\'")}',${d.drugCode ? `'${d.drugCode.replace(/'/g, "\\'")}'` : 'null'},'${openId}')"><i class="fas fa-plus"></i></button>
+                        <button style="background:none;border:none;color:#2b7a78;cursor:pointer;padding:2px 8px;" title="快速添加用药计划" onclick="event.stopPropagation();PagePharmacy.quickAddMedPlan('${d.name.replace(/'/g, "\\'")}',${d.drugCode ? `'${d.drugCode.replace(/'/g, "\\'")}'` : 'null'})"><i class="fas fa-pills"></i></button>
+                        <button style="background:none;border:none;color:#2b7a78;cursor:pointer;padding:2px 8px;" title="快速添加库存" onclick="event.stopPropagation();PagePharmacy.quickAdd('${d.name.replace(/'/g, "\\'")}',${d.drugCode ? `'${d.drugCode.replace(/'/g, "\\'")}'` : 'null'},'${openId}')"><i class="fas fa-box"></i></button>
                         <button style="background:none;border:none;color:#b91c1c;cursor:pointer;padding:2px 8px;" title="删除" onclick="event.stopPropagation();App.deleteDrug('${d.id}')"><i class="fas fa-trash"></i></button>
                     </div>
                 </div>
@@ -869,39 +899,73 @@ const PagePharmacy = {
             }
             const res = await Api.drugs.getAll();
             const drugs = res.drugs || [];
+            const elderFilterEl = document.getElementById('pharmacyElderFilter');
             const stockFilterEl = document.getElementById('pharmacyStockFilter');
             const catsEl = document.getElementById('pharmacyCats');
             const listEl = document.getElementById('pharmacyList');
             if (!listEl) return;
 
+            // === 服药人筛选 ===
+            const currentMemberId = App.state.currentMemberId;
+            const members = App.state.members || [];
+            const memberName = members.find(m => m.id === currentMemberId)?.name || '当前成员';
+            const elderOptions = ['全部', '我的'];
+            if (elderFilterEl) {
+                elderFilterEl.innerHTML = `<div style="margin-bottom:8px;">
+                    <div style="font-size:12px;color:#64748b;margin-bottom:4px;">服药人</div>
+                    <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                        ${elderOptions.map(s => {
+                            const active = s === this._currentElder;
+                            const label = s === '我的' ? `我的(${memberName})` : s;
+                            return `<span onclick="PagePharmacy._selectElder('${s}')"
+                                style="padding:4px 12px;border-radius:16px;cursor:pointer;font-size:13px;white-space:nowrap;${active ? 'background:#2b7a78;color:#fff;' : 'background:#f1f5f9;color:#475569;'}">
+                                ${label}
+                            </span>`;
+                        }).join('')}
+                    </div>
+                </div>`;
+            }
+
+            // 先按服药人筛选
+            let elderFiltered = drugs;
+            if (this._currentElder === '我的' && currentMemberId) {
+                elderFiltered = drugs.filter(d => {
+                    if (!Array.isArray(d.byElder)) return false;
+                    return d.byElder.some(b => b.elderId === currentMemberId);
+                });
+            }
+
             // === 库存状态筛选 ===
-            const stockCounts = { '全部': drugs.length, '有库存': 0, '已过期': 0 };
-            drugs.forEach(d => {
+            const stockCounts = { '全部': elderFiltered.length, '有库存': 0, '已过期': 0 };
+            elderFiltered.forEach(d => {
                 if (d.quantity > 0) stockCounts['有库存']++;
                 if (d.status === 'expired') stockCounts['已过期']++;
             });
             const stockOptions = ['全部', '有库存', '已过期'];
             if (stockFilterEl) {
-                stockFilterEl.innerHTML = `<div style="display:flex;gap:6px;flex-wrap:wrap;padding-bottom:4px;">
-                    ${stockOptions.map(s => {
-                        const active = s === this._currentStock;
-                        let bg = active ? 'background:#2b7a78;color:#fff;' : 'background:#f1f5f9;color:#475569;';
-                        if (s === '已过期' && active) bg = 'background:#dc2626;color:#fff;';
-                        else if (s === '已过期' && !active) bg = 'background:#fee2e2;color:#dc2626;';
-                        return `<span onclick="PagePharmacy._selectStock('${s}')"
-                            style="padding:4px 12px;border-radius:16px;cursor:pointer;font-size:13px;white-space:nowrap;${bg}">
-                            ${s} <span style="opacity:0.75;">(${stockCounts[s]})</span>
-                        </span>`;
-                    }).join('')}
+                stockFilterEl.innerHTML = `<div style="margin-bottom:8px;">
+                    <div style="font-size:12px;color:#64748b;margin-bottom:4px;">库存状态</div>
+                    <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                        ${stockOptions.map(s => {
+                            const active = s === this._currentStock;
+                            let bg = active ? 'background:#2b7a78;color:#fff;' : 'background:#f1f5f9;color:#475569;';
+                            if (s === '已过期' && active) bg = 'background:#dc2626;color:#fff;';
+                            else if (s === '已过期' && !active) bg = 'background:#fee2e2;color:#dc2626;';
+                            return `<span onclick="PagePharmacy._selectStock('${s}')"
+                                style="padding:4px 12px;border-radius:16px;cursor:pointer;font-size:13px;white-space:nowrap;${bg}">
+                                ${s} <span style="opacity:0.75;">(${stockCounts[s]})</span>
+                            </span>`;
+                        }).join('')}
+                    </div>
                 </div>`;
             }
 
-            // 先按库存状态筛选
-            let stockFiltered = drugs;
+            // 再按库存状态筛选
+            let stockFiltered = elderFiltered;
             if (this._currentStock === '有库存') {
-                stockFiltered = drugs.filter(d => d.quantity > 0);
+                stockFiltered = elderFiltered.filter(d => d.quantity > 0);
             } else if (this._currentStock === '已过期') {
-                stockFiltered = drugs.filter(d => d.status === 'expired');
+                stockFiltered = elderFiltered.filter(d => d.status === 'expired');
             }
 
             // === 分类筛选 ===
@@ -922,16 +986,19 @@ const PagePharmacy = {
 
             // 渲染分类导航
             if (catsEl) {
-                catsEl.innerHTML = `<div style="display:flex;gap:6px;flex-wrap:wrap;overflow-x:auto;padding-bottom:4px;">
-                    ${allCats.map(c => {
-                        const active = c === this._currentCat;
-                        const count = c === '全部' ? stockFiltered.length : (catMap[c] || 0);
-                        return `<span onclick="PagePharmacy._selectCat('${c.replace(/'/g, "\\'")}')"
-                            style="padding:4px 12px;border-radius:16px;cursor:pointer;font-size:13px;white-space:nowrap;
-                            ${active ? 'background:#2b7a78;color:#fff;' : 'background:#f1f5f9;color:#475569;'}">
-                            ${c} <span style="opacity:0.75;">(${count})</span>
-                        </span>`;
-                    }).join('')}
+                catsEl.innerHTML = `<div style="margin-bottom:4px;">
+                    <div style="font-size:12px;color:#64748b;margin-bottom:4px;">药品分类</div>
+                    <div style="display:flex;gap:6px;flex-wrap:wrap;overflow-x:auto;">
+                        ${allCats.map(c => {
+                            const active = c === this._currentCat;
+                            const count = c === '全部' ? stockFiltered.length : (catMap[c] || 0);
+                            return `<span onclick="PagePharmacy._selectCat('${c.replace(/'/g, "\\'")}')"
+                                style="padding:4px 12px;border-radius:16px;cursor:pointer;font-size:13px;white-space:nowrap;
+                                ${active ? 'background:#2b7a78;color:#fff;' : 'background:#f1f5f9;color:#475569;'}">
+                                ${c} <span style="opacity:0.75;">(${count})</span>
+                            </span>`;
+                        }).join('')}
+                    </div>
                 </div>`;
             }
 
@@ -962,10 +1029,28 @@ const PagePharmacy = {
             }
 
             listEl.innerHTML = html;
+
+            // 更新筛选图标状态：对比初始默认值，有任何变化则显示实心
+            const hasFilter = this._currentElder !== '全部' || this._currentStock !== '有库存' || this._currentCat !== '全部';
+            const icon = document.getElementById('pharmacyFilterIcon');
+            if (icon) {
+                if (hasFilter) {
+                    icon.style.opacity = '1';
+                    icon.style.color = '#2b7a78';
+                } else {
+                    icon.style.opacity = '0.4';
+                    icon.style.color = '';
+                }
+            }
         } catch (err) {
             const el = document.getElementById('pharmacyList');
             if (el) el.innerHTML = '<p class="text-muted" style="text-align:center;padding:20px;">加载失败</p>';
         }
+    },
+
+    _selectElder(elder) {
+        this._currentElder = elder;
+        this.loadContent();
     },
 
     _selectCat(cat) {
@@ -987,11 +1072,23 @@ const PagePharmacy = {
         }, 50);
     },
 
+    quickAddMedPlan(name, drugCode) {
+        App.state.addMedPrefill = { name, drugCode };
+        App.switchPage('addMed');
+    },
+
     _quickAddModal(name) {
         const members = App.state.members || [];
         const currentUserId = App.state.user?.id;
-        const memberOptions = members.map(m => {
-            const selected = m.id === App.state.currentMemberId ? 'selected' : '';
+        // 药箱：只能给自己添加，或给canModifyHim=true的成员添加（有权修改对方）
+        const allowed = members.filter(m => 
+            (m.relation === 'self' && m.user_id === currentUserId) || // 自己
+            m.canModifyHim // 或对方授权了我修改
+        );
+        const selfMember = members.find(m => m.relation === 'self' && m.user_id === currentUserId);
+        const defaultElder = selfMember ? selfMember.id : allowed[0]?.id || '';
+        const memberOptions = allowed.map(m => {
+            const selected = m.id === defaultElder ? 'selected' : '';
             const isSelf = m.relation === 'self' && m.user_id === currentUserId;
             const label = isSelf ? m.name + '（我）' : m.name;
             return `<option value="${m.id}" ${selected}>${label}</option>`;
@@ -1109,13 +1206,13 @@ const PageProfileEdit = {
             <h2>个人信息</h2>
         </div>
         <div class="card">
-            <div class="form-group"><label>姓名</label><input id="pe-name" value="${e.name || user?.name || ''}"></div>
-            <div class="form-group"><label>性别</label><select id="pe-gender">
-                <option value="未知" ${(!e.gender || e.gender === '未知') ? 'selected' : ''}>未知</option>
+            <div class="form-group"><label>姓名 <span style="color:#e53e3e;">*</span></label><input id="pe-name" value="${e.name || user?.name || ''}"></div>
+            <div class="form-group"><label>性别 <span style="color:#e53e3e;">*</span></label><select id="pe-gender">
+                <option value="" ${(!e.gender || e.gender === '未知') ? 'selected' : ''}>请选择性别</option>
                 <option value="男" ${e.gender === '男' ? 'selected' : ''}>男</option>
                 <option value="女" ${e.gender === '女' ? 'selected' : ''}>女</option>
             </select></div>
-            <div class="form-group"><label>出生日期</label>
+            <div class="form-group"><label>出生日期 <span style="color:#e53e3e;">*</span></label>
                 <div style="display:flex;gap:8px;align-items:center;">
                     <input id="pe-birthDate" type="text" readonly onclick="CalendarPicker.attach(this,{max:'today'})" value="${e.birth_date ? formatDate(e.birth_date) : ''}" placeholder="点击选择出生日期" style="background:#fff;flex:1;" onchange="PageProfileEdit._updateAge()">
                     <span id="pe-calcAge" style="font-size:12px;color:#2b7a78;"></span>
@@ -1155,28 +1252,29 @@ const PageChronicMeds = {
     _selectedIds: new Set(),
 
     render() {
+        const canModify = App._canModifyCurrent();
         this.loadContent();
         return `
         <div class="sub-header">
             <button class="back-btn" onclick="App.switchPage('profile')"><i class="fas fa-arrow-left"></i></button>
-            <h2>长期用药设置</h2>
+            <h2>长期用药</h2>
         </div>
         <div class="card" style="margin-bottom:12px;">
             <div style="font-size:13px;color:#64748b;line-height:1.6;">
                 <i class="fas fa-info-circle" style="color:#2b7a78;"></i>
-                请从下方药箱列表中勾选您需要长期服用的药品，首页的<b>开药倒计时</b>将基于这些药品的库存进行提醒。
+                ${canModify ? '请从下方药箱列表中勾选您需要长期服用的药品，首页的<b>开药倒计时</b>将基于这些药品的库存进行提醒。' : '以下是当前成员的长期用药列表。'}
             </div>
         </div>
         <div class="card">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
                 <div class="card-title" style="margin-bottom:0;"><i class="fas fa-kit-medical"></i> 药箱列表 <span id="chronicCount" class="text-muted" style="font-size:13px;font-weight:400;"></span></div>
-                <button class="btn-primary" style="width:auto;padding:6px 16px;font-size:14px;" onclick="PageChronicMeds._save()"><i class="fas fa-save"></i> 保存</button>
+                ${canModify ? `<button class="btn-primary" style="width:auto;padding:6px 16px;font-size:14px;" onclick="PageChronicMeds._save()"><i class="fas fa-save"></i> 保存</button>` : ''}
             </div>
             <div id="chronicList"><p class="text-muted" style="text-align:center;padding:20px;">加载中...</p></div>
         </div>`;
     },
 
-    _renderDrugCard(d, checked) {
+    _renderDrugCard(d, checked, canModify) {
         const cat = d.category || '其他';
         const icon = getDrugIcon(d.name);
         let specLine = d.specification || '';
@@ -1191,9 +1289,11 @@ const PageChronicMeds = {
         const isExpiring = d.status === 'expiring_soon';
         const warnBadge = isExpired ? '<span class="badge" style="background:#fee2e2;color:#991b1b;margin-left:6px;">已过期</span>' :
             (isExpiring ? '<span class="badge" style="background:#fef3c7;color:#92400e;margin-left:6px;">即将过期</span>' : '');
-        return `<label style="display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-bottom:1px solid #f1f5f9;cursor:pointer;user-select:none;${checked ? 'background:#f0fdfa;' : ''}">
-            <input type="checkbox" value="${d.id}" ${checked ? 'checked' : ''} onchange="PageChronicMeds._toggle('${d.id}', this.checked)"
-                style="width:18px;height:18px;margin-top:4px;accent-color:#2b7a78;flex-shrink:0;">
+        const checkboxAttrs = canModify
+            ? `<input type="checkbox" value="${d.id}" ${checked ? 'checked' : ''} onchange="PageChronicMeds._toggle('${d.id}', this.checked)" style="width:18px;height:18px;margin-top:4px;accent-color:#2b7a78;flex-shrink:0;">`
+            : `<input type="checkbox" value="${d.id}" ${checked ? 'checked' : ''} disabled style="width:18px;height:18px;margin-top:4px;accent-color:#2b7a78;flex-shrink:0;">`;
+        return `<label style="display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-bottom:1px solid #f1f5f9;${canModify ? 'cursor:pointer;' : 'cursor:default;'}user-select:none;${checked ? 'background:#f0fdfa;' : ''}">
+            ${checkboxAttrs}
             <div class="drug-icon" style="flex-shrink:0;"><i class="fas ${icon}"></i></div>
             <div style="flex:1;min-width:0;">
                 <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;">
@@ -1210,6 +1310,7 @@ const PageChronicMeds = {
 
     async loadContent() {
         try {
+            const canModify = App._canModifyCurrent();
             const [drugsRes, chronicRes] = await Promise.all([
                 Api.drugs.getAll(),
                 Api.drugs.getChronic(App.state.currentMemberId)
@@ -1223,9 +1324,10 @@ const PageChronicMeds = {
             if (!listEl) return;
 
             if (this._allDrugs.length === 0) {
+                const addBtnHtml = canModify ? `<button class="btn-outline" style="width:100%;" onclick="App.switchPage('addDrug')"><i class="fas fa-plus"></i> 去添加药品</button>` : '';
                 listEl.innerHTML = `<div style="padding:20px;">
                     <p class="text-muted" style="text-align:center;margin-bottom:10px;">药箱为空，请先添加药品</p>
-                    <button class="btn-outline" style="width:100%;" onclick="App.switchPage('addDrug')"><i class="fas fa-plus"></i> 去添加药品</button>
+                    ${addBtnHtml}
                 </div>`;
                 if (countEl) countEl.textContent = '';
                 return;
@@ -1243,8 +1345,8 @@ const PageChronicMeds = {
                 return a.name.localeCompare(b.name, 'zh');
             });
 
-            listEl.innerHTML = sorted.map(d => this._renderDrugCard(d, this._selectedIds.has(d.id))).join('');
-            if (countEl) countEl.textContent = `（已选 ${this._selectedIds.size} / ${this._allDrugs.length}）`;
+            listEl.innerHTML = sorted.map(d => this._renderDrugCard(d, this._selectedIds.has(d.id), canModify)).join('');
+            if (countEl) countEl.textContent = canModify ? `（已选 ${this._selectedIds.size} / ${this._allDrugs.length}）` : `（共 ${this._selectedIds.size} 种）`;
         } catch (err) {
             console.error('加载长期用药失败:', err);
             const el = document.getElementById('chronicList');
@@ -1648,27 +1750,54 @@ const PageFeedbackDetail = {
 // ---------- 家庭组管理（家庭组列表+加入家庭）----------
 const PageFamily = {
     render() {
-        this.loadContent();
         return `
         <div class="sub-header">
             <button class="back-btn" onclick="App.goBack()"><i class="fas fa-arrow-left"></i></button>
             <h2>家庭组管理</h2>
         </div>
         <button class="btn-outline" style="width:100%;margin-bottom:12px;padding:10px;" onclick="App.switchPage('joinFamily')"><i class="fas fa-sign-in-alt"></i> 加入家庭</button>
+        <button class="btn-primary" style="width:100%;margin-bottom:12px;padding:10px;" onclick="App.createFamily()"><i class="fas fa-plus"></i> 创建家庭组</button>
         <div class="card">
             <div class="card-title"><i class="fas fa-home"></i> 我的家庭组</div>
             <div id="familyList"><p class="text-muted" style="text-align:center;padding:20px;">加载中...</p></div>
         </div>
         <div class="card">
-            <div class="card-title"><i class="fas fa-users"></i> 当前家庭成员</div>
+            <div class="card-title"><i class="fas fa-users"></i> 当前家庭成员
+                <div style="margin-left:auto;display:flex;gap:8px;">
+                    <button class="btn-outline" style="width:auto;padding:6px 14px;font-size:13px;" onclick="PageFamily.openAuthManager()"><i class="fas fa-shield-alt"></i> 授权管理</button>
+                </div>
+            </div>
             <div id="familyMembersList"><p class="text-muted" style="text-align:center;padding:20px;">加载中...</p></div>
+        </div>
+        <div id="authManagerOverlay" class="dialog-overlay" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.5);z-index:500;display:none;justify-content:center;align-items:center;border-radius:0;">
+            <div class="dialog-box" style="background:#fff;border-radius:16px;padding:0;width:92%;max-width:500px;max-height:85vh;display:flex;flex-direction:column;overflow:hidden;">
+                <div style="padding:16px 20px;border-bottom:1px solid #f1f5f9;display:flex;align-items:center;">
+                    <div style="font-weight:700;font-size:16px;"><i class="fas fa-shield-alt" style="color:#2b7a78;"></i> 授权管理</div>
+                    <div style="margin-left:auto;cursor:pointer;color:#94a3b8;font-size:18px;" onclick="PageFamily.closeAuthManager()">&times;</div>
+                </div>
+                <div style="padding:14px 20px;background:#eff6ff;border-bottom:1px solid #dbeafe;font-size:14px;color:#1e40af;">
+                    <i class="fas fa-info-circle"></i> <b>授权其他成员修改您的资料</b>。
+                </div>
+                <div id="authManagerList" style="padding:10px 20px;overflow-y:auto;flex:1;"></div>
+                <div style="padding:12px 20px;border-top:1px solid #f1f5f9;display:flex;justify-content:flex-end;gap:8px;">
+                    <button class="btn-outline" style="width:auto;padding:8px 18px;" onclick="PageFamily.closeAuthManager()">完成</button>
+                </div>
+            </div>
         </div>`;
     },
 
+    async afterRender() {
+        await this.loadContent();
+    },
+
     async loadContent() {
-        // 独立加载家庭组列表，避免异常影响成员列表
-        this.loadFamilies();
-        // 独立加载家庭成员列表
+        // 确保 members 数据已加载（含授权状态），避免页面空白
+        if (!App.state.members || App.state.members.length === 0) {
+            await App.loadData();
+        }
+        // 独立加载家庭组列表
+        await this.loadFamilies();
+        // 渲染家庭成员列表（从已加载的 state.members 读取）
         this.loadMembers();
     },
 
@@ -1687,7 +1816,7 @@ const PageFamily = {
                     listEl.innerHTML = families.map(f => {
                         const isCurrent = f.id === currentFamilyId;
                         const isCreator = f.creator_id === currentUserId;
-                        return `<div style="display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid #f1f5f9;${isCurrent ? 'background:#f0fdf4;border-radius:8px;padding:12px;' : ''}">
+                        return `<div style="display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid #f1f5f9;${isCurrent ? 'background:#f0fdf4;border-radius:8px;' : ''}">
                             <div style="width:40px;height:40px;border-radius:50%;background:#d1e0e8;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px;flex-shrink:0;"><i class="fas fa-home"></i></div>
                             <div style="flex:1;min-width:0;">
                                 <div style="font-weight:600;display:flex;align-items:center;gap:6px;white-space:nowrap;overflow:hidden;">${f.name}${isCurrent ? ' <span style="font-size:11px;background:#16a34a;color:#fff;padding:1px 6px;border-radius:4px;flex-shrink:0;">当前</span>' : ''}</div>
@@ -1708,9 +1837,9 @@ const PageFamily = {
 
     async loadMembers() {
         try {
-            const res = await Api.auth.familyMembers();
-            const members = res.members || [];
-            const elders = App.state.members || [];
+            // 统一用 App.state.members（来自 GET /elders），不再单独调 family-members
+            const members = App.state.members || [];
+            PageFamily._lastMembers = members; // 缓存，供授权管理弹窗同步使用
 
             const membersEl = document.getElementById('familyMembersList');
             if (membersEl) {
@@ -1719,9 +1848,10 @@ const PageFamily = {
                 } else {
                     const relationMap = { self: '本人', parent: '父母', spouse_parent: '公婆/岳父母', spouse: '配偶', other: '其他' };
                     membersEl.innerHTML = members.map(m => {
-                        const isCurrent = App.state.user && m.id === App.state.user.id;
-                        const elder = elders.find(e => e.user_id === m.id);
-                        const elderInfo = elder ? `
+                        const isCurrent = App.state.user && m.user_id === App.state.user.id;
+                        const elder = m; // member 本身就是 elder
+
+                        const elderInfo = `
                             <div style="margin-top:6px;padding-top:6px;border-top:1px dashed #e2e8f0;">
                                 <div style="display:flex;flex-wrap:wrap;gap:6px;font-size:12px;">
                                     ${elder.gender ? `<span style="background:#eef2f6;padding:2px 8px;border-radius:4px;">${elder.gender}</span>` : ''}
@@ -1731,7 +1861,7 @@ const PageFamily = {
                                 </div>
                                 ${elder.allergies ? `<div style="font-size:12px;color:#b91c1c;margin-top:4px;">过敏: ${elder.allergies}</div>` : ''}
                                 ${elder.conditions ? `<div style="font-size:12px;color:#92400e;margin-top:2px;">基础病: ${elder.conditions}</div>` : ''}
-                            </div>` : '';
+                            </div>`;
 
                         const isAdmin = m.role === 'admin';
                         return `<div style="display:flex;align-items:flex-start;gap:14px;padding:12px 0;border-bottom:1px solid #f1f5f9;">
@@ -1745,7 +1875,21 @@ const PageFamily = {
                                 ${elderInfo}
                             </div>
                             <div style="flex-shrink:0;display:flex;flex-direction:column;gap:4px;align-items:flex-end;">
-                                ${!isCurrent ? `<div style="font-size:11px;color:#94a3b8;margin-bottom:2px;">${m.authorized ? '可修改您的档案' : '仅可查看'}</div><button class="btn-outline" style="width:auto;padding:4px 10px;font-size:11px;${m.authorized ? 'color:#16a34a;border-color:#16a34a;' : 'color:#dc2626;border-color:#dc2626;'}" onclick="App.toggleMemberAuth('${m.id}')">${m.authorized ? '已授权修改' : '授权修改'}</button>` : ''}
+                                ${!isCurrent ? `
+                                <div style="display:flex;flex-direction:column;gap:4px;">
+                                    <div style="display:flex;align-items:center;gap:6px;">
+                                        <span style="padding:2px 10px;border-radius:16px;font-size:11px;font-weight:600;user-select:none;min-width:48px;text-align:center;
+                                            ${m.canModifyHim ? 'background:#16a34a;color:#fff;' : 'background:#e2e8f0;color:#64748b;'}">
+                                            您可修改 
+                                        </span>
+                                    </div>
+                                    <div style="display:flex;align-items:center;gap:6px;">
+                                        <span style="padding:2px 10px;border-radius:16px;font-size:11px;font-weight:600;user-select:none;min-width:48px;text-align:center;
+                                            ${m.heCanModifyMe ? 'background:#16a34a;color:#fff;' : 'background:#e2e8f0;color:#64748b;'}">
+                                            可修改您 
+                                        </span>
+                                    </div>
+                                </div>` : ''}
                             </div>
                         </div>`;
                     }).join('');
@@ -1755,6 +1899,70 @@ const PageFamily = {
             console.error('加载家庭成员失败:', err);
             const membersEl = document.getElementById('familyMembersList');
             if (membersEl) membersEl.innerHTML = '<p class="text-muted" style="text-align:center;padding:20px;">加载失败</p>';
+        }
+    },
+
+    openAuthManager() {
+        const overlay = document.getElementById('authManagerOverlay');
+        const listEl = document.getElementById('authManagerList');
+        if (!overlay || !listEl) return;
+
+        // 使用缓存的成员数据，确保弹窗状态与主页面显示一致
+        const members = PageFamily._lastMembers || [];
+        const currentUserId = App.state.user?.id;
+        const others = members.filter(m => m.user_id && m.user_id !== currentUserId);
+
+        if (others.length === 0) {
+            listEl.innerHTML = '<p class="text-muted" style="text-align:center;padding:30px 0;">暂无其他家庭成员</p>';
+        } else {
+            listEl.innerHTML = others.map(m => `
+                <div style="display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid #f1f5f9;">
+                    <div style="width:36px;height:36px;border-radius:50%;background:#d1e0e8;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;flex-shrink:0;">
+                        ${m.avatar || m.name.charAt(0)}
+                    </div>
+                    <div style="flex:1;min-width:0;">
+                        <div style="font-weight:600;font-size:16px;">${m.name}</div>
+                        <div style="font-size:14px;color:#94a3b8;">${m.role === 'admin' ? '管理员' : '成员'}</div>
+                    </div>
+                    <div style="flex-shrink:0;">
+                        <label class="switch">
+                            <input type="checkbox" id="authSwitch_${m.user_id}" ${m.heCanModifyMe ? 'checked' : ''} onchange="PageFamily.toggleAuthInManager('${m.user_id}', this.checked)">
+                            <span class="switch-slider"></span>
+                        </label>
+                    </div>
+                </div>
+            `).join('');
+        }
+        overlay.style.display = 'flex';
+    },
+
+    closeAuthManager() {
+        const overlay = document.getElementById('authManagerOverlay');
+        if (overlay) overlay.style.display = 'none';
+        // 关闭后刷新成员列表状态
+        this.loadMembers?.();
+    },
+
+    async toggleAuthInManager(userId, newChecked) {
+        const switchEl = document.getElementById(`authSwitch_${userId}`);
+        if (switchEl) {
+            switchEl.disabled = true;
+        }
+        try {
+            await Api.auth.toggleAuthorize(userId, 'heCanModifyMe');
+            // 同步更新缓存的成员数据，确保主页面和后续弹窗打开时状态一致
+            if (PageFamily._lastMembers) {
+                const m = PageFamily._lastMembers.find(x => x.user_id === userId);
+                if (m) m.heCanModifyMe = newChecked;
+            }
+            // 同步刷新主页面显示
+            await this.loadMembers?.();
+        } catch (err) {
+            App.toast?.(err.message);
+            // 失败时回滚开关状态
+            if (switchEl) switchEl.checked = !newChecked;
+        } finally {
+            if (switchEl) switchEl.disabled = false;
         }
     }
 };
@@ -1772,41 +1980,46 @@ const PageJoinFamily = {
             <div style="background:#fff7ed;border:1px solid #fed7aa;color:#c2410c;padding:10px 14px;border-radius:8px;font-size:13px;margin-bottom:12px;line-height:1.6;">
                 <i class="fas fa-exclamation-triangle"></i> <b>隐私提示：</b>加入家庭后，您的病历、处方、检查报告等资料将向家庭内所有人公开，家庭成员可查看。在加入家庭后，可在成员权限管理页设置对特定成员开放修改权限。
             </div>
+            <div style="background:#eff6ff;border:1px solid #bfdbfe;color:#1e40af;padding:10px 14px;border-radius:8px;font-size:13px;margin-bottom:12px;line-height:1.6;">
+                <i class="fas fa-info-circle"></i> <b>使用限制：</b><br>
+                &nbsp;&nbsp;• 年龄需在 18~80 岁之间才能添加家庭组<br>
+                &nbsp;&nbsp;• 每人最多创建 3 个家庭组（含注册时自动创建）<br>
+                &nbsp;&nbsp;• 每个家庭组最多 10 位成员
+            </div>
             <div class="form-group"><label>邀请码</label><input id="joinCode" placeholder="输入邀请码" style="font-family:monospace;letter-spacing:2px;font-size:16px;"></div>
             <button class="btn-primary" onclick="App.joinFamily()">加入</button>
         </div>`;
     }
 };
 
-// ---------- 添加用药（右上角相机图标可切换拍照识别）----------
+// ---------- 添加用药计划（右上角相机图标可切换拍照识别）----------
 const PageAddMed = {
     render() {
         const members = App.state.members;
-        const memberOptions = members.map(m => {
-            const isSelf = m.relation === 'self' && m.user_id === App.state.user?.id;
+        const currentUserId = App.state.user?.id;
+        const allowed = members.filter(m =>
+            (m.relation === 'self' && m.user_id === currentUserId) ||
+            m.canModifyHim
+        );
+        const memberOptions = allowed.map(m => {
+            const isSelf = m.relation === 'self' && m.user_id === currentUserId;
             const label = isSelf ? m.name + '（我）' : m.name;
             return `<option value="${m.id}" ${m.id === App.state.currentMemberId ? 'selected' : ''}>${label}</option>`;
         }).join('');
         return `
         <div class="sub-header">
             <button class="back-btn" onclick="App.goBack()"><i class="fas fa-arrow-left"></i></button>
-            <h2>添加用药</h2>
+            <h2>添加用药计划</h2>
             <button style="background:none;border:none;cursor:pointer;font-size:20px;color:#2b7a78;margin-left:auto;padding:8px;" onclick="App.startScan('处方')" title="拍照识别"><i class="fas fa-camera"></i></button>
         </div>
         <div class="card">
             <div class="form-group"><label>关联成员 *</label><select id="medElderId">${memberOptions}</select></div>
-            <div class="form-group"><label>药品名称 *</label><input id="medName" placeholder="输入名称或拼音首字母（如 SHP）" autocomplete="off" onclick="DrugSuggest.showSuggestions(this)" oninput="DrugSuggest.onInput(this,'medDrugCode',{specDosage:'medSpecDosage',specDosageUnit:'medSpecDosageUnit',unitCapacity:'medUnitCap',unitCapacityUnit:'medUnitCapUnit',manufacturer:'medManu'})"><input type="hidden" id="medDrugCode"></div>
-            <div class="form-group"><label>规格（每片/袋含量）</label><div style="display:flex;gap:8px"><input id="medSpecDosage" type="number" step="1" min="0" placeholder="如 0.25" style="flex:2"><select id="medSpecDosageUnit" style="flex:1"><option value="g">g</option><option value="mg">mg</option><option value="ml">ml</option><option value="μg">μg</option></select></div></div>
-            <div class="form-group"><label>单位容量（每盒/瓶数量）</label><div style="display:flex;gap:8px"><input id="medUnitCap" type="number" step="1" min="0" placeholder="如 20" style="flex:2"><select id="medUnitCapUnit" style="flex:1"><option value="片">片</option><option value="粒">粒</option><option value="袋">袋</option><option value="支">支</option><option value="瓶">瓶</option><option value="贴">贴</option></select></div></div>
-            <div class="form-group"><label>生产厂商</label><input id="medManu" placeholder="生产单位"></div>
-            <div class="form-group"><label>数量</label><div style="display:flex;gap:8px"><input id="medQty" type="number" step="1" min="1" value="1" style="flex:2"><select id="medQtyUnit" style="flex:1"><option value="盒">盒</option><option value="瓶">瓶</option><option value="件">件</option><option value="包">包</option></select></div></div>
+            <div class="form-group"><label>药品名称 *</label><input id="medName" placeholder="输入名称或拼音首字母（如 SHP）" autocomplete="off" onclick="DrugSuggest.showSuggestions(this)" oninput="DrugSuggest.onInput(this,'medDrugCode',{})"><input type="hidden" id="medDrugCode"></div>
             <div class="form-group"><label>每次剂量</label><div style="display:flex;gap:8px"><input id="medDoseAmount" type="number" step="1" min="0" placeholder="如 5" style="flex:2"><select id="medDoseUnit" style="flex:1"><option value="mg">mg</option><option value="g">g</option><option value="ml">ml</option><option value="μg">μg</option><option value="片">片</option><option value="粒">粒</option><option value="袋">袋</option><option value="支">支</option><option value="贴">贴</option></select></div></div>
             <div class="form-group"><label>每日次数</label><input id="medFreq" type="number" step="1" min="1" max="4" value="1" oninput="MedTimesUI.render('med')"></div>
             <div class="form-group"><label>服用时间段</label><div id="medTimeSlots"></div></div>
             <div class="form-group"><label>开始日期</label><input id="medStart" type="text" readonly onclick="CalendarPicker.attach(this,{max:'today'})" placeholder="点击选择日期" style="background:#fff;"></div>
-            <div class="form-group"><label>有效期 *</label><input id="medExpiryDate" type="text" readonly onclick="CalendarPicker.attach(this)" placeholder="点击选择日期" style="background:#fff;"></div>
             <div class="form-group"><label>备注</label><textarea id="medNote" placeholder="服用注意事项"></textarea></div>
-            <div class="form-group"><label>图片</label><div id="medImages"></div></div>
             <button class="btn-primary" onclick="App.saveMed()">保存</button>
         </div>`;
     },
@@ -1817,6 +2030,17 @@ const PageAddMed = {
         const today = new Date().toISOString().slice(0,10);
         const el = document.getElementById('medStart');
         if (el && !el.value) el.value = today;
+
+        const prefill = App.state.addMedPrefill;
+        if (prefill) {
+            const nameEl = document.getElementById('medName');
+            const drugCodeEl = document.getElementById('medDrugCode');
+
+            if (nameEl) nameEl.value = prefill.name || '';
+            if (drugCodeEl && prefill.drugCode) drugCodeEl.value = prefill.drugCode;
+
+            delete App.state.addMedPrefill;
+        }
     }
 };
 
@@ -2442,12 +2666,18 @@ const PageAddRecord = {
 const PageAddDrug = {
     render() {
         const members = App.state.members || [];
-        const current = App.state.currentMemberId;
-        const elderOptions = members.map(m => {
-            const label = (m.relation === 'self' && members.length > 1 && m.name === App.state.user?.name)
-                ? `${m.name}（我）`
-                : (m.name || '未命名成员');
-            return `<option value="${m.id}" ${m.id === current ? 'selected' : ''}>${label}</option>`;
+        const currentUserId = App.state.user?.id;
+        // 药箱：只能给自己添加，或给canModifyHim=true的成员添加（有权修改对方）
+        const allowed = members.filter(m => 
+            (m.relation === 'self' && m.user_id === currentUserId) || // 自己
+            m.canModifyHim // 或对方授权了我修改
+        );
+        const selfMember = members.find(m => m.relation === 'self' && m.user_id === currentUserId);
+        const defaultElder = selfMember ? selfMember.id : allowed[0]?.id || '';
+        const elderOptions = allowed.map(m => {
+            const isSelf = m.relation === 'self' && m.user_id === currentUserId;
+            const label = isSelf ? `${m.name}（我）` : (m.name || '未命名成员');
+            return `<option value="${m.id}" ${m.id === defaultElder ? 'selected' : ''}>${label}</option>`;
         }).join('');
         return `
         <div class="sub-header">
@@ -2888,7 +3118,7 @@ const PageMedEdit = {
         return `
         <div class="sub-header">
             <button class="back-btn" onclick="App.goBack()"><i class="fas fa-arrow-left"></i></button>
-            <h2>编辑用药安排</h2>
+            <h2>用药安排</h2>
         </div>
         <div id="medEditContent"><p class="text-muted" style="text-align:center;padding:40px;">加载中...</p></div>`;
     },
@@ -2902,19 +3132,20 @@ const PageMedEdit = {
                 if (el) el.innerHTML = '<p class="text-muted" style="text-align:center;padding:20px;">请先选择一位家庭成员</p>';
                 return;
             }
+            const canModify = App._canModifyCurrent();
             const medsRes = await Api.medications.getAll(memberId, true);
             const meds = medsRes.medications || [];
 
             const el = document.getElementById('medEditContent');
             if (!el) return;
 
-            // 顶部添加按钮 + 新增表单（默认折叠）
-            const addBtnHtml = `<div style="margin-bottom:12px;">
+            // 顶部添加按钮 + 新增表单（默认折叠）- 仅有权限时显示
+            const addBtnHtml = canModify ? `<div style="margin-bottom:12px;">
                 <button class="btn-primary" style="width:100%;" onclick="PageMedEdit.toggleAddForm()">
                     <i class="fas fa-plus"></i> 添加用药计划
                 </button>
                 <div id="medAddForm" style="display:none;margin-top:12px;padding:12px;background:#f8fafd;border-radius:12px;"></div>
-            </div>`;
+            </div>` : '';
 
             if (meds.length === 0) {
                 el.innerHTML = addBtnHtml + '<p class="text-muted" style="text-align:center;padding:20px;">暂无活跃用药计划</p>';
@@ -2934,9 +3165,16 @@ const PageMedEdit = {
                 const createdTs = m.createdAt ? new Date(m.createdAt).getTime() : (m.startDate ? new Date(m.startDate).getTime() : Date.now());
                 const hoursElapsed = (Date.now() - createdTs) / 3600000;
                 const canDelete = hoursElapsed < 48;
-                const actionBtn = canDelete
-                    ? `<button class="med-edit-btn btn-delete" onclick="PageMedEdit.deleteMed('${m.id}','${m.name.replace(/'/g, "\\'")}')"><i class="fas fa-trash"></i> 删除</button>`
-                    : `<button class="med-edit-btn btn-end" onclick="PageMedEdit.endMed('${m.id}','${m.name.replace(/'/g, "\\'")}')"><i class="fas fa-stop-circle"></i> 结束</button>`;
+                let actionsHtml = '';
+                if (canModify) {
+                    const actionBtn = canDelete
+                        ? `<button class="med-edit-btn btn-delete" onclick="PageMedEdit.deleteMed('${m.id}','${m.name.replace(/'/g, "\\'")}')"><i class="fas fa-trash"></i> 删除</button>`
+                        : `<button class="med-edit-btn btn-end" onclick="PageMedEdit.endMed('${m.id}','${m.name.replace(/'/g, "\\'")}')"><i class="fas fa-stop-circle"></i> 结束</button>`;
+                    actionsHtml = `<div class="med-edit-actions">
+                        <button class="med-edit-btn btn-edit" onclick="PageMedEdit.showEditForm('${m.id}')"><i class="fas fa-edit"></i> 修改</button>
+                        ${actionBtn}
+                    </div>`;
+                }
                 return `<div class="med-edit-card">
                 <div class="med-edit-header">
                     <div class="med-edit-name">${m.name}</div>
@@ -2944,10 +3182,7 @@ const PageMedEdit = {
                 </div>
                 <div class="med-edit-footer">
                     <div class="med-edit-time">${timesHtml || '<span class="text-muted">未设置</span>'}</div>
-                    <div class="med-edit-actions">
-                        <button class="med-edit-btn btn-edit" onclick="PageMedEdit.showEditForm('${m.id}')"><i class="fas fa-edit"></i> 修改</button>
-                        ${actionBtn}
-                    </div>
+                    ${actionsHtml}
                 </div>
                 <div id="editForm-${m.id}" style="display:none;margin-top:10px;"></div>
             </div>`;

@@ -2,7 +2,7 @@ const { getPool } = require('../config/database');
 const { v4: uuidv4 } = require('uuid');
 const { resolveDrugCode } = require('../utils/drugLibrary');
 const { getEntityFiles, setEntityFiles, deleteEntityFiles } = require('../utils/entityFiles');
-const { familyAccessFilter } = require('../utils/familyAccess');
+const { familyAccessFilter, canModifyElder } = require('../utils/familyAccess');
 
 function fmtDateTime(d) {
   if (d instanceof Date) {
@@ -36,7 +36,12 @@ async function _getFamilyUserIds(req) {
   const familyId = req.familyId || (req.user && req.user.family_id);
   let userIds = [req.user.id];
   if (familyId) {
-    const [rows] = await getPool().query('SELECT id FROM users WHERE family_id = ?', [familyId]);
+    const [rows] = await getPool().query(
+      `SELECT id FROM users WHERE family_id = ?
+       UNION
+       SELECT u.id FROM users u INNER JOIN user_families uf ON uf.user_id = u.id WHERE uf.family_id = ?`,
+      [familyId, familyId]
+    );
     const ids = rows.map(r => r.id);
     if (ids.length) userIds = ids;
     if (!userIds.includes(req.user.id)) userIds.push(req.user.id);
@@ -231,10 +236,19 @@ async function getDrug(req, res) {
 async function addDrug(req, res) {
   try {
     const familyId = req.familyId;
+    const userId = req.user.id;
     const { elderId, drugCode, name, specification, specDosage, specDosageUnit, unitCapacity, unitCapacityUnit, manufacturer, quantity, quantityUnit, expiryDate, note, fileIds } = req.body;
 
     if (!drugCode && !name) {
       return res.status(400).json({ error: '请选择或输入药品名称' });
+    }
+
+    // 药箱：只能给自己或被授权修改的成员添加药品
+    if (elderId) {
+      const allow = await canModifyElder(getPool(), elderId, userId);
+      if (!allow) {
+        return res.status(403).json({ error: '您无权给该成员添加药品，请先获得授权' });
+      }
     }
 
     // 关联药品库：前端传入 drugCode 则校验；否则按名称匹配，未匹配则新增入库（写入 owner_user_id 私有数据隔离）
@@ -319,12 +333,22 @@ async function updateDrug(req, res) {
   try {
     const { id } = req.params;
     const familyId = req.familyId;
+    const userId = req.user.id;
     const { elderId, drugCode, name, specification, quantity, quantityUnit, expiryDate, note, fileIds } = req.body;
 
     const access = familyAccessFilter(familyId);
     const [drugs] = await getPool().query(`SELECT * FROM drug_inventory WHERE id = ? AND (${access.sql})`, [id, ...access.params]);
     if (drugs.length === 0) {
       return res.status(404).json({ error: '药品不存在' });
+    }
+
+    // 药箱：只能修改自己或被授权修改的成员的药品
+    const targetElderId = elderId || drugs[0].elder_id;
+    if (targetElderId) {
+      const allow = await canModifyElder(getPool(), targetElderId, userId);
+      if (!allow) {
+        return res.status(403).json({ error: '您无权修改该成员的药品，请先获得授权' });
+      }
     }
 
     // 若传入 drugCode 或 name 变更，则重新关联药品库
@@ -395,11 +419,21 @@ async function deleteDrug(req, res) {
   try {
     const { id } = req.params;
     const familyId = req.familyId;
+    const userId = req.user.id;
 
     const access = familyAccessFilter(familyId);
     const [drugs] = await getPool().query(`SELECT * FROM drug_inventory WHERE id = ? AND (${access.sql})`, [id, ...access.params]);
     if (drugs.length === 0) {
       return res.status(404).json({ error: '药品不存在' });
+    }
+
+    // 药箱：只能删除自己或被授权修改的成员的药品
+    const targetElderId = drugs[0].elder_id;
+    if (targetElderId) {
+      const allow = await canModifyElder(getPool(), targetElderId, userId);
+      if (!allow) {
+        return res.status(403).json({ error: '您无权删除该成员的药品，请先获得授权' });
+      }
     }
 
     await getPool().query('DELETE FROM drug_inventory WHERE id = ?', [id]);
@@ -481,6 +515,14 @@ async function saveChronicMeds(req, res) {
     const familyId = req.familyId;
     const { drugInventoryIds, elderId } = req.body;
     const ids = Array.isArray(drugInventoryIds) ? drugInventoryIds : [];
+
+    // 权限校验：必须是本人或被授权修改
+    if (elderId) {
+      const allow = await canModifyElder(getPool(), elderId, userId);
+      if (!allow) {
+        return res.status(403).json({ error: '您无权修改该成员的长期用药，请先获得授权' });
+      }
+    }
 
     const pool = getPool();
 
@@ -658,14 +700,24 @@ async function updateInventoryItem(req, res) {
     const { id } = req.params;
     const { expiryDate, remainingQuantity } = req.body;
     const familyId = req.familyId;
+    const userId = req.user.id;
 
     const access = familyAccessFilter(familyId);
     const [rows] = await getPool().query(
-      `SELECT id FROM drug_inventory WHERE id = ? AND (${access.sql})`,
+      `SELECT id, elder_id FROM drug_inventory WHERE id = ? AND (${access.sql})`,
       [id, ...access.params]
     );
     if (rows.length === 0) {
       return res.status(404).json({ error: '记录不存在' });
+    }
+
+    // 药箱：只能修改自己或被授权修改的成员的入库记录
+    const targetElderId = rows[0].elder_id;
+    if (targetElderId) {
+      const allow = await canModifyElder(getPool(), targetElderId, userId);
+      if (!allow) {
+        return res.status(403).json({ error: '您无权修改该成员的入库记录，请先获得授权' });
+      }
     }
 
     const updates = [];
