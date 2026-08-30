@@ -10,10 +10,13 @@ async function getElders(req, res) {
     // 查询：当前家庭的成员 + 家庭组所有成员的 self 档案（跨家庭共享）
     // self 档案根据 user_id + relation='self' 定位，不依赖 family_id
     // 通过 user_families 表找到当前家庭组的所有用户，包含他们的 self 档案
+    // 关键：role 必须取当前家庭组内的 user_families.role，不能取 users.role（全局角色），
+    // 否则一个用户在自己创建的家庭是 admin，加入别人家庭时也会显示为 admin。
     const [elders] = await getPool().query(`
-      SELECT e.*, u.phone AS user_phone, u.role AS user_role
+      SELECT e.*, u.phone AS user_phone, u.role AS user_role, uf.role AS family_role
       FROM elders e
       LEFT JOIN users u ON e.user_id = u.id
+      LEFT JOIN user_families uf ON uf.user_id = e.user_id AND uf.family_id = ?
       WHERE e.family_id = ?
          OR (e.relation = 'self' AND e.user_id IN (
            SELECT uf.user_id FROM user_families uf WHERE uf.family_id = ?
@@ -21,7 +24,7 @@ async function getElders(req, res) {
            SELECT u2.id FROM users u2 WHERE u2.family_id = ?
          ))
       ORDER BY FIELD(e.relation, 'self') DESC, e.created_at DESC
-    `, [familyId, familyId, familyId]);
+    `, [familyId, familyId, familyId, familyId]);
 
     // 获取每个成员的病历/用药数量 + 注入双向授权字段（canModifyHim / heCanModifyMe）
     const eldersWithCount = await Promise.all(elders.map(async (elder) => {
@@ -56,7 +59,7 @@ async function getElders(req, res) {
       return {
         ...elder,
         phone: elder.user_phone || elder.phone || null,
-        role: elder.user_role || null,
+        role: elder.family_role || 'member',
         recordCount: records[0]?.count || 0,
         medCount: meds[0]?.count || 0,
         canModifyHim,

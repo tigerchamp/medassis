@@ -381,15 +381,17 @@ async function getFamilyMembers(req, res) {
     const currentUserId = req.user.id;
     // 通过 user_families 表查询所有加入该家庭的用户（兼容多家庭组）
     // 同时回退查询 users.family_id 以兼容旧数据
+    // 关键：用当前家庭组内的 uf.role 覆盖 u.role，避免把用户在自己家庭的管理员身份带到别人家庭。
     const [members] = await getPool().query(`
-      SELECT u.id, u.name, u.phone, u.role, u.authorized, u.avatar, u.created_at
+      SELECT u.id, u.name, u.phone, u.role, u.authorized, u.avatar, u.created_at, uf.role AS family_role
       FROM users u
+      LEFT JOIN user_families uf ON uf.user_id = u.id AND uf.family_id = ?
       WHERE u.id IN (
         SELECT uf.user_id FROM user_families uf WHERE uf.family_id = ?
         UNION
         SELECT u2.id FROM users u2 WHERE u2.family_id = ?
       )
-    `, [familyId, familyId]);
+    `, [familyId, familyId, familyId]);
 
     // 查询当前用户与其他成员之间的双向授权关系
     const result = [];
@@ -410,6 +412,7 @@ async function getFamilyMembers(req, res) {
 
       result.push({
         ...m,
+        role: m.family_role || 'member', // 以当前家庭组内的角色为准，屏蔽全局 users.role
         canModifyHim,    // 可修改您：我被此人授权
         heCanModifyMe     // 您可修改：此人被我授权
       });
