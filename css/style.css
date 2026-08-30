@@ -1,4 +1,20 @@
 *{margin:0;padding:0;box-sizing:border-box}
+
+/* 统一交互元素体验：去掉移动端点击高亮方块、禁止文字选中、移除点击焦点描边，
+   让按钮像真正的按钮而不是可点选的文本/链接。键盘聚焦(focus-visible)仍保留可见描边以保证可访问性 */
+button, .nav-item, .family-selector, .msg-icon, a[onclick]{
+  -webkit-tap-highlight-color:transparent;
+  -webkit-user-select:none;
+  -moz-user-select:none;
+  -ms-user-select:none;
+  user-select:none;
+  -webkit-touch-callout:none;
+  outline:none;
+}
+button:focus-visible, .nav-item:focus-visible, .family-selector:focus-visible, a[onclick]:focus-visible{
+  outline:2px solid #2b7a78;
+  outline-offset:2px;
+}
 body{font-family:'Inter',-apple-system,sans-serif;background:#f4f7fc;display:flex;justify-content:center;align-items:center;min-height:100vh;padding:16px}
 .phone-frame{max-width:420px;width:100%;background:#fff;border-radius:40px;box-shadow:0 25px 60px rgba(0,20,40,.12);overflow:hidden;position:relative;height:780px;display:flex;flex-direction:column}
 .app-header{padding:8px 12px 5px;display:flex;justify-content:space-between;align-items:center;background:#fff;border-bottom:1px solid rgba(0,0,0,.03);flex-shrink:0;position:relative}
@@ -46,6 +62,8 @@ body{font-family:'Inter',-apple-system,sans-serif;background:#f4f7fc;display:fle
 .btn-outline{background:transparent;border:2px solid #1e4b6b;color:#1e4b6b;padding:12px 20px;border-radius:60px;font-weight:600;font-size:16px;width:100%;cursor:pointer;transition:.15s;font-family:inherit}
 .btn-outline:active{background:#eef3f7}
 .btn-danger{background:#b91c1c;color:#fff;border:none;padding:14px 22px;border-radius:60px;font-weight:600;font-size:16px;width:100%;cursor:pointer;font-family:inherit}
+.btn-secondary{background:#e2e8f0;color:#334155;border:none;padding:14px 22px;border-radius:60px;font-weight:600;font-size:16px;width:100%;cursor:pointer;transition:.15s;font-family:inherit}
+.btn-secondary:active{transform:scale(.97);background:#cbd5e1}
 .flex{display:flex;gap:10px;align-items:center}
 .text-muted{color:#64748b;font-size:14px}
 .med-schedule-item{display:flex;align-items:center;gap:16px;padding:12px 0;border-bottom:1px solid #f1f5f9}
