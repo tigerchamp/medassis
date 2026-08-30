@@ -2,6 +2,13 @@ const { getPool } = require('../config/database');
 const { v4: uuidv4 } = require('uuid');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const logger = require('../utils/logger');
+
+// 手机号脱敏，避免日志中明文留存 PII
+function maskPhone(phone) {
+  if (!phone || phone.length < 7) return phone ? '***' : '';
+  return phone.slice(0, 3) + '****' + phone.slice(-4);
+}
 
 // 用户注册
 async function register(req, res) {
@@ -75,19 +82,23 @@ async function register(req, res) {
 async function login(req, res) {
   try {
     const { phone, password } = req.body;
+    const ip = req.headers['x-forwarded-for'] || req.ip || '-';
 
     if (!phone || !password) {
+      logger.warn('登录失败: 参数缺失', { ip, phone: maskPhone(phone) });
       return res.status(400).json({ error: '手机号和密码不能为空' });
     }
 
     const [users] = await getPool().query('SELECT * FROM users WHERE phone = ?', [phone]);
     if (users.length === 0) {
+      logger.warn('登录失败: 用户不存在', { ip, phone: maskPhone(phone) });
       return res.status(401).json({ error: '手机号或密码错误' });
     }
 
     const user = users[0];
     const isValid = await bcrypt.compare(password, user.password);
     if (!isValid) {
+      logger.warn('登录失败: 密码错误', { ip, userId: user.id, phone: maskPhone(phone) });
       return res.status(401).json({ error: '手机号或密码错误' });
     }
 
@@ -129,7 +140,9 @@ async function login(req, res) {
       family: families[0] || null,
       families: userFamilies
     });
+    logger.info('登录成功', { userId: user.id, name: user.name, ip });
   } catch (err) {
+    logger.error('登录异常', { message: err.message, stack: err.stack, phone: maskPhone((req.body || {}).phone) });
     console.error('Login error:', err);
     res.status(500).json({ error: '登录失败' });
   }

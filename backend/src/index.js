@@ -20,6 +20,7 @@ const drugLibraryRoutes = require('./routes/drugLibrary');
 const hospitalRoutes = require('./routes/hospitals');
 const departmentRoutes = require('./routes/departments');
 const feedbackRoutes = require('./routes/feedback');
+const logger = require('./utils/logger');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -35,6 +36,10 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // 静态文件（前端）
 app.use(express.static(path.join(__dirname, '../../')));
+
+// API 请求日志：记录每个接口的方法/URL/状态码/耗时/入参（敏感字段已脱敏）
+// 仅作用于 /api 前缀，避免记录静态资源；日志按天分文件并按大小切片
+app.use('/api', logger.requestLogger);
 
 // 路由
 app.use('/api/auth', authRoutes);
@@ -61,14 +66,12 @@ app.get('/api/stats', require('./middleware/auth').authMiddleware, async (req, r
   await searchController.getStats(req, res);
 });
 
-// 全局错误处理
-app.use((err, req, res, next) => {
-  console.error('Global error:', err);
-  res.status(500).json({ error: '服务器内部错误' });
-});
+// 全局错误日志 + 兜底处理（记录堆栈与请求信息，便于生产环境排查）
+app.use(logger.errorLogger);
 
 // 启动服务器
 async function startServer() {
+  logger.info(`服务启动中 (mode=${process.argv.includes('--mock') ? 'mock' : 'normal'}, port=${PORT})`);
   try {
     const useMock = process.argv.includes('--mock') || process.argv.includes('--mock-data');
     const shouldRebuild = process.argv.includes('--rebuild');
@@ -100,9 +103,11 @@ async function startServer() {
     }
 
     app.listen(PORT, () => {
+      logger.info(`服务器启动成功，监听端口 ${PORT} (http://localhost:${PORT})`);
       console.log(`服务器运行在 http://localhost:${PORT}`);
     });
   } catch (err) {
+    logger.error('服务启动失败', { message: err.message || String(err), stack: err.stack });
     console.error('启动失败:', err.message || err);
     console.error(err.stack);
     process.exit(1);

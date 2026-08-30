@@ -1,6 +1,7 @@
 const { getPool } = require('../config/database');
 const { v4: uuidv4 } = require('uuid');
 const { pinyin } = require('pinyin-pro');
+const logger = require('./logger');
 
 /**
  * 获取产品名称的拼音首字母缩写（如 三黄片 -> SHP）
@@ -86,6 +87,7 @@ async function resolveDrugCode(params) {
       [drugCode, ...scopeParams]
     );
     if (rows.length > 0) {
+      logger.info('药品解析: 按 code 复用已有药品', { code: rows[0].code, name: rows[0].name });
       return await _resolveExisting(pool, rows[0], specFields);
     }
     // drugCode 无效则继续走名称匹配
@@ -102,6 +104,9 @@ async function resolveDrugCode(params) {
       // 同名但用户手填的规格/单位容量/生产厂商与库中药不一致 → 视为不同药品，新增独立条目
       if (_fieldsDiffer(r, specFields)) {
         const newCode = await _createDrugRow(pool, { name: trimmedName, ...specFields, ownerUserId });
+        logger.info('药品解析: 同名但规格/厂家不同，新增独立药品', {
+          name: trimmedName, specDosage, specDosageUnit, unitCapacity, unitCapacityUnit, manufacturer, ownerUserId
+        });
         return {
           code: newCode,
           name: trimmedName,
@@ -116,6 +121,7 @@ async function resolveDrugCode(params) {
           created: true
         };
       }
+      logger.info('药品解析: 按名称复用已有药品', { code: r.code, name: trimmedName });
       return await _resolveExisting(pool, r, specFields);
     }
   }
