@@ -2084,7 +2084,7 @@ const PageAddRecord = {
                 </div>
             </div>
             <div class="form-group"><label>关联成员 *</label><select id="recordElderId" onchange="PageAddRecord.onElderChange(this.value)">${memberOptions}</select></div>
-            <div id="recordRelatedGroup" class="form-group" style="display:none;"><label>关联病历</label><select id="recordRelated" onchange="PageAddRecord.onRelatedChange(this.value)"><option value="">无匹配，同步创建</option></select><div style="font-size:12px;color:#ea7e2c;margin-top:4px;">如未选择病历记录，在保存时，将自动创建一条病历记录。</div></div>
+            <div id="recordRelatedGroup" class="form-group" style="display:none;"><label>关联病历</label><input id="recordRelatedText" type="text" readonly placeholder="点击选择关联病历" autocomplete="off" onclick="RecordSuggest.showSuggestions(this,'recordRelated',PageAddRecord.onRelatedChange.bind(PageAddRecord))" style="background:#fff;"><input type="hidden" id="recordRelated"><div style="font-size:12px;color:#ea7e2c;margin-top:4px;">如未选择病历记录，在保存时，将自动创建一条病历记录。</div></div>
             <div class="form-group"><label>类型</label><select id="recordType" onchange="PageAddRecord.onTypeChange(this.value)"><option value="病历">病历</option><option value="检查报告">检查报告</option><option value="处方">处方</option></select></div>
             <div id="recordFieldsMedical">
                 <div class="form-group"><label id="recordDateLabel">就诊日期</label><input id="recordDate" type="text" readonly onclick="CalendarPicker.attach(this,{max:'today'})" placeholder="点击选择日期" style="background:#fff;"></div>
@@ -2250,13 +2250,17 @@ const PageAddRecord = {
                 if (confirmed === 'cancel') {
                     // 用户取消：恢复下拉框选择，不执行覆盖
                     const sel = document.getElementById('recordRelated');
+                    const text = document.getElementById('recordRelatedText');
                     if (sel) sel.value = '';
+                    if (text) text.value = '无匹配，同步创建';
                     return;
                 }
                 if (confirmed === 'new') {
                     // 用户选"否，新建"：也不执行覆盖
                     const sel = document.getElementById('recordRelated');
+                    const text = document.getElementById('recordRelatedText');
                     if (sel) sel.value = '';
+                    if (text) text.value = '无匹配，同步创建';
                     return;
                 }
             }

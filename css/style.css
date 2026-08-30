@@ -234,6 +234,13 @@ body{font-family:'Inter',-apple-system,sans-serif;background:#f4f7fc;display:fle
 .dept-suggest-item:hover{background:#f1f8f7}
 .dept-suggest-empty{color:#94a3b8;font-size:13px;font-style:normal;cursor:default}
 .dept-suggest-empty:hover{background:#fff}
+.record-suggest{display:none;position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid #e2e8f0;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.1);max-height:260px;overflow-y:auto;z-index:50;margin-top:4px}
+.record-suggest-item{padding:10px 14px;cursor:pointer;border-bottom:1px solid #f1f5f9;font-size:14px;line-height:1.45;color:#1e293b}
+.record-suggest-item:last-child{border-bottom:none}
+.record-suggest-item:hover{background:#f1f8f7}
+.record-suggest-empty{color:#94a3b8;font-size:13px;font-style:normal;cursor:default}
+.record-suggest-empty:hover{background:#fff}
+.record-suggest-default{color:#2b7a78;font-weight:600;border-bottom:2px dashed #e2e8f0}
 input:disabled,select:disabled,textarea:disabled{background:#f1f5f9;color:#64748b;opacity:.8;cursor:not-allowed}
 .login-page{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100%;padding:40px 24px}
 .login-logo{font-size:64px;color:#2b7a78;margin-bottom:16px}

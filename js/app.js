@@ -1244,6 +1244,106 @@ const DeptSuggest = {
     }
 };
 
+// ========== 病历选择器组件 ==========
+// 用法：<input id="recordRelatedText" type="text" readonly placeholder="点击选择关联病历"
+//        data-elder-id="成员ID"
+//        onclick="RecordSuggest.showSuggestions(this,'recordRelated',PageAddRecord.onRelatedChange.bind(PageAddRecord))">
+//      <input type="hidden" id="recordRelated">
+// 选中后把病历ID写入隐藏字段，并调用 onPick(recordId)。
+const RecordSuggest = {
+    _records: [],
+    _filtered: [],
+    _currentInput: null,
+    _currentHiddenId: null,
+    _currentOnPick: null,
+
+    showSuggestions(inputEl, hiddenId, onPick) {
+        if (!inputEl || inputEl.readOnly) return;
+        this._currentInput = inputEl;
+        this._currentHiddenId = hiddenId;
+        this._currentOnPick = onPick;
+        const elderId = inputEl.dataset.elderId;
+        if (!elderId) { App.toast('请先选择关联成员'); return; }
+        this._loadAndRender(elderId, (inputEl.value || '').trim());
+    },
+
+    onInput(inputEl, hiddenId, onPick) {
+        this._currentInput = inputEl;
+        this._currentHiddenId = hiddenId;
+        this._currentOnPick = onPick;
+        const elderId = inputEl.dataset.elderId;
+        if (!elderId) return;
+        this._loadAndRender(elderId, (inputEl.value || '').trim());
+    },
+
+    async _loadAndRender(elderId, q) {
+        try {
+            const res = await Api.records.getAll(elderId);
+            const records = (res.records || []).filter(r => r.type === '病历');
+            this._records = records;
+            this._render(q, records);
+        } catch (e) { /* 静默失败 */ }
+    },
+
+    _render(q, records) {
+        const inputEl = this._currentInput;
+        if (!inputEl) return;
+        let box = inputEl.parentNode.querySelector('.record-suggest');
+        if (!box) {
+            box = document.createElement('div');
+            box.className = 'record-suggest';
+            inputEl.parentNode.style.position = 'relative';
+            inputEl.parentNode.appendChild(box);
+            box.onmousedown = (e) => e.preventDefault();
+        }
+        const qlower = (q || '').toLowerCase();
+        const filtered = qlower
+            ? records.filter(r => {
+                const text = [r.visitDate, r.hospital, r.department, r.doctor].join(' ').toLowerCase();
+                return text.includes(qlower);
+            })
+            : records;
+        this._filtered = filtered;
+        const selectedId = (document.getElementById(this._currentHiddenId || '') || {}).value || '';
+
+        const defaultItem = `<div class="record-suggest-item record-suggest-default${selectedId ? '' : ' suggest-item-active'}" onclick="RecordSuggest._pick(-1)">无匹配，同步创建</div>`;
+        const items = filtered.map((r, i) => {
+            const parts = [r.visitDate, r.hospital, r.department, r.doctor].filter(p => p && String(p).trim()).join(' | ');
+            const active = String(r.id) === selectedId ? ' suggest-item-active' : '';
+            return `<div class="record-suggest-item${active}" onclick="RecordSuggest._pick(${i})">${this._esc(parts)}</div>`;
+        }).join('');
+        const emptyTip = filtered.length || !q ? '' : '<div class="record-suggest-item record-suggest-empty">未找到匹配病历</div>';
+        box.innerHTML = defaultItem + items + emptyTip;
+        box.style.display = 'block';
+    },
+
+    _pick(index) {
+        const inputEl = this._currentInput;
+        const hiddenId = this._currentHiddenId;
+        const onPick = this._currentOnPick;
+        const r = index === -1 ? null : (this._filtered || [])[index];
+        const recordId = r ? String(r.id) : '';
+        const label = r
+            ? [r.visitDate, r.hospital, r.department, r.doctor].filter(p => p && String(p).trim()).join(' | ')
+            : '';
+        if (inputEl) inputEl.value = label || '无匹配，同步创建';
+        if (hiddenId) {
+            const h = document.getElementById(hiddenId);
+            if (h) h.value = recordId;
+        }
+        this._hide();
+        if (typeof onPick === 'function') onPick(recordId);
+    },
+
+    _hide() {
+        document.querySelectorAll('.record-suggest').forEach(b => b.style.display = 'none');
+    },
+
+    _esc(s) {
+        return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+};
+
 // ========== 日历选择器组件 ==========
 // 用法：<input type="text" readonly onclick="CalendarPicker.attach(this)" placeholder="点击选择日期">
 // 限制范围：CalendarPicker.attach(this, {max:'today'}) 或 {max:'2030-12-31', min:'2020-01-01'}
@@ -2046,7 +2146,7 @@ const App = {
                 <div class="form-group"><label>检查所见</label><textarea id="ocr-findings" rows="4">${this._escAttr(parsed.findings)}</textarea></div>
                 <div class="form-group"><label>报告结论</label><textarea id="ocr-conclusion" rows="3">${this._escAttr(parsed.conclusion)}</textarea></div>
                 <div class="form-group"><label>医生</label><input id="ocr-doctor" value="${this._escAttr(parsed.doctor)}" placeholder="申请医生"></div>
-                <div class="form-group"><label>关联病历</label><select id="ocr-record-related"><option value="">无匹配，同步创建</option></select><div style="font-size:12px;color:#ea7e2c;margin-top:4px;">如未选择病历记录，在保存时，将自动创建一条病历记录。</div></div>
+                <div class="form-group"><label>关联病历</label><input id="ocr-record-relatedText" type="text" readonly placeholder="点击选择关联病历" autocomplete="off" onclick="RecordSuggest.showSuggestions(this,'ocr-record-related',null)" style="background:#fff;"><input type="hidden" id="ocr-record-related"><div style="font-size:12px;color:#ea7e2c;margin-top:4px;">如未选择病历记录，在保存时，将自动创建一条病历记录。</div></div>
                 <button class="btn-primary" onclick="App.saveOcrRecord()">保存报告</button>
                 <button class="btn-outline" style="margin-top:8px;" onclick="App.closeModal()">取消</button>
             `);
@@ -2097,7 +2197,7 @@ const App = {
                 <div class="form-group"><label>科室 *</label><input id="ocr-med-dept" value="${this._escAttr(parsed.department)}" placeholder="科室" autocomplete="off" onclick="DeptSuggest.showSuggestions(this)" oninput="DeptSuggest.onInput(this)"></div>
                 <div class="form-group"><label>诊断</label><input id="ocr-med-diagnosis" value="${this._escAttr(parsed.diagnosis)}" placeholder="诊断"></div>
                 <div class="form-group"><label>医生</label><input id="ocr-med-doctor" value="${this._escAttr(parsed.doctor)}" placeholder="主治医生"></div>
-                <div class="form-group"><label>关联病历</label><select id="ocr-med-related"><option value="">无匹配，同步创建</option></select><div style="font-size:12px;color:#ea7e2c;margin-top:4px;">如未选择病历记录，在保存时，将自动创建一条病历记录。</div></div>
+                <div class="form-group"><label>关联病历</label><input id="ocr-med-relatedText" type="text" readonly placeholder="点击选择关联病历" autocomplete="off" onclick="RecordSuggest.showSuggestions(this,'ocr-med-related',null)" style="background:#fff;"><input type="hidden" id="ocr-med-related"><div style="font-size:12px;color:#ea7e2c;margin-top:4px;">如未选择病历记录，在保存时，将自动创建一条病历记录。</div></div>
                 ${medBlocks}
                 <button class="btn-primary" onclick="App.saveOcrMeds()">添加用药</button>
                 <button class="btn-outline" style="margin-top:8px;" onclick="App.closeModal()">取消</button>
@@ -2264,30 +2364,20 @@ const App = {
         return { frequency: n, times: slots.slice(0, n) };
     },
 
-    // 加载某成员的病历列表，填充到关联病历下拉框
-    async _loadRelatedRecords(elderId, selectId) {
+    // 加载某成员的病历列表，填充到关联病历选择器（input+hidden 形式）
+    async _loadRelatedRecords(elderId, hiddenId) {
         if (!elderId) return;
-        try {
-            const res = await Api.records.getAll(elderId);
-            const records = (res.records || []).filter(r => r.type === '病历');
-            const select = document.getElementById(selectId);
-            if (!select) return;
-            const curVal = select.value;
-            // 默认项：无匹配时同步创建
-            const defaultOption = '<option value="">无匹配，同步创建</option>';
-            // 下拉选项：显示 就诊日期 | 医院 | 科室 | 医师
-            const options = records.map(r => {
-                const parts = [
-                    r.visitDate || '',
-                    r.hospital || '',
-                    r.department || '',
-                    r.doctor || ''
-                ].filter(p => p && p.trim());
-                return `<option value="${r.id}">${parts.join(' | ')}</option>`;
-            }).join('');
-            select.innerHTML = defaultOption + options;
-            if (curVal) select.value = curVal;
-        } catch (e) { /* 静默失败 */ }
+        const textId = hiddenId + 'Text';
+        const textEl = document.getElementById(textId);
+        const hiddenEl = document.getElementById(hiddenId);
+        if (!textEl || !hiddenEl) return;
+        textEl.dataset.elderId = elderId;
+        textEl.value = '无匹配，同步创建';
+        hiddenEl.value = '';
+        // PageAddRecord 关联病历切换成员时，解锁之前被锁定的字段
+        if (hiddenId === 'recordRelated' && typeof PageAddRecord !== 'undefined' && PageAddRecord.onRelatedChange) {
+            PageAddRecord.onRelatedChange('');
+        }
     },
 
     // 保存前检测是否已存在相同就诊日期+医院+科室的病历，如有则提示关联
