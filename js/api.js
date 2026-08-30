@@ -38,7 +38,7 @@ const Api = {
         joinFamily: (inviteCode) => api('/auth/join-family', { method: 'POST', body: JSON.stringify({ inviteCode }) }),
         createFamily: (name) => api('/auth/create-family', { method: 'POST', body: JSON.stringify({ name }) }),
         updateFamily: (name) => api('/auth/family', { method: 'PUT', body: JSON.stringify({ name }) }),
-        toggleAuthorize: (userId) => api(`/auth/authorize/${userId}`, { method: 'PUT' }),
+        toggleAuthorize: (userId, type) => api(`/auth/authorize/${userId}`, { method: 'PUT', body: JSON.stringify({ type }) }),
         switchFamily: (familyId) => api('/auth/profile', { headers: { 'family-id': familyId } }),
     },
     elders: {
