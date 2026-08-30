@@ -445,6 +445,36 @@ const DrugSuggest = {
         if (hiddenEl) hiddenEl.value = code || '';
     },
 
+    // 比较用户在当前表单手填的规格/单位容量/厂家 与 库中药是否不同。
+    // 任一字段用户已填写且与库中药不一致 → 返回 true（应作为新药品保存）。
+    _userSpecDiffers(inputEl, autoFillMap, drug) {
+        if (!drug) return false;
+        const am = autoFillMap || (inputEl && inputEl._dsAutoFillMap) || this._autoFillMap;
+        if (!am) return false;
+        const getVal = (elId) => {
+            if (!elId) return '';
+            const el = document.getElementById(elId);
+            return el ? (el.value || '').trim() : '';
+        };
+        const manu = getVal(am.manufacturer);
+        if (manu && manu !== (drug.manufacturer || '')) return true;
+        const sd = getVal(am.specDosage);
+        if (sd) {
+            const sdNum = parseFloat(sd);
+            if (drug.specDosage == null || isNaN(sdNum) || sdNum !== Number(drug.specDosage)) return true;
+            const sdUnit = getVal(am.specDosageUnit);
+            if (sdUnit && sdUnit !== (drug.specDosageUnit || '')) return true;
+        }
+        const uc = getVal(am.unitCapacity);
+        if (uc) {
+            const ucNum = parseInt(uc, 10);
+            if (drug.unitCapacity == null || isNaN(ucNum) || ucNum !== Number(drug.unitCapacity)) return true;
+            const ucUnit = getVal(am.unitCapacityUnit);
+            if (ucUnit && ucUnit !== (drug.unitCapacityUnit || '')) return true;
+        }
+        return false;
+    },
+
     // 独立 overlay 显示"未找到药品/添加新药品"对话框，避免覆盖/关闭 OCR 表单 modal
     _showOverlay(html) {
         let overlay = document.getElementById('drugSuggestOverlay');
@@ -555,7 +585,15 @@ const DrugSuggest = {
                 const r = await Api.drugLibrary.check(name);
                 console.log('[DrugSuggest.ensure] check结果, exists=', r.exists, 'similarCount=', (r.similar || []).length);
                 if (r.exists) {
-                    // 回填 code，便于后续保存直接关联
+                    // 同名但用户手填了不同的规格/厂家/单位容量 → 视为不同药品，保留手填内容、不锁定、不回填 code（走新增）
+                    const am = (inputEl && (inputEl._dsAutoFillMap || this._autoFillMap)) || null;
+                    if (this._userSpecDiffers(inputEl, am, r.drug)) {
+                        this._markMatched(inputEl, false);
+                        this._setHint(inputEl, '');
+                        console.log('[DrugSuggest.ensure] 同名但规格/厂家不同, 作为新药品保存, resolve(true)');
+                        resolve(true); return;
+                    }
+                    // 同名且规格/厂家一致：复用库中药，回填 code 并自动填充规格等、锁定字段
                     if (r.drug && r.drug.code) this._setHiddenCode(inputEl, r.drug.code);
                     if (r.drug) this._applyAutoFill(inputEl, r.drug);
                     this._markMatched(inputEl, true);

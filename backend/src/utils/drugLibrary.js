@@ -77,9 +77,9 @@ async function resolveDrugCode(params) {
     throw new Error('药品名称不能为空');
   }
 
-  const specFields = { specDosage, specDosageUnit, unitCapacity, unitCapacityUnit, manufacturer };
+  const specFields = { specification, specDosage, specDosageUnit, unitCapacity, unitCapacityUnit, manufacturer };
 
-  // 1) 前端传入 drugCode：校验存在性（限定可见范围）
+  // 1) 前端传入 drugCode：校验存在性（限定可见范围）。显式选中库中药 → 精确复用，不新建
   if (drugCode) {
     const [rows] = await pool.query(
       `SELECT code, name, specification, manufacturer, dosage_form, approval_number, spec_dosage, spec_dosage_unit, unit_capacity, unit_capacity_unit FROM drugs WHERE code = ? AND ${scope} LIMIT 1`,
@@ -98,18 +98,30 @@ async function resolveDrugCode(params) {
       [trimmedName, ...scopeParams]
     );
     if (rows.length > 0) {
-      return await _resolveExisting(pool, rows[0], specFields);
+      const r = rows[0];
+      // 同名但用户手填的规格/单位容量/生产厂商与库中药不一致 → 视为不同药品，新增独立条目
+      if (_fieldsDiffer(r, specFields)) {
+        const newCode = await _createDrugRow(pool, { name: trimmedName, ...specFields, ownerUserId });
+        return {
+          code: newCode,
+          name: trimmedName,
+          specification: specification || '',
+          manufacturer: manufacturer || '',
+          dosageForm: dosageForm || '',
+          approvalNumber: approvalNumber || '',
+          specDosage: specDosage,
+          specDosageUnit: specDosageUnit || '',
+          unitCapacity: unitCapacity,
+          unitCapacityUnit: unitCapacityUnit || '',
+          created: true
+        };
+      }
+      return await _resolveExisting(pool, r, specFields);
     }
   }
 
   // 3) 未匹配到：新增入库（UUID 作为 code，避免与国家本位码冲突），写入 owner_user_id 标记私有
-  const newCode = uuidv4();
-  const pinyinAbbr = getPinyinAbbr(trimmedName);
-  await pool.query(
-    `INSERT INTO drugs (code, approval_number, name, pinyin_abbr, dosage_form, specification, spec_dosage, spec_dosage_unit, unit_capacity, unit_capacity_unit, manufacturer, owner_user_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [newCode, approvalNumber || null, trimmedName, pinyinAbbr, dosageForm || null, specification || null, specDosage || null, specDosageUnit || null, unitCapacity || null, unitCapacityUnit || null, manufacturer || null, ownerUserId || null]
-  );
+  const newCode = await _createDrugRow(pool, { name: trimmedName, ...specFields, ownerUserId });
 
   return {
     code: newCode,
@@ -124,6 +136,46 @@ async function resolveDrugCode(params) {
     unitCapacityUnit: unitCapacityUnit || '',
     created: true
   };
+}
+
+/**
+ * 在 drugs 表新增一条药品记录（UUID code），返回新 code。
+ */
+async function _createDrugRow(pool, { name, specification = null, specDosage = null, specDosageUnit = null, unitCapacity = null, unitCapacityUnit = null, manufacturer = null, ownerUserId = null, dosageForm = null, approvalNumber = null }) {
+  const code = uuidv4();
+  const pinyinAbbr = getPinyinAbbr(name);
+  await pool.query(
+    `INSERT INTO drugs (code, approval_number, name, pinyin_abbr, dosage_form, specification, spec_dosage, spec_dosage_unit, unit_capacity, unit_capacity_unit, manufacturer, owner_user_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [code, approvalNumber || null, name, pinyinAbbr, dosageForm || null, specification || null, specDosage || null, specDosageUnit || null, unitCapacity || null, unitCapacityUnit || null, manufacturer || null, ownerUserId || null]
+  );
+  return code;
+}
+
+/**
+ * 判断用户传入的规格/单位容量/生产厂商是否与库中药不一致。
+ * 任意一项用户已提供且与库中药不同，即视为不同药品。
+ */
+function _fieldsDiffer(r, { specDosage, specDosageUnit, unitCapacity, unitCapacityUnit, manufacturer }) {
+  const rManu = r.manufacturer || '';
+  if (manufacturer && manufacturer !== rManu) return true;
+
+  const rSpec = r.spec_dosage != null ? Number(r.spec_dosage) : null;
+  const rSpecUnit = r.spec_dosage_unit || '';
+  if (specDosage != null && specDosage !== '') {
+    const sd = Number(specDosage);
+    if (rSpec == null || isNaN(sd) || sd !== rSpec) return true;
+    if (specDosageUnit && specDosageUnit !== rSpecUnit) return true;
+  }
+
+  const rCap = r.unit_capacity != null ? Number(r.unit_capacity) : null;
+  const rCapUnit = r.unit_capacity_unit || '';
+  if (unitCapacity != null && unitCapacity !== '') {
+    const uc = Number(unitCapacity);
+    if (rCap == null || isNaN(uc) || uc !== rCap) return true;
+    if (unitCapacityUnit && unitCapacityUnit !== rCapUnit) return true;
+  }
+  return false;
 }
 
 /**
