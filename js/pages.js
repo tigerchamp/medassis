@@ -588,7 +588,7 @@ const PageRecordDetail = {
             parts.push(prefix + r.updatedAt);
         }
         if (parts.length === 0) return '';
-        return `<div style="margin-top:16px;padding-top:10px;border-top:1px dashed #e2e8f0;font-size:11px;color:#94a3b8;text-align:right;">${parts.join(' · ')}</div>`;
+        return `<div style="margin-top:16px;padding-top:10px;border-top:1px dashed #e2e8f0;font-size:11px;color:#94a3b8;text-align:right;line-height:1.7;">${parts.map(p => `<div>${p}</div>`).join('')}</div>`;
     },
 
     async loadContent() {
