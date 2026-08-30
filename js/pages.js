@@ -13,10 +13,22 @@ function calcAge(birthDate) {
 }
 
 // 格式化日期为 YYYY-MM-DD
-function formatDate(dateStr) {
-    if (!dateStr) return '';
+// 将后端返回的日期字符串解析为"本地时间"Date，跨浏览器一致。
+// 后端统一返回北京时间字符串(YYYY-MM-DD[ HH:mm:ss])，按本地构造显示即可。
+// 避免 iOS/Safari 把 'YYYY-MM-DD HH:mm:ss'(空格分隔) 当成 Invalid Date / UTC。
+function parseLocal(dateStr) {
+    if (dateStr == null) return null;
+    const m = String(dateStr).match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/);
+    if (m) {
+        return new Date(+m[1], +m[2] - 1, +m[3], +(m[4] || 0), +(m[5] || 0), +(m[6] || 0));
+    }
     const d = new Date(dateStr);
-    if (isNaN(d.getTime())) return dateStr;
+    return isNaN(d.getTime()) ? null : d;
+}
+
+function formatDate(dateStr) {
+    const d = parseLocal(dateStr);
+    if (!d) return dateStr || '';
     const y = d.getFullYear();
     const m = String(d.getMonth() + 1).padStart(2, '0');
     const day = String(d.getDate()).padStart(2, '0');
@@ -25,9 +37,8 @@ function formatDate(dateStr) {
 
 // 格式化日期时间为 YYYY-MM-DD HH:mm
 function formatDateTime(dateStr) {
-    if (!dateStr) return '';
-    const d = new Date(dateStr);
-    if (isNaN(d.getTime())) return dateStr;
+    const d = parseLocal(dateStr);
+    if (!d) return dateStr || '';
     const y = d.getFullYear();
     const m = String(d.getMonth() + 1).padStart(2, '0');
     const day = String(d.getDate()).padStart(2, '0');
@@ -305,8 +316,8 @@ const PageHome = {
                 const perDayPills = timesLen * doseEach;
 
                 // 起点：medication.startDate 优先，否则 drug.createdAt，否则今天
-                let startDt = (mm && mm.startDate) ? new Date(mm.startDate)
-                          : (d.createdAt ? new Date(d.createdAt) : new Date());
+                let startDt = (mm && mm.startDate) ? parseLocal(mm.startDate)
+                          : (d.createdAt ? parseLocal(d.createdAt) : new Date());
                 startDt.setHours(0, 0, 0, 0);
                 const daysUsed = Math.max(0, Math.floor((todayTs - startDt.getTime()) / DAY_MS));
 
@@ -337,14 +348,14 @@ const PageHome = {
                     const elderId = mElderId;
                     const elderName = (elderId && memberMap.get(elderId)) || (m.elderName || '未指定');
 
-                    const startDt = m.startDate ? new Date(m.startDate) : new Date(m.createdAt);
+                    const startDt = m.startDate ? parseLocal(m.startDate) : parseLocal(m.createdAt);
                     startDt.setHours(0, 0, 0, 0);
                     const daysUsed = Math.max(0, Math.floor((todayTs - startDt.getTime()) / DAY_MS));
 
                     let daysLeft, totalDays;
                     let basis;
                     if (m.endDate) {
-                        const endDt = new Date(m.endDate);
+                        const endDt = parseLocal(m.endDate);
                         endDt.setHours(0, 0, 0, 0);
                         totalDays = Math.max(1, Math.ceil((endDt.getTime() - startDt.getTime()) / DAY_MS));
                         daysLeft = Math.max(0, Math.ceil((endDt.getTime() - todayTs) / DAY_MS));
@@ -3162,7 +3173,7 @@ const PageMedEdit = {
                 const timesHtml = formatTimes(m.times);
                 const doseText = [m.doseAmount != null ? cleanNumber(m.doseAmount) + (m.doseUnit || '') : (m.dose || ''), m.frequency ? m.frequency + '次/日' : ''].filter(Boolean).join(' ');
                 // 添加后48小时内可删除，超过48小时只能结束
-                const createdTs = m.createdAt ? new Date(m.createdAt).getTime() : (m.startDate ? new Date(m.startDate).getTime() : Date.now());
+                const createdTs = m.createdAt ? parseLocal(m.createdAt).getTime() : (m.startDate ? parseLocal(m.startDate).getTime() : Date.now());
                 const hoursElapsed = (Date.now() - createdTs) / 3600000;
                 const canDelete = hoursElapsed < 48;
                 let actionsHtml = '';

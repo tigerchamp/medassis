@@ -43,19 +43,26 @@ function ensureDir() {
   }
 }
 
+// 北京时间 = UTC+8，固定偏移，解析出北京本地分量（不依赖进程 TZ / ICU 时区数据库）
+const BJ_OFFSET_MS = 8 * 60 * 60 * 1000;
+function bjNow() {
+  // 把"当前 UTC 时刻"加 8h，再用 getUTC* 读取，即得到北京本地各分量
+  return new Date(Date.now() + BJ_OFFSET_MS);
+}
+
 function dayFile(base) {
-  const d = new Date();
+  const d = bjNow();
   const pad = (n) => String(n).padStart(2, '0');
-  const name = `app-${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}.log`;
+  const name = `app-${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}.log`;
   return path.join(LOG_DIR, name);
 }
 
 function ts() {
-  // 本地时间（已强制 Asia/Shanghai），毫秒精度
-  const d = new Date();
+  // 显式北京时间（UTC+8），毫秒精度，不依赖进程时区设置
+  const d = bjNow();
   const pad = (n, w = 2) => String(n).padStart(w, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ` +
-    `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${pad(d.getMilliseconds(), 3)}`;
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ` +
+    `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}.${pad(d.getUTCMilliseconds(), 3)}`;
 }
 
 function isSensitive(key) {

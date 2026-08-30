@@ -320,7 +320,8 @@ async function initDatabase() {
       connectionLimit: 10,
       queueLimit: 0,
       enableKeepAlive: true,
-      keepAliveInitialDelay: 0
+      keepAliveInitialDelay: 0,
+      timezone: '+08:00'
     });
 
   } finally {
@@ -359,7 +360,8 @@ async function checkDatabase() {
         connectionLimit: 10,
         queueLimit: 0,
         enableKeepAlive: true,
-        keepAliveInitialDelay: 0
+        keepAliveInitialDelay: 0,
+        timezone: '+08:00'
       });
     }
     // 简单查询验证连通性
