@@ -2306,17 +2306,18 @@ const App = {
             const fileIds = await this._uploadOcrFiles();
             const type = document.getElementById('ocr-record-type')?.value || '病历';
             const visitDate = document.getElementById('ocr-record-date')?.value || new Date().toISOString().slice(0, 10);
-            // 报告类型且未选择关联病历时，检测是否存在匹配的病历并提示
+            // 非病历类型且未手动选择关联病历时，按 就诊日期+医院+科室 自动匹配已存在的病历并关联
             let relatedId = document.getElementById('ocr-record-related')?.value || '';
             if (type !== '病历' && !relatedId) {
-                const autoMatch = await this._checkDuplicateRecord(
+                const matchId = await this._findMatchingRecord(
                     elderId, visitDate,
                     document.getElementById('ocr-hospital')?.value,
                     document.getElementById('ocr-department')?.value
                 );
-                if (autoMatch === 'cancel') { this.toast('已取消保存'); return; }
-                if (autoMatch) relatedId = autoMatch;
-                else {
+                if (matchId) {
+                    relatedId = matchId;
+                    this.toast('已自动关联到相同就诊日期、医院和科室的病历');
+                } else {
                     relatedId = await this._ensureRelatedRecord('', {
                         elderId,
                         visitDate,
@@ -2380,9 +2381,9 @@ const App = {
         }
     },
 
-    // 保存前检测是否已存在相同就诊日期+医院+科室的病历，如有则提示关联
-    // 返回: null=无匹配; 'cancel'=用户取消操作; 记录ID=用户确认关联
-    async _checkDuplicateRecord(elderId, visitDate, hospital, department) {
+    // 保存前查找是否已存在相同 就诊日期+医院+科室 的病历，存在则返回其ID（用于自动关联）
+    // 匹配字段：就诊日期(visitDate)、医院(hospital)、科室(department)，三者一致即视为同一就诊。
+    async _findMatchingRecord(elderId, visitDate, hospital, department) {
         if (!elderId || !visitDate || !hospital || !department) return null;
         try {
             const res = await Api.records.getAll(elderId);
@@ -2392,44 +2393,10 @@ const App = {
                 r.hospital && hospital && r.hospital.trim() === hospital.trim() &&
                 r.department && department && r.department.trim() === department.trim()
             );
-            if (!matched) return null;
-            const choice = await this._confirmDialog(
-                `检测到已存在一条相同日期、医院和科室的病历记录：\n「${visitDate} ${matched.diagnosis || '未填写诊断'}」\n\n是否关联该病历？`
-            );
-            if (choice === 'cancel') return 'cancel';
-            if (choice === 'link') return matched.id;
-            return null; // 用户选"否，新建"
+            return matched ? matched.id : null;
         } catch (e) {
             return null;
         }
-    },
-
-    // 通用确认对话框（返回 Promise<'link'|'new'|'cancel'>）
-    // options: { htmlContent: true } 表示 message 为 HTML 内容
-    _confirmDialog(message, options = {}) {
-        return new Promise(resolve => {
-            const isHtml = options.htmlContent === true;
-            const overlay = document.createElement('div');
-            overlay.style.cssText = 'position:fixed;inset:0;z-index:10001;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;';
-            const msgHtml = isHtml ? message : message.replace(/\n/g, '<br>');
-            const containerStyle = isHtml
-                ? 'background:#fff;border-radius:12px;padding:20px;max-width:420px;width:92%;'
-                : 'background:#fff;border-radius:12px;padding:24px;max-width:320px;width:90%;';
-            overlay.innerHTML = `
-                <div style="${containerStyle}">
-                    <div style="font-size:16px;font-weight:600;margin-bottom:16px;color:#ea7e2c;text-align:center;"><i class="fas fa-exclamation-triangle"></i> 提示</div>
-                    <div style="font-size:14px;color:#333;margin-bottom:20px;line-height:1.6;">${msgHtml}</div>
-                    <div style="display:flex;gap:10px;">
-                        <button id="confirmNew" style="flex:1;padding:10px;border:1px solid #ddd;border-radius:8px;background:#fff;cursor:pointer;font-size:14px;">否，新建</button>
-                        <button id="confirmLink" style="flex:1;padding:10px;border:none;border-radius:8px;background:#2b7a78;color:#fff;cursor:pointer;font-size:14px;">是，关联</button>
-                    </div>
-                </div>`;
-            document.body.appendChild(overlay);
-            const cleanup = (result) => { overlay.remove(); resolve(result); };
-            overlay.querySelector('#confirmLink').onclick = () => cleanup('link');
-            overlay.querySelector('#confirmNew').onclick = () => cleanup('new');
-            overlay.onclick = (e) => { if (e.target === overlay) cleanup('cancel'); };
-        });
     },
 
     // 保存处方/报告时，若未选择关联病历则自动创建一条病历记录并返回其ID；已选择则原样返回
@@ -2522,17 +2489,18 @@ const App = {
             // 1. 创建处方记录（type='药方'）
             const visitDate = document.getElementById('ocrMed0Start')?.value || new Date().toISOString().slice(0, 10);
             const existingRelated = document.getElementById('ocr-med-related')?.value || '';
-            // 若未手动选择关联病历，检测是否存在匹配的病历并提示
+            // 若未手动选择关联病历，按 就诊日期+医院+科室 自动匹配已存在的病历并关联
             let relatedId = existingRelated;
             if (!existingRelated) {
-                const autoMatch = await this._checkDuplicateRecord(
+                const matchId = await this._findMatchingRecord(
                     elderId, visitDate,
                     document.getElementById('ocr-med-hospital')?.value,
                     document.getElementById('ocr-med-dept')?.value
                 );
-                if (autoMatch === 'cancel') { this._ocrMedsSaving = false; this.toast('已取消保存'); return; }
-                if (autoMatch) relatedId = autoMatch;
-                else {
+                if (matchId) {
+                    relatedId = matchId;
+                    this.toast('已自动关联到相同就诊日期、医院和科室的病历');
+                } else {
                     relatedId = await this._ensureRelatedRecord('', {
                         elderId,
                         visitDate,
@@ -2901,16 +2869,18 @@ const App = {
             const visitDate = document.getElementById('recordDate3').value;
             if (!visitDate) { this.toast('请选择就诊日期'); return; }
             const existingRelated = document.getElementById('recordRelated')?.value || '';
-            // 若未手动选择关联病历，检测是否存在匹配的病历并提示
+            // 若未手动选择关联病历，按 就诊日期+医院+科室 自动匹配已存在的病历并关联
             let relatedId = existingRelated;
             if (!existingRelated) {
-                const autoMatch = await this._checkDuplicateRecord(
+                const matchId = await this._findMatchingRecord(
                     elderId, visitDate,
                     document.getElementById('recordMedHospital')?.value,
                     document.getElementById('recordMedDept')?.value
                 );
-                if (autoMatch === 'cancel') { this.toast('已取消保存'); return; }
-                if (autoMatch) relatedId = autoMatch;
+                if (matchId) {
+                    relatedId = matchId;
+                    this.toast('已自动关联到相同就诊日期、医院和科室的病历');
+                }
             }
             try {
                 // 未选择关联病历则自动创建一条病历记录
@@ -2967,16 +2937,18 @@ const App = {
             if (!examName) { this.toast('请输入检查项目'); return; }
             const visitDate = document.getElementById('recordDate2').value || new Date().toISOString().slice(0, 10);
             const existingRelated = document.getElementById('recordRelated')?.value || '';
-            // 若未手动选择关联病历，检测是否存在匹配的病历并提示
+            // 若未手动选择关联病历，按 就诊日期+医院+科室 自动匹配已存在的病历并关联
             let relatedId = existingRelated;
             if (!existingRelated) {
-                const autoMatch = await this._checkDuplicateRecord(
+                const matchId = await this._findMatchingRecord(
                     elderId, visitDate,
                     document.getElementById('recordHospital2')?.value,
                     document.getElementById('recordDept2')?.value
                 );
-                if (autoMatch === 'cancel') { this.toast('已取消保存'); return; }
-                if (autoMatch) relatedId = autoMatch;
+                if (matchId) {
+                    relatedId = matchId;
+                    this.toast('已自动关联到相同就诊日期、医院和科室的病历');
+                }
             }
             try {
                 // 未选择关联病历则自动创建一条病历记录
