@@ -1226,7 +1226,7 @@ const CalendarPicker = {
         this._render();
     },
 
-    close() { const el = document.getElementById('calendarOverlay'); if (el) el.innerHTML = ''; this._target = null; },
+    close() { const el = document.getElementById('calendarOverlay'); if (el) el.remove(); this._target = null; },
 
     _toggleView() {
         this._view = this._view === 'days' ? 'months' : (this._view === 'months' ? 'years' : 'days');
@@ -1294,7 +1294,6 @@ const CalendarPicker = {
 
     _render() {
         let overlay = document.getElementById('calendarOverlay');
-        if (!overlay) { overlay = document.createElement('div'); overlay.id = 'calendarOverlay'; document.body.appendChild(overlay); }
         const sel = this._target ? this._target.value : '';
         const title = this._view === 'days' ? `${this._year}年 ${this._month + 1}月`
             : this._view === 'months' ? `${this._year}年`
@@ -1316,18 +1315,27 @@ const CalendarPicker = {
                 <button type="button" class="cal-nav" onclick="CalendarPicker._nextYearGroup()" title="下一组">›</button>`;
         }
         const body = this._view === 'days' ? this._daysHtml(sel) : (this._view === 'months' ? this._monthsHtml(sel) : this._yearsHtml(sel));
-        overlay.innerHTML = `
-            <div class="cal-mask" onclick="if(event.target===this)CalendarPicker.close()">
-                <div class="cal-panel" onclick="event.stopPropagation()">
-                    <div class="cal-header">${navHtml}</div>
-                    <div class="cal-body">${body}</div>
-                    <div class="cal-footer">
-                        <button type="button" class="cal-btn" onclick="CalendarPicker._today()">今天</button>
-                        <button type="button" class="cal-btn" onclick="CalendarPicker._clear()">清除</button>
-                        <button type="button" class="cal-btn cal-btn-primary" onclick="CalendarPicker.close()">完成</button>
+        // 仅在首次创建浮层框架（此时播放一次入场动画）；之后翻月/翻年只局部更新 header/body，
+        // 避免整体重建导致 calSlideUp 动画反复重放而产生闪烁。
+        if (!overlay) {
+            overlay = document.createElement('div');
+            overlay.id = 'calendarOverlay';
+            overlay.innerHTML = `
+                <div class="cal-mask" onclick="if(event.target===this)CalendarPicker.close()">
+                    <div class="cal-panel" onclick="event.stopPropagation()">
+                        <div class="cal-header"></div>
+                        <div class="cal-body"></div>
+                        <div class="cal-footer">
+                            <button type="button" class="cal-btn" onclick="CalendarPicker._today()">今天</button>
+                            <button type="button" class="cal-btn" onclick="CalendarPicker._clear()">清除</button>
+                            <button type="button" class="cal-btn cal-btn-primary" onclick="CalendarPicker.close()">完成</button>
+                        </div>
                     </div>
-                </div>
-            </div>`;
+                </div>`;
+            document.body.appendChild(overlay);
+        }
+        overlay.querySelector('.cal-header').innerHTML = navHtml;
+        overlay.querySelector('.cal-body').innerHTML = body;
     }
 };
 
@@ -2661,9 +2669,7 @@ const App = {
         const elderId = document.getElementById('medElderId').value;
         const name = document.getElementById('medName').value.trim();
         const drugCode = (document.getElementById('medDrugCode') || {}).value || '';
-        const expiryDate = document.getElementById('medExpiryDate').value;
         if (!name) { this.toast('请输入药品名称'); return; }
-        if (!expiryDate) { this.toast('请填写有效期'); return; }
         // 保存前校验药品是否存在，不存在提示选择或新建（与医院逻辑一致）
         if (false === await DrugSuggest.ensure(document.getElementById('medName'))) return;
         // ensure 可能已回填 drugCode，重新读取
