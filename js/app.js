@@ -173,20 +173,29 @@ const MedTimesUI = {
   },
 
   _toggle(prefix, key, checkbox) {
-    const freq = Math.min(Math.max(parseInt(document.getElementById(prefix + 'Freq').value) || 1, 1), 4);
     const selected = this._state[prefix] || new Set();
     if (checkbox.checked) {
-      if (selected.size >= freq) {
+      // 勾选时允许增加次数（上限为 4 个固定时间段）
+      if (selected.size >= 4) {
         checkbox.checked = false;
-        App.toast(`最多选择 ${freq} 个时间段`);
+        App.toast('最多选择 4 个时间段');
         return;
       }
       selected.add(key);
     } else {
+      // 取消勾选时至少保留 1 个时间段
+      if (selected.size <= 1) {
+        checkbox.checked = true;
+        App.toast('至少选择 1 个时间段');
+        return;
+      }
       selected.delete(key);
     }
     this._state[prefix] = selected;
-    this.render(prefix); // 重新渲染以更新样式
+    // 勾选/取消后自动同步每日次数，实现双向联动
+    const freqInput = document.getElementById(prefix + 'Freq');
+    if (freqInput) freqInput.value = selected.size;
+    this.render(prefix); // 重新渲染以更新样式与提示文案
   },
 
   // 获取选中的时间段列表
