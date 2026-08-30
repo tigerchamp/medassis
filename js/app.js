@@ -2193,6 +2193,7 @@ const App = {
                 ${thumbsHtml}
                 ${ocrTextHtml}
                 <div class="form-group"><label>关联成员</label><select id="ocr-med-elder" onchange="App._loadRelatedRecords(this.value,'ocr-med-related')">${this._memberOptions()}</select></div>
+                <div class="form-group"><label>就诊日期</label><input id="ocr-med-visitdate" type="text" readonly value="${this._escAttr(parsed.visitDate || today)}" onclick="CalendarPicker.attach(this,{max:'today'})" placeholder="点击选择日期" style="background:#fff;"></div>
                 <div class="form-group"><label>医院 *</label><input id="ocr-med-hospital" value="${this._escAttr(parsed.hospital)}" placeholder="医院名称" autocomplete="off" onclick="HospitalSuggest.showSuggestions(this)" oninput="HospitalSuggest.onInput(this)"></div>
                 <div class="form-group"><label>科室 *</label><input id="ocr-med-dept" value="${this._escAttr(parsed.department)}" placeholder="科室" autocomplete="off" onclick="DeptSuggest.showSuggestions(this)" oninput="DeptSuggest.onInput(this)"></div>
                 <div class="form-group"><label>诊断</label><input id="ocr-med-diagnosis" value="${this._escAttr(parsed.diagnosis)}" placeholder="诊断"></div>
@@ -2486,8 +2487,8 @@ const App = {
             const fileIds = await this._uploadOcrFiles();
             const elderId = document.getElementById('ocr-med-elder')?.value || this.state.currentMemberId;
 
-            // 1. 创建处方记录（type='药方'）
-            const visitDate = document.getElementById('ocrMed0Start')?.value || new Date().toISOString().slice(0, 10);
+            // 1. 创建处方记录（type='药方'），就诊日期用于自动匹配关联病历
+            const visitDate = document.getElementById('ocr-med-visitdate')?.value || new Date().toISOString().slice(0, 10);
             const existingRelated = document.getElementById('ocr-med-related')?.value || '';
             // 若未手动选择关联病历，按 就诊日期+医院+科室 自动匹配已存在的病历并关联
             let relatedId = existingRelated;
