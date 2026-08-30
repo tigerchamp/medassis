@@ -589,17 +589,20 @@ const PageRecordDetail = {
     },
 
     _auditHtml(r) {
-        const parts = [];
+        const rows = [];
         if (r.createdAt) {
-            const prefix = r.createdByName ? `由 ${r.createdByName} 创建于 ` : '创建于 ';
-            parts.push(prefix + r.createdAt);
+            const prefix = r.createdByName ? `由 ${r.createdByName} 创建于` : '创建于';
+            rows.push({ prefix, date: r.createdAt });
         }
         if (r.updatedAt && r.updatedAt !== r.createdAt) {
-            const prefix = r.updatedByName ? `由 ${r.updatedByName} 更新于 ` : '更新于 ';
-            parts.push(prefix + r.updatedAt);
+            const prefix = r.updatedByName ? `由 ${r.updatedByName} 更新于` : '更新于';
+            rows.push({ prefix, date: r.updatedAt });
         }
-        if (parts.length === 0) return '';
-        return `<div style="margin-top:16px;padding-top:10px;border-top:1px dashed #e2e8f0;font-size:11px;color:#94a3b8;text-align:right;line-height:1.7;">${parts.map(p => `<div>${p}</div>`).join('')}</div>`;
+        if (rows.length === 0) return '';
+        const cells = rows.map(row => `<span style="text-align:right;">${row.prefix}</span><span>${row.date}</span>`).join('');
+        return `<div style="margin-top:16px;padding-top:10px;border-top:1px dashed #e2e8f0;font-size:11px;color:#94a3b8;text-align:right;line-height:1.7;">
+            <div style="display:inline-grid;grid-template-columns:auto auto;gap:4px 8px;text-align:left;">${cells}</div>
+        </div>`;
     },
 
     async loadContent() {
