@@ -265,7 +265,7 @@ const PageHome = {
                         return `<div class="time-group">
                             <div class="time-group-title"><span class="time-tag ${g.key}">${g.label} ${g.time}</span></div>
                             ${g.meds.map(m => `<div class="med-item">
-                                <span class="med-name" style="cursor:pointer;color:#2b7a78;" onclick="App.viewDrugInfo('${m.name.replace(/'/g, "\\'")}','','','')">${m.name}</span>
+                                <span class="med-name" style="cursor:pointer;color:#2b7a78;" onclick="App.viewDrugInfo('${m.name.replace(/'/g, "\\'")}','${(m.specification||'').replace(/'/g, "\\'")}','${(m.manufacturer||'').replace(/'/g, "\\'")}','${(m.drugCode||'').replace(/'/g, "\\'")}')">${m.name}</span>
                                 <span class="med-usage">${doseText(m)}</span>
                             </div>`).join('')}
                         </div>`;

@@ -2364,7 +2364,9 @@ const App = {
     },
 
     async saveOcrMeds() {
-        if (this._ocrMedsSaving) return;
+        if (this._ocrMedsSaving) { App.toast('正在保存，请稍候…'); return; }
+        this._ocrMedsSaving = true;
+        App.toast('保存中…');
         // 医院/科室必填
         if (!document.getElementById('ocr-med-hospital')?.value.trim()) { this.toast('请填写医院'); return; }
         if (!document.getElementById('ocr-med-dept')?.value.trim()) { this.toast('请填写科室'); return; }
@@ -2507,6 +2509,10 @@ const App = {
     },
 
     async saveOcrDrug() {
+        if (this._ocrDrugSaving) { App.toast('正在保存，请稍候…'); return; }
+        this._ocrDrugSaving = true;
+        App.toast('保存中…');
+        clearTimeout(this._ocrDrugUnlock); this._ocrDrugUnlock = setTimeout(() => { this._ocrDrugSaving = false; }, 15000);
         try {
             // 必填：药品名称/规格/单位容量/数量/有效期（除厂商、备注、图片外）
             if (!document.getElementById('ocr-drug-name').value.trim()) { this.toast('请输入药品名称'); return; }
@@ -2713,6 +2719,10 @@ const App = {
     },
 
     async saveMed() {
+        if (this._saving) { App.toast('正在保存，请稍候…'); return; }
+        this._saving = true;
+        App.toast('保存中…');
+        clearTimeout(this._saveUnlock); this._saveUnlock = setTimeout(() => { this._saving = false; }, 15000);
         const elderId = document.getElementById('medElderId').value;
         const name = document.getElementById('medName').value.trim();
         const drugCode = (document.getElementById('medDrugCode') || {}).value || '';
@@ -2744,6 +2754,10 @@ const App = {
     },
 
     async saveRecord() {
+        if (this._saving) { App.toast('正在保存，请稍候…'); return; }
+        this._saving = true;
+        App.toast('保存中…');
+        try {
         const elderId = document.getElementById('recordElderId').value;
         const type = document.getElementById('recordType').value;
         const isReport = type === '检查报告';
@@ -2919,9 +2933,14 @@ const App = {
                 this.goBack();
             } catch (err) { this.toast(err.message); }
         }
+        } finally { this._saving = false; }
     },
 
     async saveDrug() {
+        if (this._saving) { App.toast('正在保存，请稍候…'); return; }
+        this._saving = true;
+        App.toast('保存中…');
+        clearTimeout(this._saveUnlock); this._saveUnlock = setTimeout(() => { this._saving = false; }, 15000);
         const name = document.getElementById('drugName').value.trim();
         const drugCode = (document.getElementById('drugCodeHidden') || {}).value || '';
         const expiryDate = document.getElementById('drugExp').value;

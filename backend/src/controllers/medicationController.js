@@ -57,6 +57,7 @@ function formatMedication(m) {
     elderId: m.elder_id,
     drugCode: m.drug_code,
     name: m.name,
+    manufacturer: m.manufacturer || '',
     specification: m.specification || '',
     dose: m.dose,
     doseAmount: m.dose_amount != null ? Number(m.dose_amount) : null,
@@ -84,7 +85,7 @@ async function getMedications(req, res) {
 
     // 查询：当前家庭的用药 + 家庭组成员 self 档案的用药（跨家庭共享）
     const access = familyAccessFilter(familyId, 'm.');
-    let query = `SELECT m.*, COALESCE(d.specification, m.specification) as specification
+    let query = `SELECT m.*, COALESCE(d.specification, m.specification) as specification, d.manufacturer as manufacturer
       FROM medications m
       LEFT JOIN drugs d ON m.drug_code COLLATE utf8mb4_unicode_ci = d.code
       WHERE (${access.sql})`;
@@ -123,7 +124,7 @@ async function getMedication(req, res) {
 
     const access = familyAccessFilter(familyId, 'm.');
     const [medications] = await getPool().query(
-      `SELECT m.*, COALESCE(d.specification, m.specification) as specification
+      `SELECT m.*, COALESCE(d.specification, m.specification) as specification, d.manufacturer as manufacturer
        FROM medications m
        LEFT JOIN drugs d ON m.drug_code COLLATE utf8mb4_unicode_ci = d.code
        WHERE m.id = ? AND (${access.sql})`,
