@@ -1257,6 +1257,16 @@ const RecordSuggest = {
     _currentHiddenId: null,
     _currentOnPick: null,
 
+    _PLACEHOLDER: '无匹配，同步创建',
+
+    // 输入框内预填的“无匹配，同步创建”或空串都不是搜索词，必须视为空。
+    // 否则会被当作关键词去过滤，任何病历都匹配不上，下拉看起来就是空的。
+    _query(inputEl) {
+        const raw = ((inputEl && inputEl.value) || '').trim();
+        return (raw === '' || raw === this._PLACEHOLDER) ? '' : raw;
+    },
+
+    // 点击输入框打开下拉：始终展示全部病历，不受输入框占位文本影响
     showSuggestions(inputEl, hiddenId, onPick) {
         if (!inputEl) return;
         this._currentInput = inputEl;
@@ -1264,16 +1274,17 @@ const RecordSuggest = {
         this._currentOnPick = onPick;
         const elderId = inputEl.dataset.elderId;
         if (!elderId) { App.toast('请先选择关联成员'); return; }
-        this._loadAndRender(elderId, (inputEl.value || '').trim());
+        this._loadAndRender(elderId, '');
     },
 
+    // 手动输入时按关键词过滤
     onInput(inputEl, hiddenId, onPick) {
         this._currentInput = inputEl;
         this._currentHiddenId = hiddenId;
         this._currentOnPick = onPick;
         const elderId = inputEl.dataset.elderId;
         if (!elderId) return;
-        this._loadAndRender(elderId, (inputEl.value || '').trim());
+        this._loadAndRender(elderId, this._query(inputEl));
     },
 
     async _loadAndRender(elderId, q) {
@@ -1283,11 +1294,9 @@ const RecordSuggest = {
             // 近一年内（含今天），visitDate 为 YYYY-MM-DD，可直接字符串比较
             const now = new Date();
             const oneYearAgoStr = `${now.getFullYear() - 1}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-            // 关联病历：优先显示“病历”类型；若成员无独立病历（如历史处方当时未自动建病历），
-            // 也展示“药方”就诊记录，供用户关联到同一次就诊
+            // 关联病历：只显示“病历”类型，且限近一年内
             const records = all.filter(r => {
-                const t = r.type;
-                if (t !== '病历' && t !== '药方') return false;
+                if (r.type !== '病历') return false;
                 if (!r.visitDate) return false;
                 return r.visitDate >= oneYearAgoStr;
             });
@@ -1322,9 +1331,8 @@ const RecordSuggest = {
         const defaultItem = `<div class="record-suggest-item record-suggest-default${selectedId ? '' : ' suggest-item-active'}" onclick="RecordSuggest._pick(-1)">无匹配，同步创建</div>`;
         const items = filtered.map((r, i) => {
             const parts = [r.visitDate, r.hospital, r.department, r.doctor].filter(p => p && String(p).trim()).join(' | ');
-            const tag = r.type === '药方' ? '【处方】' : '【病历】';
             const active = String(r.id) === selectedId ? ' suggest-item-active' : '';
-            return `<div class="record-suggest-item${active}" onclick="RecordSuggest._pick(${i})">${this._esc(tag + parts)}</div>`;
+            return `<div class="record-suggest-item${active}" onclick="RecordSuggest._pick(${i})">${this._esc(parts)}</div>`;
         }).join('');
         const emptyTip = filtered.length === 0
             ? (q
