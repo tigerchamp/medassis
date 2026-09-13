@@ -3,6 +3,13 @@ const API_BASE = window.API_BASE || '';
 const TOKEN_KEY = 'fh_token';
 const USER_KEY = 'fh_user';
 
+// 本地日期字符串 YYYY-MM-DD。
+// 不要用 new Date().toISOString().slice(0,10)：那是 UTC 日期，北京时间 00:00~08:00 会取到前一天。
+function _todayLocal() {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 async function api(endpoint, options = {}) {
     const url = `${API_BASE}/api${endpoint}`;
     const token = localStorage.getItem(TOKEN_KEY);

@@ -2041,7 +2041,7 @@ const PageAddMed = {
     afterRender() {
         ImageUploader.init('medImages');
         MedTimesUI.render('med');
-        const today = new Date().toISOString().slice(0,10);
+        const today = _todayLocal();
         const el = document.getElementById('medStart');
         if (el && !el.value) el.value = today;
 
@@ -2159,7 +2159,7 @@ const PageAddRecord = {
         // 页面每次进入都会整体重渲染，清空药品区块的脏状态（旧 uid 指向的 DOM 已不存在）
         this._medBlocks = [];
         this._medExpandedUid = null;
-        const today = new Date().toISOString().slice(0,10);
+        const today = _todayLocal();
         // 设置就诊/检查日期缺省为当天（处方的就诊日期不预填，保持用户手动选择）
         ['recordDate','recordDate2'].forEach(id => {
             const el = document.getElementById(id);
@@ -3242,7 +3242,7 @@ const PageMedEdit = {
             </div>
         `;
         MedTimesUI.render(p);
-        document.getElementById(p + 'Start').value = new Date().toISOString().slice(0, 10);
+        document.getElementById(p + 'Start').value = _todayLocal();
     },
 
     async saveAdd() {
@@ -3257,7 +3257,7 @@ const PageMedEdit = {
         const doseUnit = document.getElementById(p + 'DoseUnit')?.value;
         const frequency = parseInt(document.getElementById(p + 'Freq')?.value) || 1;
         const times = MedTimesUI.getTimes(p);
-        const startDate = document.getElementById(p + 'Start')?.value || new Date().toISOString().slice(0, 10);
+        const startDate = document.getElementById(p + 'Start')?.value || _todayLocal();
         const note = document.getElementById(p + 'Note')?.value;
 
         try {
@@ -3354,7 +3354,7 @@ const PageMedEdit = {
                 frequency: oldMed.frequency,
                 times: oldMed.times,
                 startDate: oldMed.startDate,
-                endDate: oldMed.endDate || new Date().toISOString().slice(0, 10),
+                endDate: oldMed.endDate || _todayLocal(),
                 note: '[历史] ' + (oldMed.note || ''),
                 reminder: false,
                 status: 'ended'
@@ -3372,7 +3372,7 @@ const PageMedEdit = {
         try {
             const oldRes = await Api.medications.get(medId);
             const oldMed = oldRes.medication;
-            const today = new Date().toISOString().slice(0, 10);
+            const today = _todayLocal();
 
             // 将当前用药标记为 ended
             await Api.medications.update(medId, { status: 'ended', endDate: today });

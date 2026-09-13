@@ -2123,7 +2123,7 @@ const App = {
                     }).join('')}
                 </div>
             </div>` : '';
-        const today = new Date().toISOString().slice(0, 10);
+        const today = _todayLocal();
         // OCR 识别原文（参考用，便于手动核对/填写）
         const ocrTextHtml = resp.text ? `
             <div class="form-group">
@@ -2335,7 +2335,7 @@ const App = {
         try {
             const fileIds = await this._uploadOcrFiles();
             const type = document.getElementById('ocr-record-type')?.value || '病历';
-            const visitDate = document.getElementById('ocr-record-date')?.value || new Date().toISOString().slice(0, 10);
+            const visitDate = document.getElementById('ocr-record-date')?.value || _todayLocal();
             // 非病历类型且未手动选择关联病历时，按 就诊日期+医院+科室 自动匹配已存在的病历并关联
             let relatedId = document.getElementById('ocr-record-related')?.value || '';
             if (type !== '病历' && !relatedId) {
@@ -2412,6 +2412,35 @@ const App = {
         }
     },
 
+    // 通用确认对话框（返回 Promise<'link'|'new'|'cancel'>）
+    // options: { htmlContent: true } 表示 message 为 HTML 内容
+    // 注意：勿删除——PageRecordEdit / PageAddRecord 的 onRelatedChange 用它做“字段差异是否覆盖”确认
+    _confirmDialog(message, options = {}) {
+        return new Promise(resolve => {
+            const isHtml = options.htmlContent === true;
+            const overlay = document.createElement('div');
+            overlay.style.cssText = 'position:fixed;inset:0;z-index:10001;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;';
+            const msgHtml = isHtml ? message : message.replace(/\n/g, '<br>');
+            const containerStyle = isHtml
+                ? 'background:#fff;border-radius:12px;padding:20px;max-width:420px;width:92%;'
+                : 'background:#fff;border-radius:12px;padding:24px;max-width:320px;width:90%;';
+            overlay.innerHTML = `
+                <div style="${containerStyle}">
+                    <div style="font-size:16px;font-weight:600;margin-bottom:16px;color:#ea7e2c;text-align:center;"><i class="fas fa-exclamation-triangle"></i> 提示</div>
+                    <div style="font-size:14px;color:#333;margin-bottom:20px;line-height:1.6;">${msgHtml}</div>
+                    <div style="display:flex;gap:10px;">
+                        <button id="confirmNew" style="flex:1;padding:10px;border:1px solid #ddd;border-radius:8px;background:#fff;cursor:pointer;font-size:14px;">否，新建</button>
+                        <button id="confirmLink" style="flex:1;padding:10px;border:none;border-radius:8px;background:#2b7a78;color:#fff;cursor:pointer;font-size:14px;">是，关联</button>
+                    </div>
+                </div>`;
+            document.body.appendChild(overlay);
+            const cleanup = (result) => { overlay.remove(); resolve(result); };
+            overlay.querySelector('#confirmLink').onclick = () => cleanup('link');
+            overlay.querySelector('#confirmNew').onclick = () => cleanup('new');
+            overlay.onclick = (e) => { if (e.target === overlay) cleanup('cancel'); };
+        });
+    },
+
     // 保存前查找是否已存在相同 就诊日期+医院+科室+医生 的病历，存在则返回其ID（用于自动关联）
     // 匹配字段：就诊日期(visitDate)、医院(hospital)、科室(department)、医生(doctor)，四者一致即视为同一就诊。
     // 医院名允许“同院不同写法”（如“中国人民解放军总医院第八医学中心”与“解放军总医院第八医学中心”，
@@ -2478,7 +2507,7 @@ const App = {
             const resp = await Api.records.add({
                 elderId: data.elderId,
                 type: '病历',
-                visitDate: data.visitDate || new Date().toISOString().slice(0, 10),
+                visitDate: data.visitDate || _todayLocal(),
                 hospital: data.hospital || undefined,
                 department: data.department || undefined,
                 diagnosis: data.diagnosis || undefined,
@@ -2546,7 +2575,7 @@ const App = {
                 quantityUnit: document.getElementById(`${_p}QtyUnit`)?.value || '',
                 frequency: parseInt(document.getElementById(`${_p}Freq`).value) || 1,
                 times: _times,
-                startDate: document.getElementById(`${_p}Start`).value || new Date().toISOString().slice(0, 10),
+                startDate: document.getElementById(`${_p}Start`).value || _todayLocal(),
                 note: document.getElementById(`${_p}Note`)?.value || '',
                 expiryDate,
             });
@@ -2559,7 +2588,7 @@ const App = {
             const elderId = document.getElementById('ocr-med-elder')?.value || this.state.currentMemberId;
 
             // 1. 创建处方记录（type='药方'），就诊日期用于自动匹配关联病历
-            const visitDate = document.getElementById('ocr-med-visitdate')?.value || new Date().toISOString().slice(0, 10);
+            const visitDate = document.getElementById('ocr-med-visitdate')?.value || _todayLocal();
             const existingRelated = document.getElementById('ocr-med-related')?.value || '';
             // 若未手动选择关联病历，按 就诊日期+医院+科室 自动匹配已存在的病历并关联
             let relatedId = existingRelated;
@@ -2874,7 +2903,7 @@ const App = {
                 quantity: parseInt(document.getElementById('medQty').value) || 1,
                 frequency: parseInt(document.getElementById('medFreq').value) || 1,
                 times,
-                startDate: document.getElementById('medStart').value || new Date().toISOString().slice(0, 10),
+                startDate: document.getElementById('medStart').value || _todayLocal(),
                 note: document.getElementById('medNote').value,
                 status: 'active',
                 fileIds: fileIds.length > 0 ? fileIds : undefined,
@@ -3009,7 +3038,7 @@ const App = {
         } else if (isReport) {
             const examName = document.getElementById('recordExamName').value.trim();
             if (!examName) { this.toast('请输入检查项目'); return; }
-            const visitDate = document.getElementById('recordDate2').value || new Date().toISOString().slice(0, 10);
+            const visitDate = document.getElementById('recordDate2').value || _todayLocal();
             const existingRelated = document.getElementById('recordRelated')?.value || '';
             // 若未手动选择关联病历，按 就诊日期+医院+科室 自动匹配已存在的病历并关联
             let relatedId = existingRelated;
@@ -3057,7 +3086,7 @@ const App = {
                 await Api.records.add({
                     elderId,
                     type,
-                    visitDate: document.getElementById('recordDate').value || new Date().toISOString().slice(0, 10),
+                    visitDate: document.getElementById('recordDate').value || _todayLocal(),
                     diagnosis,
                     hospital: document.getElementById('recordHospital').value,
                     department: document.getElementById('recordDept').value,

@@ -36,8 +36,16 @@ function fmtDateTime(d) {
 async function _generateRecordNo(pool, type, visitDate, familyId) {
   const prefixMap = { '病历': 'BL', '药方': 'CF', '检查报告': 'JC' };
   const prefix = prefixMap[type] || 'BL';
-  const date = visitDate ? new Date(visitDate) : new Date();
-  const dateStr = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`;
+  // 编号中的日期一律取「就诊日期」。'YYYY-MM-DD' 直接按字面取年月日，
+  // 避免 new Date('YYYY-MM-DD') 被按 UTC 解析、在部分时区偏成前一天。
+  let dateStr;
+  const m = /^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(String(visitDate || '').trim());
+  if (m) {
+    dateStr = `${m[1]}${m[2].padStart(2, '0')}${m[3].padStart(2, '0')}`;
+  } else {
+    const date = visitDate ? new Date(visitDate) : new Date();
+    dateStr = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`;
+  }
   const pattern = `${prefix}${dateStr}%`;
   const [existing] = await pool.query(
     'SELECT record_no FROM records WHERE family_id = ? AND record_no LIKE ? ORDER BY record_no',
@@ -447,6 +455,31 @@ async function updateRecord(req, res) {
     if (confidence !== undefined) { updates.push('confidence = ?'); values.push(confidence); }
     if (relatedRecordId !== undefined) { updates.push('related_record_id = ?'); values.push(relatedRecordId || null); }
 
+    // 记录编号 = 前缀(类型) + 就诊日期 + 序号。就诊日期或类型被修改时必须重新生成，
+    // 否则编号会一直停留在创建当天，看起来像“用添加日期编号”，与就诊日期不符。
+    const _toYmd = (v) => {
+      if (!v) return '';
+      if (v instanceof Date) {
+        return `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}-${String(v.getDate()).padStart(2, '0')}`;
+      }
+      const mm = /^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(String(v).trim());
+      return mm ? `${mm[1]}-${mm[2].padStart(2, '0')}-${mm[3].padStart(2, '0')}` : String(v).trim();
+    };
+    const oldRecord = records[0];
+    const oldVisitDate = _toYmd(oldRecord.visit_date);
+    const typeChanged = type !== undefined && type !== oldRecord.type;
+    const dateChanged = visitDate !== undefined && _toYmd(visitDate) !== oldVisitDate;
+    if (typeChanged || dateChanged) {
+      const regeneratedNo = await _generateRecordNo(
+        getPool(),
+        type !== undefined ? type : oldRecord.type,
+        visitDate !== undefined ? visitDate : oldVisitDate,
+        familyId
+      );
+      updates.push('record_no = ?');
+      values.push(regeneratedNo);
+    }
+
     if (updates.length > 0) {
       updates.push('updated_by = ?');
       values.push(userId);
@@ -470,6 +503,7 @@ async function updateRecord(req, res) {
         id: r.id,
         elderId: r.elder_id,
         type: r.type,
+        recordNo: r.record_no || null,
         visitDate: fmtDate(r.visit_date),
         hospital: r.hospital,
         department: r.department,
