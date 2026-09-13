@@ -2512,34 +2512,32 @@ const PageAddRecord = {
         const dateId = type === '检查报告' ? 'recordDate2' : 'recordDate3';
         const hospId = type === '检查报告' ? 'recordHospital2' : 'recordMedHospital';
         const deptId = type === '检查报告' ? 'recordDept2' : 'recordMedDept';
+        const doctorId = type === '检查报告' ? 'recordDoctor2' : 'recordMedDoctor';
 
         const visitDate = document.getElementById(dateId)?.value;
         const hospital = document.getElementById(hospId)?.value;
         const department = document.getElementById(deptId)?.value;
+        const doctor = document.getElementById(doctorId)?.value;
 
         if (!visitDate || !hospital || !department) return;
 
         try {
-            const res = await Api.records.getAll(elderId);
-            const records = (res.records || []).filter(r => r.type === '病历');
-            const matched = records.find(r =>
-                r.visitDate === visitDate &&
-                r.hospital && hospital && r.hospital.trim() === hospital.trim() &&
-                r.department && department && r.department.trim() === department.trim()
-            );
-            if (matched) {
-                const sel = document.getElementById('recordRelated');
-                if (sel) {
-                    // 确保下拉框已加载该选项
-                    const exists = Array.from(sel.options).some(o => o.value === matched.id);
-                    if (!exists) {
-                        sel.innerHTML += `<option value="${matched.id}">${matched.visitDate || ''} ${matched.diagnosis || '未填写'}</option>`;
-                    }
-                    sel.value = matched.id;
-                    this.onRelatedChange(matched.id);
-                    App.toast(`已自动匹配关联病历：${matched.diagnosis || '未填写'}`);
-                }
+            // 统一复用 App._findMatchingRecord（含医院名简称/别名归一 + 唯一候选兜底），
+            // 避免此处另有一套判断导致行为不一致
+            const matchId = await App._findMatchingRecord(elderId, visitDate, hospital, department, doctor);
+            if (!matchId) return;
+            // 关联病历控件已是「输入框 + hidden」，不能再按 select.options 处理
+            const hidden = document.getElementById('recordRelated');
+            const text = document.getElementById('recordRelatedText');
+            if (hidden) hidden.value = matchId;
+            if (text) {
+                const res = await Api.records.get(matchId);
+                const rec = res.record || {};
+                text.value = [rec.visitDate, rec.hospital, rec.department, rec.doctor]
+                    .filter(p => p && String(p).trim()).join(' | ') || '无匹配，同步创建';
             }
+            this.onRelatedChange(matchId);
+            App.toast('已自动关联到已有病历');
         } catch (e) { /* 静默失败 */ }
     },
 

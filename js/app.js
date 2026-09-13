@@ -2347,7 +2347,7 @@ const App = {
                 );
                 if (matchId) {
                     relatedId = matchId;
-                    this.toast('已自动关联到相同就诊日期、医院、科室和医生的病历');
+                    this.toast('已自动关联到已有病历');
                 } else {
                     relatedId = await this._ensureRelatedRecord('', {
                         elderId,
@@ -2459,8 +2459,19 @@ const App = {
                 norm(r.department) === dept &&
                 norm(r.doctor) === doc
             );
+            if (candidates.length === 0) return null;
+            // 1) 医院名一致（含医院库登记的 简称 abbreviation / 别名 alias 归一）
             for (const r of candidates) {
                 if (await this._isSameHospital(r.hospital, hospital)) return r.id;
+            }
+            // 2) 兜底：同一天 + 同一科室 + 同一位医生，且候选唯一 —— 基本可唯一确定同一次就诊。
+            //    医院名不同多是 OCR 名称与库内名称的写法差异（例如「中国人民解放军总医院第八医学中心」
+            //    与「中国人民解放军第309医院」本是同一家），此时应关联而不是再新建一条病历。
+            //    若医院库已登记别名，会先走上面的第 1 步；此处仅在别名缺失时兜底。
+            if (candidates.length === 1) {
+                console.log('[auto-link] 医院名写法不同，按 就诊日期+科室+医生 唯一候选关联：',
+                    candidates[0].hospital, '=>', hospital);
+                return candidates[0].id;
             }
             return null;
         } catch (e) {
@@ -2601,7 +2612,7 @@ const App = {
                 );
                 if (matchId) {
                     relatedId = matchId;
-                    this.toast('已自动关联到相同就诊日期、医院、科室和医生的病历');
+                    this.toast('已自动关联到已有病历');
                 } else {
                     relatedId = await this._ensureRelatedRecord('', {
                         elderId,
@@ -2982,7 +2993,7 @@ const App = {
                 );
                 if (matchId) {
                     relatedId = matchId;
-                    this.toast('已自动关联到相同就诊日期、医院、科室和医生的病历');
+                    this.toast('已自动关联到已有病历');
                 }
             }
             try {
@@ -3051,7 +3062,7 @@ const App = {
                 );
                 if (matchId) {
                     relatedId = matchId;
-                    this.toast('已自动关联到相同就诊日期、医院、科室和医生的病历');
+                    this.toast('已自动关联到已有病历');
                 }
             }
             try {
