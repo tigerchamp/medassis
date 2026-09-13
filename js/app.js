@@ -675,6 +675,9 @@ document.addEventListener('click', (e) => {
     if (!e.target.closest('.drug-suggest') && e.target !== DrugSuggest._currentInput) DrugSuggest._hide();
     if (!e.target.closest('.hosp-suggest') && e.target !== HospitalSuggest._currentInput) HospitalSuggest._hide();
     if (!e.target.closest('.dept-suggest') && e.target !== DeptSuggest._currentInput) DeptSuggest._hide();
+    if (typeof RecordSuggest !== 'undefined'
+        && !e.target.closest('.record-suggest')
+        && e.target !== RecordSuggest._currentInput) RecordSuggest._hide();
 });
 
 // ========== 医院库下拉建议组件 ==========
@@ -2411,21 +2414,61 @@ const App = {
 
     // 保存前查找是否已存在相同 就诊日期+医院+科室+医生 的病历，存在则返回其ID（用于自动关联）
     // 匹配字段：就诊日期(visitDate)、医院(hospital)、科室(department)、医生(doctor)，四者一致即视为同一就诊。
+    // 医院名允许“同院不同写法”（如“中国人民解放军总医院第八医学中心”与“解放军总医院第八医学中心”，
+    // 或医院库中的简称 abbreviation / 别名 alias），经归一后再比较。
     async _findMatchingRecord(elderId, visitDate, hospital, department, doctor) {
         if (!elderId || !visitDate || !hospital || !department || !doctor) return null;
         try {
             const res = await Api.records.getAll(elderId);
             const records = (res.records || []).filter(r => r.type === '病历');
-            const matched = records.find(r =>
+            const norm = (s) => String(s == null ? '' : s).replace(/\s+/g, '').trim();
+            const dept = norm(department);
+            const doc = norm(doctor);
+            // 先用 就诊日期+科室+医生 缩小候选，再逐个做医院名判断，避免逐条去查医院库
+            const candidates = records.filter(r =>
                 r.visitDate === visitDate &&
-                r.hospital && hospital && r.hospital.trim() === hospital.trim() &&
-                r.department && department && r.department.trim() === department.trim() &&
-                (r.doctor || '') && (doctor || '') && r.doctor.trim() === doctor.trim()
+                norm(r.department) === dept &&
+                norm(r.doctor) === doc
             );
-            return matched ? matched.id : null;
+            for (const r of candidates) {
+                if (await this._isSameHospital(r.hospital, hospital)) return r.id;
+            }
+            return null;
         } catch (e) {
             return null;
         }
+    },
+
+    // 判断两个医院名是否指同一家医院：完全相同、去常见前缀后相同、
+    // 或经医院库（name/简称/别名）归一后落到同一条医院记录
+    async _isSameHospital(a, b) {
+        const clean = (s) => String(s == null ? '' : s).replace(/\s+/g, '').trim();
+        const na = clean(a), nb = clean(b);
+        if (!na || !nb) return false;
+        if (na === nb) return true;
+        const strip = (s) => s.replace(/^中国人民/, '').replace(/^中国/, '');
+        if (strip(na) === strip(nb)) return true;
+        try {
+            const [ma, mb] = await Promise.all([Api.hospitals.match(a), Api.hospitals.match(b)]);
+            const ida = ma && ma.hospital && ma.hospital.id;
+            const idb = mb && mb.hospital && mb.hospital.id;
+            if (ida && idb && ida === idb) return true;
+            // 一方能归一到某条医院记录时，看另一方的写法是否等于该记录的 名称/简称/别名
+            const matchesRecord = (hosp, other) => {
+                if (!hosp) return false;
+                const cands = [hosp.name, hosp.abbreviation, hosp.alias]
+                    .filter(Boolean)
+                    .flatMap(x => String(x).split(/[\/、,，|]/))
+                    .map(clean)
+                    .filter(Boolean);
+                return cands.some(c => c === other || strip(c) === strip(other));
+            };
+            if (matchesRecord(ma && ma.hospital, nb)) return true;
+            if (matchesRecord(mb && mb.hospital, na)) return true;
+        } catch (e) { /* 医院库查询异常时，回退到下面的字符串包含判断 */ }
+        // 兜底：一方是另一方的子串（且名称都足够长），覆盖“中国人民…”与“…”这类写法差异
+        if (na.length >= 8 && nb.length >= 8 && (na.includes(nb) || nb.includes(na))) return true;
+        return false;
     },
 
     // 保存处方/报告时，若未选择关联病历则自动创建一条病历记录并返回其ID；已选择则原样返回
