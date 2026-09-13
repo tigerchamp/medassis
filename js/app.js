@@ -1258,7 +1258,7 @@ const RecordSuggest = {
     _currentOnPick: null,
 
     showSuggestions(inputEl, hiddenId, onPick) {
-        if (!inputEl || inputEl.readOnly) return;
+        if (!inputEl) return;
         this._currentInput = inputEl;
         this._currentHiddenId = hiddenId;
         this._currentOnPick = onPick;
@@ -2313,11 +2313,12 @@ const App = {
                 const matchId = await this._findMatchingRecord(
                     elderId, visitDate,
                     document.getElementById('ocr-hospital')?.value,
-                    document.getElementById('ocr-department')?.value
+                    document.getElementById('ocr-department')?.value,
+                    document.getElementById('ocr-doctor')?.value
                 );
                 if (matchId) {
                     relatedId = matchId;
-                    this.toast('已自动关联到相同就诊日期、医院和科室的病历');
+                    this.toast('已自动关联到相同就诊日期、医院、科室和医生的病历');
                 } else {
                     relatedId = await this._ensureRelatedRecord('', {
                         elderId,
@@ -2382,17 +2383,18 @@ const App = {
         }
     },
 
-    // 保存前查找是否已存在相同 就诊日期+医院+科室 的病历，存在则返回其ID（用于自动关联）
-    // 匹配字段：就诊日期(visitDate)、医院(hospital)、科室(department)，三者一致即视为同一就诊。
-    async _findMatchingRecord(elderId, visitDate, hospital, department) {
-        if (!elderId || !visitDate || !hospital || !department) return null;
+    // 保存前查找是否已存在相同 就诊日期+医院+科室+医生 的病历，存在则返回其ID（用于自动关联）
+    // 匹配字段：就诊日期(visitDate)、医院(hospital)、科室(department)、医生(doctor)，四者一致即视为同一就诊。
+    async _findMatchingRecord(elderId, visitDate, hospital, department, doctor) {
+        if (!elderId || !visitDate || !hospital || !department || !doctor) return null;
         try {
             const res = await Api.records.getAll(elderId);
             const records = (res.records || []).filter(r => r.type === '病历');
             const matched = records.find(r =>
                 r.visitDate === visitDate &&
                 r.hospital && hospital && r.hospital.trim() === hospital.trim() &&
-                r.department && department && r.department.trim() === department.trim()
+                r.department && department && r.department.trim() === department.trim() &&
+                (r.doctor || '') && (doctor || '') && r.doctor.trim() === doctor.trim()
             );
             return matched ? matched.id : null;
         } catch (e) {
@@ -2496,11 +2498,12 @@ const App = {
                 const matchId = await this._findMatchingRecord(
                     elderId, visitDate,
                     document.getElementById('ocr-med-hospital')?.value,
-                    document.getElementById('ocr-med-dept')?.value
+                    document.getElementById('ocr-med-dept')?.value,
+                    document.getElementById('ocr-med-doctor')?.value
                 );
                 if (matchId) {
                     relatedId = matchId;
-                    this.toast('已自动关联到相同就诊日期、医院和科室的病历');
+                    this.toast('已自动关联到相同就诊日期、医院、科室和医生的病历');
                 } else {
                     relatedId = await this._ensureRelatedRecord('', {
                         elderId,
@@ -2876,11 +2879,12 @@ const App = {
                 const matchId = await this._findMatchingRecord(
                     elderId, visitDate,
                     document.getElementById('recordMedHospital')?.value,
-                    document.getElementById('recordMedDept')?.value
+                    document.getElementById('recordMedDept')?.value,
+                    document.getElementById('recordMedDoctor')?.value
                 );
                 if (matchId) {
                     relatedId = matchId;
-                    this.toast('已自动关联到相同就诊日期、医院和科室的病历');
+                    this.toast('已自动关联到相同就诊日期、医院、科室和医生的病历');
                 }
             }
             try {
@@ -2944,11 +2948,12 @@ const App = {
                 const matchId = await this._findMatchingRecord(
                     elderId, visitDate,
                     document.getElementById('recordHospital2')?.value,
-                    document.getElementById('recordDept2')?.value
+                    document.getElementById('recordDept2')?.value,
+                    document.getElementById('recordDoctor2')?.value
                 );
                 if (matchId) {
                     relatedId = matchId;
-                    this.toast('已自动关联到相同就诊日期、医院和科室的病历');
+                    this.toast('已自动关联到相同就诊日期、医院、科室和医生的病历');
                 }
             }
             try {
