@@ -2446,35 +2446,43 @@ const App = {
     // 医院名允许“同院不同写法”（如“中国人民解放军总医院第八医学中心”与“解放军总医院第八医学中心”，
     // 或医院库中的简称 abbreviation / 别名 alias），经归一后再比较。
     async _findMatchingRecord(elderId, visitDate, hospital, department, doctor) {
-        if (!elderId || !visitDate || !hospital || !department || !doctor) return null;
+        // 就诊日期 + 科室 是必要条件；医院 / 医生允许缺失（缺失则不参与该项比较），
+        // 避免 OCR 少解析出一个字段就导致整个自动关联静默失效
+        if (!elderId || !visitDate || !department) return null;
         try {
             const res = await Api.records.getAll(elderId);
             const records = (res.records || []).filter(r => r.type === '病历');
             const norm = (s) => String(s == null ? '' : s).replace(/\s+/g, '').trim();
             const dept = norm(department);
             const doc = norm(doctor);
-            // 先用 就诊日期+科室+医生 缩小候选，再逐个做医院名判断，避免逐条去查医院库
+            // 先用 就诊日期+科室(+医生) 缩小候选，再逐个做医院名判断，避免逐条去查医院库
             const candidates = records.filter(r =>
                 r.visitDate === visitDate &&
                 norm(r.department) === dept &&
-                norm(r.doctor) === doc
+                (!doc || norm(r.doctor) === doc)
             );
+            console.log('[auto-link] 传入:', { visitDate, hospital, department, doctor },
+                '| 候选病历:', candidates.length, '条');
             if (candidates.length === 0) return null;
             // 1) 医院名一致（含医院库登记的 简称 abbreviation / 别名 alias 归一）
-            for (const r of candidates) {
-                if (await this._isSameHospital(r.hospital, hospital)) return r.id;
+            if (hospital) {
+                for (const r of candidates) {
+                    if (await this._isSameHospital(r.hospital, hospital)) {
+                        console.log('[auto-link] 医院名归一命中 ->', r.id, '| 库内医院:', r.hospital);
+                        return r.id;
+                    }
+                }
             }
-            // 2) 兜底：同一天 + 同一科室 + 同一位医生，且候选唯一 —— 基本可唯一确定同一次就诊。
-            //    医院名不同多是 OCR 名称与库内名称的写法差异（例如「中国人民解放军总医院第八医学中心」
-            //    与「中国人民解放军第309医院」本是同一家），此时应关联而不是再新建一条病历。
-            //    若医院库已登记别名，会先走上面的第 1 步；此处仅在别名缺失时兜底。
+            // 2) 兜底：候选唯一时按 就诊日期+科室(+医生) 关联 —— 基本可唯一确定同一次就诊。
+            //    医院名不同多是 OCR 名称与库内名称的写法差异（如「中国人民解放军总医院第八医学中心」
+            //    与「中国人民解放军第309医院」本是一家；若医院库 alias 已登记，会先在第 1 步命中）。
             if (candidates.length === 1) {
-                console.log('[auto-link] 医院名写法不同，按 就诊日期+科室+医生 唯一候选关联：',
-                    candidates[0].hospital, '=>', hospital);
+                console.log('[auto-link] 唯一候选兜底关联 ->', candidates[0].id, '| 库内医院:', candidates[0].hospital);
                 return candidates[0].id;
             }
             return null;
         } catch (e) {
+            console.log('[auto-link] 匹配过程异常:', e && e.message);
             return null;
         }
     },
