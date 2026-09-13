@@ -1279,10 +1279,23 @@ const RecordSuggest = {
     async _loadAndRender(elderId, q) {
         try {
             const res = await Api.records.getAll(elderId);
-            const records = (res.records || []).filter(r => r.type === '病历');
+            const all = (res.records || []);
+            // 近一年内（含今天），visitDate 为 YYYY-MM-DD，可直接字符串比较
+            const now = new Date();
+            const oneYearAgoStr = `${now.getFullYear() - 1}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+            // 关联病历：优先显示“病历”类型；若成员无独立病历（如历史处方当时未自动建病历），
+            // 也展示“药方”就诊记录，供用户关联到同一次就诊
+            const records = all.filter(r => {
+                const t = r.type;
+                if (t !== '病历' && t !== '药方') return false;
+                if (!r.visitDate) return false;
+                return r.visitDate >= oneYearAgoStr;
+            });
             this._records = records;
             this._render(q, records);
-        } catch (e) { /* 静默失败 */ }
+        } catch (e) {
+            App.toast('加载历史病历失败，请重试');
+        }
     },
 
     _render(q, records) {
@@ -1309,10 +1322,15 @@ const RecordSuggest = {
         const defaultItem = `<div class="record-suggest-item record-suggest-default${selectedId ? '' : ' suggest-item-active'}" onclick="RecordSuggest._pick(-1)">无匹配，同步创建</div>`;
         const items = filtered.map((r, i) => {
             const parts = [r.visitDate, r.hospital, r.department, r.doctor].filter(p => p && String(p).trim()).join(' | ');
+            const tag = r.type === '药方' ? '【处方】' : '【病历】';
             const active = String(r.id) === selectedId ? ' suggest-item-active' : '';
-            return `<div class="record-suggest-item${active}" onclick="RecordSuggest._pick(${i})">${this._esc(parts)}</div>`;
+            return `<div class="record-suggest-item${active}" onclick="RecordSuggest._pick(${i})">${this._esc(tag + parts)}</div>`;
         }).join('');
-        const emptyTip = filtered.length || !q ? '' : '<div class="record-suggest-item record-suggest-empty">未找到匹配病历</div>';
+        const emptyTip = filtered.length === 0
+            ? (q
+                ? '<div class="record-suggest-item record-suggest-empty">未找到匹配病历</div>'
+                : '<div class="record-suggest-item record-suggest-empty">近一年内暂无可选病历，保存时将自动创建</div>')
+            : '';
         box.innerHTML = defaultItem + items + emptyTip;
         box.style.display = 'block';
     },
