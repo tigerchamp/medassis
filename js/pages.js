@@ -1859,6 +1859,9 @@ const PageFamily = {
                     membersEl.innerHTML = '<p class="text-muted" style="text-align:center;padding:20px;">暂无家庭成员</p>';
                 } else {
                     const relationMap = { self: '本人', parent: '父母', spouse_parent: '公婆/岳父母', spouse: '配偶', other: '其他' };
+                    const currentUserId = App.state.user?.id;
+                    const mySelf = members.find(m => m.relation === 'self' && m.user_id === currentUserId);
+                    const isCurrentUserAdmin = (mySelf && mySelf.role === 'admin') || App.state.user?.role === 'admin';
                     membersEl.innerHTML = members.map(m => {
                         const isCurrent = App.state.user && m.user_id === App.state.user.id;
                         const elder = m; // member 本身就是 elder
@@ -1901,7 +1904,8 @@ const PageFamily = {
                                             可修改您 
                                         </span>
                                     </div>
-                                </div>` : ''}
+                                </div>
+                                ${isCurrentUserAdmin ? `<button class="btn-outline" style="width:auto;padding:5px 12px;font-size:12px;color:#dc2626;border-color:#fca5a5;margin-top:6px;" onclick="App.removeMemberFromFamily('${m.id}','${m.name.replace(/'/g, "\\'")}')"><i class="fas fa-user-minus"></i> 移出</button>` : ''}` : ''}
                             </div>
                         </div>`;
                     }).join('');

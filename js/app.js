@@ -3226,6 +3226,16 @@ const App = {
         try { await Api.elders.delete(id); this.toast('已删除'); await this.loadData(); this.switchPage('home'); } catch (err) { this.toast(err.message); }
     },
 
+    async removeMemberFromFamily(id, name) {
+        if (!await App.confirm(`确定将成员「${name}」移出家庭组吗？移出后，该成员关联的病历、用药计划及药箱药品将不再对本家庭组显示。`, '移出家庭组')) return;
+        try {
+            await Api.elders.removeFromFamily(id);
+            this.toast('已将该成员移出家庭组');
+            await this.loadData();
+            if (typeof PageFamily !== 'undefined' && PageFamily.loadMembers) PageFamily.loadMembers();
+        } catch (err) { this.toast(err.message || '操作失败'); }
+    },
+
     async toggleMemberAuth(userId, type) {
         try {
             const res = await Api.auth.toggleAuthorize(userId, type);

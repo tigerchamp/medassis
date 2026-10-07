@@ -244,10 +244,88 @@ async function deleteElder(req, res) {
   }
 }
 
+// 将成员移出家庭组（软解绑：保留数据，仅解除家庭归属，使其从家庭各视图含药箱消失）
+async function removeFromFamily(req, res) {
+  try {
+    const { id } = req.params;
+    const familyId = req.familyId;
+    const userId = req.user.id;
+
+    // 找到该成员档案（属于当前家庭）
+    const [elders] = await getPool().query(`
+      SELECT * FROM elders WHERE id = ? AND (
+        family_id = ?
+        OR (relation = 'self' AND user_id IN (
+          SELECT uf.user_id FROM user_families uf WHERE uf.family_id = ?
+          UNION
+          SELECT u.id FROM users u WHERE u.family_id = ?
+        ))
+      )
+    `, [id, familyId, familyId, familyId]);
+    if (elders.length === 0) {
+      return res.status(404).json({ error: '成员档案不存在' });
+    }
+    const elder = elders[0];
+
+    // 不能将本人移出家庭组
+    if (elder.relation === 'self' && elder.user_id === userId) {
+      return res.status(400).json({ error: '不能将本人移出家庭组' });
+    }
+
+    // 权限校验：当前用户必须是该家庭管理员
+    const [myRole] = await getPool().query(
+      'SELECT role FROM user_families WHERE user_id = ? AND family_id = ? LIMIT 1',
+      [userId, familyId]
+    );
+    const myFamilyRole = myRole.length > 0 ? myRole[0].role : (req.user.role || 'member');
+    if (myFamilyRole !== 'admin') {
+      return res.status(403).json({ error: '仅家庭管理员可移除成员' });
+    }
+
+    // 不能移除家庭组最后一名成员
+    const [memberCount] = await getPool().query(
+      'SELECT COUNT(*) as cnt FROM elders WHERE family_id = ?',
+      [familyId]
+    );
+    if (memberCount[0].cnt <= 1) {
+      return res.status(400).json({ error: '不能移除家庭组最后一名成员' });
+    }
+
+    // 关联的长期用药设置：在解绑药箱前先解除家庭归属，避免泄漏到开药倒计时
+    await getPool().query(
+      `UPDATE chronic_medications SET family_id = NULL
+       WHERE family_id = ? AND drug_inventory_id IN (SELECT id FROM drug_inventory WHERE elder_id = ? AND family_id = ?)`,
+      [familyId, elder.id, familyId]
+    );
+
+    if (elder.relation === 'self' && elder.user_id && elder.user_id !== userId) {
+      // 其他用户通过 user_families 加入本家庭：解除其家庭关系，其 self 档案不再出现在本家庭
+      await getPool().query(
+        'DELETE FROM user_families WHERE user_id = ? AND family_id = ?',
+        [elder.user_id, familyId]
+      );
+    } else {
+      // 普通依赖成员：解除与家庭的绑定
+      await getPool().query('UPDATE elders SET family_id = NULL WHERE id = ?', [elder.id]);
+    }
+
+    // 关联数据解绑 family_id：从家庭各视图（含药箱）消失，但保留数据本身（可逆）
+    await getPool().query('UPDATE records SET family_id = NULL WHERE elder_id = ? AND family_id = ?', [elder.id, familyId]);
+    await getPool().query('UPDATE medications SET family_id = NULL WHERE elder_id = ? AND family_id = ?', [elder.id, familyId]);
+    await getPool().query('UPDATE drug_inventory SET family_id = NULL WHERE elder_id = ? AND family_id = ?', [elder.id, familyId]);
+
+    res.json({ message: '已将成员移出家庭组' });
+  } catch (err) {
+    console.error('Remove from family error:', err);
+    res.status(500).json({ error: '移出家庭组失败' });
+  }
+}
+
 module.exports = {
   getElders,
   getElder,
   addElder,
   updateElder,
-  deleteElder
+  deleteElder,
+  removeFromFamily
 };

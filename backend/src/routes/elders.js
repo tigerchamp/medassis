@@ -10,5 +10,6 @@ router.get('/:id', elderController.getElder);
 router.post('/', elderController.addElder);
 router.put('/:id', elderController.updateElder);
 router.delete('/:id', elderController.deleteElder);
+router.post('/:id/remove', elderController.removeFromFamily);
 
 module.exports = router;

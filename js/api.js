@@ -54,6 +54,7 @@ const Api = {
         add: (d) => api('/elders', { method: 'POST', body: JSON.stringify(d) }),
         update: (id, d) => api(`/elders/${id}`, { method: 'PUT', body: JSON.stringify(d) }),
         delete: (id) => api(`/elders/${id}`, { method: 'DELETE' }),
+        removeFromFamily: (id) => api(`/elders/${id}/remove`, { method: 'POST' }),
     },
     records: {
         getAll: (elderId) => api(elderId ? `/records?elderId=${elderId}` : '/records'),
