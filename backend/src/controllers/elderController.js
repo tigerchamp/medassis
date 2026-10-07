@@ -282,28 +282,49 @@ async function removeFromFamily(req, res) {
       return res.status(403).json({ error: '仅家庭管理员可移除成员' });
     }
 
-    // 关联的长期用药设置：在解绑药箱前先解除家庭归属，避免泄漏到开药倒计时
-    await getPool().query(
-      `UPDATE chronic_medications SET family_id = NULL
-       WHERE family_id = ? AND drug_inventory_id IN (SELECT id FROM drug_inventory WHERE elder_id = ? AND family_id = ?)`,
-      [familyId, elder.id, familyId]
-    );
-
-    if (elder.relation === 'self' && elder.user_id && elder.user_id !== userId) {
-      // 其他用户通过 user_families 加入本家庭：解除其家庭关系，其 self 档案不再出现在本家庭
-      await getPool().query(
-        'DELETE FROM user_families WHERE user_id = ? AND family_id = ?',
-        [elder.user_id, familyId]
-      );
-    } else {
-      // 普通依赖成员：解除与家庭的绑定
-      await getPool().query('UPDATE elders SET family_id = NULL WHERE id = ?', [elder.id]);
+    // 该成员的"缺省家庭组"：注册用户有自己的 users.family_id；纯被监护人无 user_id，无缺省家庭
+    let homeFamilyId = null;
+    if (elder.user_id) {
+      const [urows] = await getPool().query('SELECT family_id FROM users WHERE id = ? LIMIT 1', [elder.user_id]);
+      homeFamilyId = urows.length > 0 ? urows[0].family_id : null;
     }
 
-    // 关联数据解绑 family_id：从家庭各视图（含药箱）消失，但保留数据本身（可逆）
-    await getPool().query('UPDATE records SET family_id = NULL WHERE elder_id = ? AND family_id = ?', [elder.id, familyId]);
-    await getPool().query('UPDATE medications SET family_id = NULL WHERE elder_id = ? AND family_id = ?', [elder.id, familyId]);
-    await getPool().query('UPDATE drug_inventory SET family_id = NULL WHERE elder_id = ? AND family_id = ?', [elder.id, familyId]);
+    // 长期用药设置：注册用户回退到其缺省家庭；纯被监护人无归属则删除
+    if (homeFamilyId) {
+      await getPool().query(
+        `UPDATE chronic_medications SET family_id = ?
+         WHERE family_id = ? AND drug_inventory_id IN (SELECT id FROM drug_inventory WHERE elder_id = ? AND family_id = ?)`,
+        [homeFamilyId, familyId, elder.id, familyId]
+      );
+    } else {
+      await getPool().query(
+        'DELETE FROM chronic_medications WHERE drug_inventory_id IN (SELECT id FROM drug_inventory WHERE elder_id = ?)',
+        [elder.id]
+      );
+    }
+
+    if (elder.relation === 'self' && elder.user_id && elder.user_id !== userId) {
+      // 其他注册用户通过 user_families 加入本家庭：解除关联，self 档案与数据退回其缺省家庭组
+      await getPool().query('DELETE FROM user_families WHERE user_id = ? AND family_id = ?', [elder.user_id, familyId]);
+      if (homeFamilyId) {
+        // 名下病历/用药/药箱回退到其缺省家庭组（不再在本家庭显示，但数据保留在其本人家庭）
+        await getPool().query('UPDATE records SET family_id = ? WHERE elder_id = ? AND family_id = ?', [homeFamilyId, elder.id, familyId]);
+        await getPool().query('UPDATE medications SET family_id = ? WHERE elder_id = ? AND family_id = ?', [homeFamilyId, elder.id, familyId]);
+        await getPool().query('UPDATE drug_inventory SET family_id = ? WHERE elder_id = ? AND family_id = ?', [homeFamilyId, elder.id, familyId]);
+      }
+    } else {
+      // 纯被监护人（无 user_id，无缺省家庭）：硬删除其档案与全部关联数据
+      await getPool().query('DELETE FROM records WHERE elder_id = ?', [elder.id]);
+      const [meds] = await getPool().query('SELECT id FROM medications WHERE elder_id = ?', [elder.id]);
+      if (meds.length > 0) {
+        const medIds = meds.map(m => m.id);
+        const placeholders = medIds.map(() => '?').join(',');
+        await getPool().query(`DELETE FROM med_logs WHERE med_id IN (${placeholders})`, medIds);
+      }
+      await getPool().query('DELETE FROM medications WHERE elder_id = ?', [elder.id]);
+      await getPool().query('DELETE FROM drug_inventory WHERE elder_id = ?', [elder.id]);
+      await getPool().query('DELETE FROM elders WHERE id = ?', [elder.id]);
+    }
 
     res.json({ message: '已将成员移出家庭组' });
   } catch (err) {
