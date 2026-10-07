@@ -681,13 +681,27 @@ function parsePrescription(text) {
 
 function parseDrug(text) {
   const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-  // 药名：第一个不含标点且较短的行
+  // 药名：优先取"通用名"（真实名称），而非商品名。
+  // 通用名通常含剂型词（胶囊/片/颗粒/注射液…），商品名一般较短且不含剂型词。
+  const dosageFormRe = /(肠溶|缓释|控释|分散|泡腾|咀嚼|口崩|舌下|阴道|吸入|软胶囊|硬胶囊|胶囊|颗粒|注射液|注射剂|输液|口服液|口服溶液|栓剂|软膏|乳膏|凝胶|贴剂|贴膏|丸|滴剂|混悬|喷雾剂|气雾剂|糖浆|滴眼液|眼膏|滴耳液|溶液|含片|冲剂|片剂|片)/;
+  const metaExcludeRe = /(批准文号|国药准字|适应症|成份|成分|性状|贮藏|储藏|生产日期|有效期|批号|规格|otc|请仔细阅读|生产企业|生产厂家|生产厂商|禁忌|不良反应|注意事项|执行标准|注册证号|条形码)/i;
+  const candidates = lines.filter(l =>
+    /[一-龥]/.test(l) &&
+    l.length >= 2 && l.length <= 24 &&
+    !/^[（(【\[]/.test(l) &&
+    !/[:：]/.test(l) &&                  // 排除"批准文号：…"等键值行
+    !/(公司|厂|企业|生产)/.test(l) &&
+    !/\d\s*(mg|g|ml|ug|μg)/i.test(l)     // 排除规格行（含数字单位）
+  );
+  // 1) 优先选含剂型词的候选（通用名），取最长的一个
   let name = '';
-  for (const l of lines) {
-    if (l.length >= 2 && l.length <= 24 && !/^[（(【\[]/.test(l) && !/(公司|厂|企业|生产)/.test(l)) {
-      name = l.replace(/【.*?】/g, '').trim();
-      break;
-    }
+  const genericCands = candidates.filter(c => dosageFormRe.test(c) && !metaExcludeRe.test(c));
+  if (genericCands.length) {
+    genericCands.sort((a, b) => b.length - a.length);
+    name = genericCands[0].replace(/【.*?】/g, '').trim();
+  } else if (candidates.length) {
+    // 2) 无剂型词时回退到第一个候选
+    name = candidates[0].replace(/【.*?】/g, '').trim();
   }
   // 规格：含 数字+单位 + /盒 或 × 片
   let specification = '';
