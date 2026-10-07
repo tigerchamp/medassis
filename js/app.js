@@ -1536,7 +1536,18 @@ const App = {
         this.updateTime();
         setInterval(() => this.updateTime(), 60000);
         if (this.state.user) {
-            this.loadData().then(() => this.switchPage('home')).catch(() => this.switchPage('login'));
+            this.loadData().then(() => {
+                // 恢复上次浏览的页面与成员，避免刷新后回到首页 / 自动换成默认成员
+                const savedMember = localStorage.getItem('fh_lastMember');
+                if (savedMember && this.state.members.some(m => m.id === savedMember)) {
+                    this.state.currentMemberId = savedMember;
+                }
+                const savedPage = localStorage.getItem('fh_lastPage');
+                const validPages = ['home', 'records', 'pharmacy', 'profile', 'messages', 'family', 'chronicMeds', 'feedback', 'feedbackList'];
+                const page = (savedPage && validPages.includes(savedPage)) ? savedPage : 'home';
+                this.updateHeader();
+                this.switchPage(page);
+            }).catch(() => this.switchPage('login'));
         } else {
             this.switchPage('login');
         }
@@ -1739,6 +1750,7 @@ const App = {
             this.state.pageHistory.push(this.state.currentPage);
         }
         this.state.currentPage = page;
+        if (page !== 'login') localStorage.setItem('fh_lastPage', page);
 
         document.querySelectorAll('.bottom-nav .nav-item').forEach(btn => {
             btn.classList.toggle('active', btn.dataset.page === page);
@@ -1991,6 +2003,7 @@ const App = {
 
     selectMember(id) {
         this.state.currentMemberId = id;
+        localStorage.setItem('fh_lastMember', id);
         document.getElementById('familyDropdown').classList.remove('show');
         this.updateHeader();
         this.switchPage('home');
@@ -2810,6 +2823,8 @@ const App = {
     logout() {
         localStorage.removeItem(TOKEN_KEY);
         localStorage.removeItem(USER_KEY);
+        localStorage.removeItem('fh_lastPage');
+        localStorage.removeItem('fh_lastMember');
         this.state.user = null;
         this.state.family = null;
         this.state.members = [];

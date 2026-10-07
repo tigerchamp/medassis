@@ -330,7 +330,7 @@ const PageHome = {
                     ? `按每日 ${timesLen} 次 × 每次 ${doseEach}${specDosageUnit || '片'} · 每盒 ${unitCapacity}${unitCapacityUnit || '片'} 估算`
                     : `按每盒约 ${packDays} 天 · 每日 ${timesLen} 次估算`;
 
-                medStats.push({ name: drugName, daysLeft, progress, totalDays, basis });
+                medStats.push({ name: drugName, daysLeft, progress, totalDays, basis, drugCode: d.drugCode || '', specification: d.specification || '', manufacturer: d.manufacturer || '' });
             });
 
             // 没有长期用药时，回退到用药计划表
@@ -377,7 +377,7 @@ const PageHome = {
                             : `按每盒约 ${packDays} 天 · 每日 ${timesLen} 次估算`;
                     }
                     const progress = Math.max(0, Math.min(100, (daysLeft / Math.max(1, totalDays)) * 100));
-                    return { name: m.name, daysLeft, progress, totalDays, basis };
+                    return { name: m.name, daysLeft, progress, totalDays, basis, drugCode: m.drugCode || '', specification: m.specification || '' };
                 }).filter(Boolean);
             }
 
@@ -400,7 +400,7 @@ const PageHome = {
                         const suggestDate = new Date(todayTs + Math.max(1, s.daysLeft) * DAY_MS).toISOString().slice(0, 10);
                         return `<div style="padding:10px 0;border-bottom:1px solid #f1f5f9;">
                             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-                                <span style="font-weight:600;">${s.name}</span>
+                                <span style="font-weight:600;color:#2b7a78;cursor:pointer;" onclick="App.viewDrugInfo('${s.name.replace(/'/g, "\\'")}','${(s.specification||'').replace(/'/g, "\\'")}','${(s.manufacturer||'').replace(/'/g, "\\'")}','${(s.drugCode||'').replace(/'/g, "\\'")}')">${s.name}</span>
                                 <span class="badge" style="background:${badgeColor};color:${badgeText};">剩余 ${s.daysLeft} 天</span>
                             </div>
                             <div style="margin-top:6px;">
@@ -537,7 +537,7 @@ const PageRecords = {
                             <span class="record-no">${r.recordNo || ''}</span>
                             ${r.relatedRecordNo ? `<span class="record-no-link" onclick="event.stopPropagation();App.viewRecord('${r.relatedRecordId}')">病历：${r.relatedRecordNo}</span>` : ''}
                         </div>
-                        ${r.medications && r.medications.length > 0 ? r.medications.map(m => `<div class="med-item"><span class="med-name">${m.name}</span><span class="med-usage">${formatMedUsage(m)}</span></div>`).join('') : '<div class="sub">无药品明细</div>'}
+                        ${r.medications && r.medications.length > 0 ? r.medications.map(m => `<div class="med-item"><span class="med-name" style="cursor:pointer;color:#2b7a78;" onclick="App.viewDrugInfo('${m.name.replace(/'/g, "\\'")}','${(m.specification||'').replace(/'/g, "\\'")}','${(m.manufacturer||'').replace(/'/g, "\\'")}','${(m.drugCode||'').replace(/'/g, "\\'")}')">${m.name}</span><span class="med-usage">${formatMedUsage(m)}</span></div>`).join('') : '<div class="sub">无药品明细</div>'}
                     </div>`).join('');
             }
         } catch (err) {
@@ -653,7 +653,7 @@ const PageRecordDetail = {
                     ? '<p class="text-muted" style="text-align:center;padding:10px;">暂无用药明细</p>'
                     : meds.map(m => `
                         <div class="med-item" style="padding:10px 0;border-bottom:1px solid #f1f5f9;">
-                            <span class="med-name" style="font-weight:600;color:#2b7a78;">${m.name || '未命名'}</span>
+                            <span class="med-name" style="font-weight:600;color:#2b7a78;cursor:pointer;" onclick="App.viewDrugInfo('${(m.name||'').replace(/'/g, "\\'")}','${(m.specification||'').replace(/'/g, "\\'")}','${(m.manufacturer||'').replace(/'/g, "\\'")}','${(m.drugCode||'').replace(/'/g, "\\'")}')">${m.name || '未命名'}</span>
                             <span class="med-usage">${formatMedUsage({doseAmount: m.doseAmount, doseUnit: m.doseUnit, frequency: m.frequency})}</span>
                         </div>
                         ${m.specification ? `<div style="font-size:0.85em;color:#64748b;margin-bottom:6px;">规格: ${m.specification}</div>` : ''}
@@ -690,7 +690,7 @@ const PageRecordDetail = {
                         <div class="record-item" onclick="App.viewRecord('${rr.id}')">
                             <div class="title">${rr.recordNo || ''} · ${rr.type === '药方' ? '处方' : '检查报告'}</div>
                             ${rr.type === '药方' && rr.medications && rr.medications.length > 0
-                                ? rr.medications.map(m => `<div class="med-item" style="padding:4px 0;"><span class="med-name">${m.name}</span><span class="med-usage">${formatMedUsage({doseAmount: m.doseAmount, doseUnit: m.doseUnit, frequency: m.frequency})}</span></div>`).join('') : ''}
+                                ? rr.medications.map(m => `<div class="med-item" style="padding:4px 0;"><span class="med-name" style="cursor:pointer;color:#2b7a78;" onclick="App.viewDrugInfo('${(m.name||'').replace(/'/g, "\\'")}','${(m.specification||'').replace(/'/g, "\\'")}','${(m.manufacturer||'').replace(/'/g, "\\'")}','${(m.drugCode||'').replace(/'/g, "\\'")}')">${m.name}</span><span class="med-usage">${formatMedUsage({doseAmount: m.doseAmount, doseUnit: m.doseUnit, frequency: m.frequency})}</span></div>`).join('') : ''}
                             ${rr.type === '检查报告' && rr.conclusion
                                 ? `<div class="sub" style="color:#2b7a78;">结论：${rr.conclusion.substring(0, 40)}${rr.conclusion.length > 40 ? '...' : ''}</div>` : ''}
                         </div>`).join('')}
