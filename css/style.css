@@ -78,8 +78,6 @@ body{font-family:'Inter',-apple-system,sans-serif;background:#f4f7fc;display:fle
 .med-info .dosage{font-size:14px;color:#64748b}
 .med-status{font-size:13px;padding:6px 14px;border-radius:40px;font-weight:600;border:none;background:#f1f5f9;color:#334155;cursor:pointer;transition:all .2s;font-family:inherit}
 .med-status.taken{background:#2b7a78;color:#fff}
-.refill-progress .bar-bg{height:8px;background:#e9edf2;border-radius:20px;overflow:hidden;margin:8px 0 10px}
-.refill-progress .bar-fill{height:100%;background:linear-gradient(90deg,#2b7a78,#3aa39f);border-radius:20px}
 .refill-date{display:flex;justify-content:space-between;font-size:14px;color:#1e293b;font-weight:500}
 .refill-date span:last-child{color:#0b3b5c;font-weight:700}
 .record-item{padding:12px 0;border-bottom:1px solid #f1f5f9;cursor:pointer}

@@ -392,19 +392,17 @@ const PageHome = {
                 } else {
                     // 按剩余天数从少到多排序，优先显示最需要开药的
                     medStats.sort((a, b) => a.daysLeft - b.daysLeft);
-                    // 每个药品独立显示：剩余天数、进度条、建议开药日、估算依据
+                    // 每个药品独立显示：剩余天数、建议开药日、估算依据
                     const items = medStats.map(s => {
                         const warn = s.daysLeft <= 7 ? 'color:#dc2626;' : (s.daysLeft <= 14 ? 'color:#d97706;' : '');
                         const badgeColor = s.daysLeft <= 7 ? '#fee2e2' : (s.daysLeft <= 14 ? '#fef3c7' : '#e0f2fe');
                         const badgeText = s.daysLeft <= 7 ? '#991b1b' : (s.daysLeft <= 14 ? '#92400e' : '#075985');
                         const suggestDate = new Date(todayTs + Math.max(1, s.daysLeft) * DAY_MS).toISOString().slice(0, 10);
-                        const barColor = s.daysLeft <= 7 ? '#dc2626' : (s.daysLeft <= 14 ? '#d97706' : '#2b7a78');
                         return `<div style="padding:10px 0;border-bottom:1px solid #f1f5f9;">
                             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
                                 <span style="font-weight:600;">${s.name}</span>
                                 <span class="badge" style="background:${badgeColor};color:${badgeText};">剩余 ${s.daysLeft} 天</span>
                             </div>
-                            <div class="refill-progress"><div class="bar-bg"><div class="bar-fill" style="width:${s.progress}%;background:${barColor};"></div></div></div>
                             <div style="margin-top:6px;">
                                 <div class="refill-date" style="margin:0;">
                                     <span>建议开药日: ${suggestDate}</span>
