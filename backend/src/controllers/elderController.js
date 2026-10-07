@@ -282,15 +282,6 @@ async function removeFromFamily(req, res) {
       return res.status(403).json({ error: '仅家庭管理员可移除成员' });
     }
 
-    // 不能移除家庭组最后一名成员
-    const [memberCount] = await getPool().query(
-      'SELECT COUNT(*) as cnt FROM elders WHERE family_id = ?',
-      [familyId]
-    );
-    if (memberCount[0].cnt <= 1) {
-      return res.status(400).json({ error: '不能移除家庭组最后一名成员' });
-    }
-
     // 关联的长期用药设置：在解绑药箱前先解除家庭归属，避免泄漏到开药倒计时
     await getPool().query(
       `UPDATE chronic_medications SET family_id = NULL
