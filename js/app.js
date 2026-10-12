@@ -282,13 +282,11 @@ const DrugSuggest = {
         const q = inputEl.value.trim();
         this._lastDrugs = drugs;
         const listHtml = drugs.map((d, i) => {
-            const spec = d.specification ? this._esc(d.specification) : '';
-            const manu = d.manufacturer ? this._esc(d.manufacturer) : '';
+            const sub = this._specSummary(d);
             const name = this._esc(d.name);
-            const sub = [spec, manu].filter(x => x).join(' · ');
             return `<div class="drug-suggest-item" onclick="DrugSuggest._pick(${i})">
                 <div class="ds-name">${name}${d.pinyinAbbr ? `<span class="ds-py">${this._esc(d.pinyinAbbr)}</span>` : ''}</div>
-                ${sub ? `<div class="ds-sub">${sub}</div>` : ''}
+                ${sub ? `<div class="ds-sub">${this._esc(sub)}</div>` : ''}
             </div>`;
         }).join('');
         // 药品允许重名（同名不同规格/厂商），所以始终显示"+添加新药品"按钮
@@ -323,7 +321,8 @@ const DrugSuggest = {
         }
     },
 
-    // OCR/粘贴填充时调用：与数据库匹配，精确则自动选中并填充规格等，不精确则显示红色提示和相似选项
+    // OCR/粘贴填充时调用：把识别出的名称+规格+单位容量+厂商一起拿去匹配，
+    // 精确则自动选中并补全规格等（不覆盖已识别出的值），不精确则显示红色提示和相似选项
     async matchAndFill(inputEl, name, autoFillMap) {
         if (!inputEl || !name || !name.trim()) return;
         inputEl.value = name.trim();
@@ -334,11 +333,11 @@ const DrugSuggest = {
             this._autoFillMap = autoFillMap;
         }
         try {
-            const res = await Api.drugLibrary.match(name.trim());
+            const res = await Api.drugLibrary.match(this._collectMatchParams(inputEl, name.trim(), autoFillMap));
             if (res.exact) {
                 inputEl.value = res.drug.name;
                 this._setHiddenCode(inputEl, res.drug.code);
-                this._applyAutoFill(inputEl, res.drug);
+                this._applyAutoFill(inputEl, res.drug, false);
                 this._markMatched(inputEl, true);
                 this._setHint(inputEl, '');
                 // 通知处方多药品区块更新标题
@@ -398,7 +397,8 @@ const DrugSuggest = {
             if (inputEl._matched) { this._setHint(inputEl, ''); return; }
             if ((inputEl.value || '').trim() !== q) return;
             try {
-                const r = await Api.drugLibrary.check(q);
+                // 带上已填写的规格/厂家一起校验，同名不同规格时不会误判为已存在
+                const r = await Api.drugLibrary.check(this._collectMatchParams(inputEl, q));
                 if ((inputEl.value || '').trim() !== q) return;
                 this._setHint(inputEl, r.exists ? '' : '（无匹配，请选择或创建）');
             } catch (e) { /* 静默 */ }
@@ -406,7 +406,8 @@ const DrugSuggest = {
     },
 
     // 将药品的规格/单位容量/厂商等字段填充到 autoFillMap 指定的表单字段并置灰
-    _applyAutoFill(inputEl, drug) {
+    // overwrite=false（OCR 自动匹配场景）：仅当目标字段为空或值相同时才填充，避免覆盖识别出的规格/厂家
+    _applyAutoFill(inputEl, drug, overwrite = true) {
         const autoFillMap = (inputEl && inputEl._dsAutoFillMap) || this._autoFillMap;
         this._unlockFields(inputEl);
         const lockIds = [];
@@ -422,16 +423,37 @@ const DrugSuggest = {
             Object.entries(autoFillMap).forEach(([drugKey, elId]) => {
                 const el = document.getElementById(elId);
                 const val = fieldMap[drugKey];
-                if (el && val != null && val !== '') {
-                    el.value = val;
-                    el.disabled = true;
-                    el.style.backgroundColor = '#f1f5f9';
-                    el.style.color = '#64748b';
-                    lockIds.push(elId);
-                }
+                if (!el || val == null || val === '') return;
+                const cur = String(el.value == null ? '' : el.value).trim();
+                // 不覆盖模式：已填写且值不同则保留原值，且不加锁
+                if (!overwrite && cur !== '' && cur !== String(val).trim()) return;
+                el.value = val;
+                el.disabled = true;
+                el.style.backgroundColor = '#f1f5f9';
+                el.style.color = '#64748b';
+                lockIds.push(elId);
             });
         }
         if (inputEl) inputEl._dsLockedIds = lockIds;
+    },
+
+    // 收集当前表单已填写的规格/单位容量/厂商，与药品名一起提交给后端做综合匹配
+    _collectMatchParams(inputEl, name, autoFillMap) {
+        const am = autoFillMap || (inputEl && inputEl._dsAutoFillMap) || this._autoFillMap;
+        const val = (id) => {
+            if (!id) return '';
+            const el = document.getElementById(id);
+            return el ? String(el.value == null ? '' : el.value).trim() : '';
+        };
+        return {
+            name: String(name != null ? name : (inputEl ? inputEl.value : '')).trim(),
+            specDosage: am ? val(am.specDosage) : '',
+            specDosageUnit: am ? val(am.specDosageUnit) : '',
+            unitCapacity: am ? val(am.unitCapacity) : '',
+            unitCapacityUnit: am ? val(am.unitCapacityUnit) : '',
+            manufacturer: am ? val(am.manufacturer) : '',
+            specification: am ? val(am.specification) : ''
+        };
     },
 
     _setHiddenCode(inputEl, code) {
@@ -445,34 +467,16 @@ const DrugSuggest = {
         if (hiddenEl) hiddenEl.value = code || '';
     },
 
-    // 比较用户在当前表单手填的规格/单位容量/厂家 与 库中药是否不同。
-    // 任一字段用户已填写且与库中药不一致 → 返回 true（应作为新药品保存）。
-    _userSpecDiffers(inputEl, autoFillMap, drug) {
-        if (!drug) return false;
-        const am = autoFillMap || (inputEl && inputEl._dsAutoFillMap) || this._autoFillMap;
-        if (!am) return false;
-        const getVal = (elId) => {
-            if (!elId) return '';
-            const el = document.getElementById(elId);
-            return el ? (el.value || '').trim() : '';
-        };
-        const manu = getVal(am.manufacturer);
-        if (manu && manu !== (drug.manufacturer || '')) return true;
-        const sd = getVal(am.specDosage);
-        if (sd) {
-            const sdNum = parseFloat(sd);
-            if (drug.specDosage == null || isNaN(sdNum) || sdNum !== Number(drug.specDosage)) return true;
-            const sdUnit = getVal(am.specDosageUnit);
-            if (sdUnit && sdUnit !== (drug.specDosageUnit || '')) return true;
-        }
-        const uc = getVal(am.unitCapacity);
-        if (uc) {
-            const ucNum = parseInt(uc, 10);
-            if (drug.unitCapacity == null || isNaN(ucNum) || ucNum !== Number(drug.unitCapacity)) return true;
-            const ucUnit = getVal(am.unitCapacityUnit);
-            if (ucUnit && ucUnit !== (drug.unitCapacityUnit || '')) return true;
-        }
-        return false;
+    // 药品规格摘要，用于候选列表展示：优先规格文本，其次"每片X单位 · 每盒N单位"
+    _specSummary(d) {
+        if (!d) return '';
+        const parts = [];
+        const spec = String(d.specification || '').trim();
+        if (spec) parts.push(spec);
+        else if (d.specDosage != null && d.specDosage !== '') parts.push(`每片${d.specDosage}${d.specDosageUnit || ''}`);
+        if (d.unitCapacity != null && d.unitCapacity !== '') parts.push(`每盒${d.unitCapacity}${d.unitCapacityUnit || ''}`);
+        if (d.manufacturer) parts.push(d.manufacturer);
+        return parts.join(' · ');
     },
 
     // 独立 overlay 显示"未找到药品/添加新药品"对话框，避免覆盖/关闭 OCR 表单 modal
@@ -502,21 +506,23 @@ const DrugSuggest = {
     },
 
     // 弹出添加药品对话框（按数据表字段录入）
-    // onSuccess(drug)、onCancel() 由 ensure 流程传入
-    _openAddDialog(prefillName, onSuccess, onCancel) {
+    // onSuccess(drug)、onCancel() 由 ensure 流程传入；prefill 用于回填已识别/已填写的规格与厂商
+    _openAddDialog(prefillName, onSuccess, onCancel, prefill) {
         this._addOnSuccess = onSuccess || null;
         this._addOnCancel = onCancel || null;
+        const pf = prefill || {};
+        const val = (v) => (v != null && v !== '' ? this._esc(v) : '');
+        const selOpt = (arr, cur, def) => arr.map(u => `<option value="${u}"${u === (cur || def) ? ' selected' : ''}>${u}</option>`).join('');
         const specUnitOpts = ['g', 'mg', 'ml', 'μg'];
         const capUnitOpts = ['片', '粒', '袋', '支', '瓶', '贴'];
-        const opts = arr => arr.map(u => `<option value="${u}">${u}</option>`).join('');
         this._showOverlay(`
             <h3 style="margin:0 0 16px;">添加新药品</h3>
             <p style="color:#64748b;font-size:13px;margin:0 0 12px;">该药品仅你及你的家庭组可见，请填写完整信息：</p>
             <div class="form-group"><label>药品名称 *</label><input id="drug-add-name" value="${this._esc(prefillName || '')}" placeholder="如：阿莫西林胶囊"></div>
-            <div class="form-group"><label>规格（每片/袋含量）</label><div style="display:flex;gap:8px"><input id="drug-add-specdosage" type="number" step="0.001" placeholder="如 0.25" style="flex:2"><select id="drug-add-specdosageunit" style="flex:1">${opts(specUnitOpts)}</select></div></div>
-            <div class="form-group"><label>单位容量（每盒/瓶数量）</label><div style="display:flex;gap:8px"><input id="drug-add-unitcap" type="number" placeholder="如 20" style="flex:2"><select id="drug-add-unitcapunit" style="flex:1">${opts(capUnitOpts)}</select></div></div>
-            <div class="form-group"><label>规格文本</label><input id="drug-add-spec" placeholder="如：0.25g/片"></div>
-            <div class="form-group"><label>生产厂商</label><input id="drug-add-manu" placeholder="如：扬子江药业"></div>
+            <div class="form-group"><label>规格（每片/袋含量）</label><div style="display:flex;gap:8px"><input id="drug-add-specdosage" type="number" step="0.001" value="${val(pf.specDosage)}" placeholder="如 0.25" style="flex:2"><select id="drug-add-specdosageunit" style="flex:1">${selOpt(specUnitOpts, pf.specDosageUnit, 'g')}</select></div></div>
+            <div class="form-group"><label>单位容量（每盒/瓶数量）</label><div style="display:flex;gap:8px"><input id="drug-add-unitcap" type="number" value="${val(pf.unitCapacity)}" placeholder="如 20" style="flex:2"><select id="drug-add-unitcapunit" style="flex:1">${selOpt(capUnitOpts, pf.unitCapacityUnit, '片')}</select></div></div>
+            <div class="form-group"><label>规格文本</label><input id="drug-add-spec" value="${val(pf.specification)}" placeholder="如：0.25g/片"></div>
+            <div class="form-group"><label>生产厂商</label><input id="drug-add-manu" value="${val(pf.manufacturer)}" placeholder="如：扬子江药业"></div>
             <button class="btn-primary" style="width:100%;margin-bottom:8px;" onclick="DrugSuggest._submitAdd()"><i class="fas fa-check"></i> 确认添加</button>
             <button class="btn-outline" style="width:100%;color:#64748b;" onclick="DrugSuggest._cancelAdd()">取消</button>`);
         setTimeout(() => { const el = document.getElementById('drug-add-name'); if (el) { el.focus(); el.select(); } }, 50);
@@ -582,20 +588,15 @@ const DrugSuggest = {
                 if (h && h.value) { console.log('[DrugSuggest.ensure] 已有hidden code=', h.value, ', resolve(true)'); resolve(true); return; }
             }
             try {
-                const r = await Api.drugLibrary.check(name);
+                // 名称 + 规格/单位容量/厂家 综合匹配：同名不同规格/厂家时 exists=false，
+                // 弹出候选让用户选择，避免保存时静默创建重复药品
+                const am = (inputEl && (inputEl._dsAutoFillMap || this._autoFillMap)) || null;
+                const r = await Api.drugLibrary.check(this._collectMatchParams(inputEl, name, am));
                 console.log('[DrugSuggest.ensure] check结果, exists=', r.exists, 'similarCount=', (r.similar || []).length);
                 if (r.exists) {
-                    // 同名但用户手填了不同的规格/厂家/单位容量 → 视为不同药品，保留手填内容、不锁定、不回填 code（走新增）
-                    const am = (inputEl && (inputEl._dsAutoFillMap || this._autoFillMap)) || null;
-                    if (this._userSpecDiffers(inputEl, am, r.drug)) {
-                        this._markMatched(inputEl, false);
-                        this._setHint(inputEl, '');
-                        console.log('[DrugSuggest.ensure] 同名但规格/厂家不同, 作为新药品保存, resolve(true)');
-                        resolve(true); return;
-                    }
-                    // 同名且规格/厂家一致：复用库中药，回填 code 并自动填充规格等、锁定字段
+                    // 已匹配：复用库中药，回填 code，补全（不覆盖）规格等并锁定字段
                     if (r.drug && r.drug.code) this._setHiddenCode(inputEl, r.drug.code);
-                    if (r.drug) this._applyAutoFill(inputEl, r.drug);
+                    if (r.drug) this._applyAutoFill(inputEl, r.drug, false);
                     this._markMatched(inputEl, true);
                     console.log('[DrugSuggest.ensure] 药品已存在, resolve(true)');
                     resolve(true); return;
@@ -605,7 +606,7 @@ const DrugSuggest = {
                 this._lastSimilar = r.similar || [];
                 console.log('[DrugSuggest.ensure] 药品未找到, 显示overlay等待用户选择');
                 const simHtml = (r.similar || []).map((s, i) =>
-                    `<div class="drug-suggest-item" onclick="DrugSuggest._pickSimilar(${i})">${this._esc(s.name)}${s.specification ? `<span style="color:#94a3b8;font-size:12px;margin-left:6px;">${this._esc(s.specification)}</span>` : ''}${s.manufacturer ? `<span style="color:#94a3b8;font-size:12px;margin-left:6px;">${this._esc(s.manufacturer)}</span>` : ''}</div>`
+                    `<div class="drug-suggest-item" onclick="DrugSuggest._pickSimilar(${i})">${this._esc(s.name)}${this._specSummary(s) ? `<span style="color:#94a3b8;font-size:12px;margin-left:6px;">${this._esc(this._specSummary(s))}</span>` : ''}</div>`
                 ).join('') || '<div style="color:#94a3b8;padding:12px;text-align:center;">无相似药品</div>';
                 this._showOverlay(`
                     <h3 style="margin:0 0 8px;">药品"${this._esc(name)}"未找到</h3>
@@ -621,8 +622,9 @@ const DrugSuggest = {
         const s = (this._lastSimilar || [])[i];
         if (s && this._ensureInput) {
             this._ensureInput.value = s.name;
-            // 选择相似项后清空隐藏 code，交由后端按名称匹配
             this._setHiddenCode(this._ensureInput, s.code || '');
+            // 用户明确选中了某个规格/厂家的条目，用它的值覆盖并锁定
+            this._applyAutoFill(this._ensureInput, s, true);
         }
         if (s) this._markMatched(this._ensureInput, true);
         this._hideOverlay();
@@ -633,6 +635,8 @@ const DrugSuggest = {
     _confirmAdd() {
         console.log('[DrugSuggest._confirmAdd] 触发创建新药品, _ensureInput=', !!this._ensureInput, 'returnAfterCreate=', this._ensureReturnAfterCreate);
         const name = (this._ensureInput?.value || '').trim();
+        // 用表单已填写/识别出的规格与厂商预填，减少重复创建
+        const prefill = this._collectMatchParams(this._ensureInput, name, null);
         this._openAddDialog(name, (drug) => {
             console.log('[DrugSuggest._confirmAdd] onSuccess回调触发, drug=', drug?.code, drug?.name);
             const r = this._ensureResolve; const ret = this._ensureReturnAfterCreate; this._ensureResolve = null; this._ensureInput = null; this._ensureReturnAfterCreate = false;

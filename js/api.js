@@ -10,6 +10,18 @@ function _todayLocal() {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+// 药品匹配查询串：字符串视为药品名，对象则带上规格/单位容量/生产厂商一起参与匹配
+function _drugQuery(params) {
+    const p = typeof params === 'string' ? { name: params } : (params || {});
+    const q = new URLSearchParams();
+    ['name', 'specDosage', 'specDosageUnit', 'unitCapacity', 'unitCapacityUnit', 'manufacturer', 'specification']
+        .forEach(k => {
+            const v = p[k];
+            if (v != null && String(v).trim() !== '') q.append(k, String(v).trim());
+        });
+    return q.toString();
+}
+
 async function api(endpoint, options = {}) {
     const url = `${API_BASE}/api${endpoint}`;
     const token = localStorage.getItem(TOKEN_KEY);
@@ -95,8 +107,9 @@ const Api = {
         search: (q, limit = 20) => api(`/drug-library/search?q=${encodeURIComponent(q)}&limit=${limit}`),
         get: (code) => api(`/drug-library/${encodeURIComponent(code)}`),
         fetchInfo: (params) => api(`/drug-library/fetch-info?${new URLSearchParams(params).toString()}`),
-        check: (name) => api(`/drug-library/check?name=${encodeURIComponent(name)}`),
-        match: (name) => api(`/drug-library/match?name=${encodeURIComponent(name)}`),
+        // check / match 支持传入字符串（仅药品名）或对象（药品名 + 规格 + 单位容量 + 厂商）
+        check: (params) => api(`/drug-library/check?${_drugQuery(params)}`),
+        match: (params) => api(`/drug-library/match?${_drugQuery(params)}`),
         add: (d) => api('/drug-library/add', { method: 'POST', body: JSON.stringify(d) }),
     },
     hospitals: {
