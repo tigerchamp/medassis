@@ -753,13 +753,33 @@ const DRUG_MID_RE = [
 const DRUG_FORM_RE = /[\u4e00-\u9fa5]{2,12}(?:片|胶囊|颗粒|注射液|口服液|软膏|乳膏|丸|滴剂|气雾剂|贴剂)/;
 const DRUG_SPEC_RE = /\d+\.?\d*\s*(?:mg|g|ml|ug|μg)(?:\s*[*×x]\s*\d+)?/i;
 
+// 处方笺 / 门诊病历 / 检查报告 上才会出现的字段，药盒绝不会印。
+// 用于把"剂型+规格"这一组合提升为药品的判据，同时排除处方笺里的药品行。
+// 注意：不能把"医师""医生""处方"放进列表——药盒自己就印着
+// "凭医师处方销售、购买和使用！""请仔细阅读说明书并在医师指导下使用"，
+// 拿它们做排除条件会把药盒本身也排除掉。
+const CLINICAL_MARKER_RE = new RegExp([
+  '姓名', '性别', '年龄', '患者', '病人',
+  '科别', '科室', '费别',
+  '门诊号', '住院号', '病历号', '就诊号', '卡号',
+  '诊断', '主诉', '现病史', '既往史', '查体',
+  '标本', '参考范围', '参考值', '报告日期', '检查日期', '检验', '影像', '超声',
+  '金额', '合计', '费用', '收费',
+  '医院', '卫生院', '诊所',
+  'Rp', 'Rx'
+].join('|'));
+
 // 判定 OCR 文本是否来自药盒/说明书
 function isDrugText(text) {
   // 1. 强特征
   if (DRUG_STRONG_RE.some(re => re.test(text))) return true;
   // 说明书术语组合：适应症 + 成份/成分/性状
   if (/适应[症证]/.test(text) && /(成份|成分|性状)/.test(text)) return true;
-  // 2. 中特征计分（≥2）
+  // 2. 剂型名 + 剂量规格，且不含任何处方笺/病历/报告标记 → 药品
+  //    兜底"药盒只认到药名+剂量"（如 匹伐他汀钙片 / 2mg）的场景；
+  //    处方笺的药品行同样带剂型与规格，但必然带姓名/科别/诊断/Rp 等标记，会被排除。
+  if (DRUG_FORM_RE.test(text) && DRUG_SPEC_RE.test(text) && !CLINICAL_MARKER_RE.test(text)) return true;
+  // 3. 中特征计分（≥2）
   let score = DRUG_MID_RE.reduce((n, re) => n + (re.test(text) ? 1 : 0), 0);
   if (DRUG_FORM_RE.test(text) && DRUG_SPEC_RE.test(text)) score += 1;
   return score >= 2;
