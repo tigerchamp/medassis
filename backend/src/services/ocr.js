@@ -717,7 +717,29 @@ function parseDrug(text) {
     const m = l.match(/(?:生产企业|生产厂家|生产厂商|公司)[:：]?\s*(.+)/) || l.match(/(.+?(?:公司|制药厂|药业|集团))$/);
     if (m && m[1] && m[1].length < 40) { manufacturer = m[1].trim(); break; }
   }
-  return { name, specification, manufacturer };
+  // 规格（每片/袋含量）拆成数值+单位：2mg → 2 + mg
+  // 前端表单的单位下拉靠 specDosageUnit 选中，否则会停在默认的第一项（g）
+  let specDosage = '', specDosageUnit = '';
+  const doseM = specification.match(/(\d+\.?\d*)\s*(mg|g|ml|ug|μg)/i);
+  if (doseM) {
+    specDosage = doseM[1];
+    const u = doseM[2].toLowerCase();
+    specDosageUnit = (u === 'ug' || u === 'μ') ? 'μg' : u;
+  }
+  // 单位容量（每盒/瓶数量）：优先"14片/盒"这类包装规格，其次"20mg*7片"里的数量
+  // 药盒常把剂量与包装数量分行印（2mg / 14片/盒），两者要分开取
+  let unitCapacity = '', unitCapacityUnit = '';
+  for (const l of lines) {
+    const m = l.match(/(\d+)\s*(片|粒|袋|丸|支|板|贴|枚)\s*\/\s*(?:盒|瓶|板|袋|包)/);
+    if (m) { unitCapacity = m[1]; unitCapacityUnit = m[2]; break; }
+  }
+  if (!unitCapacity) {
+    for (const l of lines) {
+      const m = l.match(/\d+\.?\d*\s*(?:mg|g|ml|ug|μg)\s*[*×x]\s*(\d+)\s*(片|粒|袋|丸|支)/i);
+      if (m) { unitCapacity = m[1]; unitCapacityUnit = m[2]; break; }
+    }
+  }
+  return { name, specification, manufacturer, specDosage, specDosageUnit, unitCapacity, unitCapacityUnit };
 }
 
 // 药品（药盒 / 说明书）判定的特征词

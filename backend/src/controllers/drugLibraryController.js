@@ -44,42 +44,31 @@ async function _getFamilyUserIds(req) {
 }
 
 /**
- * 搜索药品库
- * GET /api/drug-library/search?q=xxx&limit=20
+ * 搜索药品库（下拉候选列表）
+ * GET /api/drug-library/search?name=xxx&specDosage=&specDosageUnit=&unitCapacity=&unitCapacityUnit=&manufacturer=&limit=20
+ * （兼容旧参数 q=xxx 只传名称）
  *
  * 可见范围：标准共享数据 + 当前用户及其家庭组的私有数据
- * 匹配 名称模糊 + 拼音首字母缩写前缀
+ * 排序：与 check/match 一致，走名称 + 规格 + 单位容量 + 厂商综合评分。
+ * 不能只按 name 排序——同名药品库里常有几十条不同规格/厂商的（如「匹伐他汀钙片」），
+ * name 完全相同导致排序无区分度，正确的那条会被 LIMIT 截断。
  */
 async function search(req, res) {
   try {
-    const { q } = req.query;
     const limit = Math.min(parseInt(req.query.limit, 10) || 20, 50);
-
-    if (!q || q.trim() === '') {
+    const query = _parseMatchQuery(req.query);
+    const kw = query.name || (req.query.q || '').trim();
+    if (!kw) {
       return res.json({ drugs: [] });
     }
-    const kw = q.trim();
+    query.name = kw;
     const familyUserIds = await _getFamilyUserIds(req);
 
-    const [rows] = await getPool().query(
-      `SELECT code, name, pinyin_abbr, generic_name, category, dosage_form, specification, spec_dosage, spec_dosage_unit, unit_capacity, unit_capacity_unit, manufacturer, approval_number, indication, contraindication, dosage_instruction, adverse_reaction, drug_interaction, precaution, storage, type1, syz, jx, wyy, fl, description, description_fetched_at
-       FROM drugs
-       WHERE (owner_user_id IS NULL OR owner_user_id IN (?))
-         AND (name LIKE ? OR ? LIKE CONCAT('%', name, '%') OR pinyin_abbr LIKE ?)
-       ORDER BY CASE
-         WHEN name = ? THEN 0
-         WHEN pinyin_abbr = ? THEN 1
-         WHEN name LIKE ? THEN 2
-         WHEN ? LIKE CONCAT('%', name, '%') THEN 3
-         WHEN pinyin_abbr LIKE ? THEN 4
-         ELSE 5
-       END, name
-       LIMIT ?`,
-      [familyUserIds, `%${kw}%`, kw, `%${kw}%`, kw, kw, `%${kw}%`, kw, `%${kw}%`, limit]
-    );
+    const candidates = await _recallCandidates(query, familyUserIds);
+    const scored = _rankCandidates(query, candidates);
 
     res.json({
-      drugs: rows.map(_formatDrugFields)
+      drugs: scored.slice(0, limit).map(r => _formatDrug(r, r._match.score))
     });
   } catch (err) {
     console.error('Drug library search error:', err);
@@ -293,10 +282,20 @@ function _autoSelectable(top, second) {
  * 对候选按 名称+规格+单位容量+生产厂商 综合评分排序
  */
 function _rankCandidates(query, candidates) {
+  // 拼音首字母查询（如 SHP / PFTTGP）与中文名称没有字面相似度，scoreDrugMatch 会算出
+  // nameScore=0 而被下面 filter 掉。这里按拼音前缀命中补一个基础分，保住拼音搜索。
+  const qPin = String(query.name || '').replace(/[^a-zA-Z]/g, '').toUpperCase();
   return candidates
     .map(r => {
       const norm = normalizeDrugRow(r);
       const m = scoreDrugMatch(query, norm);
+      if (m.nameScore === 0 && qPin.length >= 2) {
+        const cPin = String(r.pinyin_abbr || norm.pinyinAbbr || '').replace(/[^a-zA-Z]/g, '').toUpperCase();
+        if (cPin && (cPin === qPin || cPin.startsWith(qPin) || qPin.startsWith(cPin))) {
+          m.nameScore = cPin === qPin ? 0.9 : 0.8;
+          m.score = Math.max(m.score, m.nameScore * 60);
+        }
+      }
       return { ...r, ...norm, _match: m };
     })
     .filter(r => r._match.nameScore > 0)

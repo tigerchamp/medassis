@@ -265,7 +265,8 @@ const DrugSuggest = {
 
     async _search(inputEl, q) {
         try {
-            const res = await Api.drugLibrary.search(q);
+            // 带上已填写的规格/单位容量/厂商一起查询，后端按综合评分排序
+            const res = await Api.drugLibrary.search(this._collectMatchParams(inputEl, q));
             this._render(inputEl, res.drugs || []);
         } catch (e) { /* 静默失败 */ }
     },
@@ -2271,6 +2272,9 @@ const App = {
             const initElder = document.getElementById('ocr-med-elder')?.value;
             if (initElder) this._loadRelatedRecords(initElder, 'ocr-med-related');
         } else if (type === '药品') {
+            // 规格/单位容量的单位下拉：按 OCR 解析出的单位选中，避免停在默认第一项（g）
+            // 未识别到单位时默认 mg / 片——药盒剂量以 mg、包装以片最为常见
+            const ocrUnitOpts = (arr, sel) => arr.map(u => `<option value="${u}"${u === sel ? ' selected' : ''}>${u}</option>`).join('');
             this.closeModal();
             this.openModal(`
                 <div style="display:flex;align-items:center;margin-bottom:16px;">
@@ -2280,8 +2284,8 @@ const App = {
                 ${thumbsHtml}
                 ${ocrTextHtml}
                 <div class="form-group"><label>药品名称 *</label><input id="ocr-drug-name" value="${this._escAttr(parsed.name)}" onclick="DrugSuggest.showSuggestions(this)" oninput="DrugSuggest.onInput(this,'drugCodeHidden',{specDosage:'ocr-drug-specdosage',specDosageUnit:'ocr-drug-specdosageunit',unitCapacity:'ocr-drug-unitcap',unitCapacityUnit:'ocr-drug-unitcapunit',specification:'ocr-drug-spec',manufacturer:'ocr-drug-manufacturer'})"><input type="hidden" id="drugCodeHidden"></div>
-                <div class="form-group"><label>规格（每片/袋含量） *</label><div style="display:flex;gap:8px"><input id="ocr-drug-specdosage" type="number" step="1" min="0" value="${this._escAttr(parsed.specDosage || '')}" placeholder="如 0.25" style="flex:2"><select id="ocr-drug-specdosageunit" style="flex:1"><option value="g">g</option><option value="mg">mg</option><option value="ml">ml</option><option value="μg">μg</option></select></div></div>
-                <div class="form-group"><label>单位容量（每盒/瓶数量） *</label><div style="display:flex;gap:8px"><input id="ocr-drug-unitcap" type="number" step="1" min="0" value="${this._escAttr(parsed.unitCap || '')}" placeholder="如 20" style="flex:2"><select id="ocr-drug-unitcapunit" style="flex:1"><option value="片">片</option><option value="粒">粒</option><option value="袋">袋</option><option value="支">支</option><option value="瓶">瓶</option><option value="贴">贴</option></select></div></div>
+                <div class="form-group"><label>规格（每片/袋含量） *</label><div style="display:flex;gap:8px"><input id="ocr-drug-specdosage" type="number" step="1" min="0" value="${this._escAttr(parsed.specDosage || '')}" placeholder="如 0.25" style="flex:2"><select id="ocr-drug-specdosageunit" style="flex:1">${ocrUnitOpts(['g', 'mg', 'ml', 'μg'], parsed.specDosageUnit || 'mg')}</select></div></div>
+                <div class="form-group"><label>单位容量（每盒/瓶数量） *</label><div style="display:flex;gap:8px"><input id="ocr-drug-unitcap" type="number" step="1" min="0" value="${this._escAttr(parsed.unitCapacity || parsed.unitCap || '')}" placeholder="如 20" style="flex:2"><select id="ocr-drug-unitcapunit" style="flex:1">${ocrUnitOpts(['片', '粒', '袋', '支', '瓶', '贴'], parsed.unitCapacityUnit || '片')}</select></div></div>
                 <div class="form-group"><label>规格文本</label><input id="ocr-drug-spec" value="${this._escAttr(parsed.specification)}" placeholder="如：0.25g/片"></div>
                 <div class="form-group"><label>厂商</label><input id="ocr-drug-manufacturer" value="${this._escAttr(parsed.manufacturer)}" placeholder="如：扬子江药业"></div>
                 <div class="form-group"><label>数量 *</label><div style="display:flex;gap:8px"><input id="ocr-drug-qty" type="number" step="1" min="1" value="1" style="flex:2"><select id="ocr-drug-qty-unit" style="flex:1"><option value="盒">盒</option><option value="瓶">瓶</option><option value="袋">袋</option><option value="支">支</option><option value="包">包</option><option value="板">板</option></select></div></div>

@@ -104,7 +104,9 @@ const Api = {
         saveChronic: (drugInventoryIds, elderId) => api('/drugs/chronic/save', { method: 'POST', body: JSON.stringify({ drugInventoryIds, elderId }) }),
     },
     drugLibrary: {
-        search: (q, limit = 20) => api(`/drug-library/search?q=${encodeURIComponent(q)}&limit=${limit}`),
+        // search 支持传入字符串（仅药品名）或对象（药品名 + 规格 + 单位容量 + 厂商），
+        // 带上规格后后端按综合评分排序，同名药品多时正确那条才不会被 LIMIT 截断
+        search: (params, limit = 20) => api(`/drug-library/search?${_drugQuery(params)}&limit=${limit}`),
         get: (code) => api(`/drug-library/${encodeURIComponent(code)}`),
         fetchInfo: (params) => api(`/drug-library/fetch-info?${new URLSearchParams(params).toString()}`),
         // check / match 支持传入字符串（仅药品名）或对象（药品名 + 规格 + 单位容量 + 厂商）
