@@ -720,30 +720,72 @@ function parseDrug(text) {
   return { name, specification, manufacturer };
 }
 
+// 药品（药盒 / 说明书）判定的特征词
+// 强特征：命中任一个即判定为药品，均为药盒/说明书独有（病历、处方、报告上不会出现）
+const DRUG_STRONG_RE = [
+  /国药准字/,
+  /批准文号/,
+  /\bOTC\b/i
+];
+// 中特征：命中 ≥2 个才判定为药品。
+// 用于"只拍到药盒正面 / 国药准字小字被漏识别"的场景，此时靠 生产日期+有效期至+批号+生产企业 等组合兜底。
+const DRUG_MID_RE = [
+  /用法用量|用法与用量/,
+  /不良反应/,
+  /禁忌/,
+  /注意事项/,
+  /贮藏|储藏/,
+  /有效期至|有效期\s*[:：]?\s*\d{4}/,
+  /生产日期|生产批号|批号/,
+  /生产企业|生产厂家|生产厂商|制药厂|药业|制药/,
+  /规格\s*[:：]?\s*\d+\.?\d*\s*(?:mg|g|ml|ug|μg)/i,
+  /请仔细阅读说明书|说明书/,
+  /适应[症证]/,
+  /成份|成分/,
+  /性状/
+];
+// 剂型名（如"阿托伐他汀钙片"）与规格模式（如"20mg*7"）同时出现算 1 票中特征。
+// 不单独作为强特征：处方笺里同样带剂型与规格的药品行，会因此被误判成药盒。
+const DRUG_FORM_RE = /[\u4e00-\u9fa5]{2,12}(?:片|胶囊|颗粒|注射液|口服液|软膏|乳膏|丸|滴剂|气雾剂|贴剂)/;
+const DRUG_SPEC_RE = /\d+\.?\d*\s*(?:mg|g|ml|ug|μg)\s*[*×x]\s*\d+/i;
+
+// 判定 OCR 文本是否来自药盒/说明书
+function isDrugText(text) {
+  // 1. 强特征
+  if (DRUG_STRONG_RE.some(re => re.test(text))) return true;
+  // 说明书术语组合：适应症 + 成份/成分/性状
+  if (/适应[症证]/.test(text) && /(成份|成分|性状)/.test(text)) return true;
+  // 2. 中特征计分（≥2）
+  let score = DRUG_MID_RE.reduce((n, re) => n + (re.test(text) ? 1 : 0), 0);
+  if (DRUG_FORM_RE.test(text) && DRUG_SPEC_RE.test(text)) score += 1;
+  return score >= 2;
+}
+
 // 根据OCR文本内容自动判定类型
-// 规则：
+// 规则（按顺序短路，药品必须最先判，原因见下）：
+//   药品：药盒/说明书特征（国药准字、OTC、生产日期+有效期至+批号…）
 //   病历：标题含"病历"
 //   处方：标题含"处方"或有价格金额
 //   检查报告：标题含"报告"或"检验"、"化验"
-//   药品：文字含"国药准字"、"适应症"、"成份"、"性状"等
+// 药品判定置于处方之前的原因：处方药盒普遍印有"凭医师处方销售、购买和使用！"，
+// 而处方规则只扫前 300 字符，若药品判定排在后面会被抢走，弹出处方表单而非药品表单。
 function detectType(text) {
   if (!text || !text.trim()) return 'record';
   const head = text.substring(0, 300); // 标题区域（前300字符）
   const full = text;
 
-  // 1. 病历：标题含"病历"
+  // 1. 药品：药盒/说明书
+  if (isDrugText(full)) return 'drug';
+
+  // 2. 病历：标题含"病历"
   if (/病历/.test(head)) return 'record';
 
-  // 2. 检查报告：标题含"报告"或"检验"、"化验"
+  // 3. 检查报告：标题含"报告"或"检验"、"化验"
   if (/报告|检验报告|化验|检查报告|影像诊断|超声|CT报告|MRI|放射/.test(head)) return 'report';
 
-  // 3. 处方：标题含"处方"或有价格金额
+  // 4. 处方：标题含"处方"或有价格金额
   if (/处方|Rp[:：]?|R[:：]/.test(head)) return 'prescription';
   if (/[¥￥]\s*\d|金额[:：]?\s*\d|合计[:：]?\s*\d|价格[:：]?\s*\d|费用[:：]?\s*\d|元\s*\d+\.\d{2}/.test(full)) return 'prescription';
-
-  // 4. 药品：文字含"国药准字"、"适应症"、"成份"、"性状"等
-  if (/国药准字|批准文号/.test(full)) return 'drug';
-  if (/适应[症证]/.test(full) && /成份|成分|性状/.test(full)) return 'drug';
 
   // 默认：病历
   return 'record';
