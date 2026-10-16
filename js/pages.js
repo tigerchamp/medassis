@@ -1274,7 +1274,7 @@ const PageChronicMeds = {
         <div class="card" style="margin-bottom:12px;">
             <div style="font-size:13px;color:#64748b;line-height:1.6;">
                 <i class="fas fa-info-circle" style="color:#2b7a78;"></i>
-                ${canModify ? '请从下方药箱列表中勾选您需要长期服用的药品，首页的<b>开药倒计时</b>将基于这些药品的库存进行提醒。' : '以下是当前成员的长期用药列表。'}
+                ${canModify ? '勾选您长期服用的药品，首页的<b>开药倒计时</b>将基于这些药品的库存提醒。<br>保存时会自动同步<b>用药计划</b>：取消勾选会停止对应计划；新勾选的会自动为你建立一条「早上一次、每次 1 个单位剂量」的计划（用法用量未知，请到用药计划中核对修改）。' : '以下是当前成员的长期用药列表。'}
             </div>
         </div>
         <div class="card">
@@ -1378,7 +1378,7 @@ const PageChronicMeds = {
             const ids = Array.from(this._selectedIds);
             const elderId = App.state.currentMemberId || null;
             const res = await Api.drugs.saveChronic(ids, elderId);
-            App.toast(`已保存 ${ids.length} 种长期用药`);
+            App.toast(this._planSyncToast(ids.length, res.planSync));
             // 同步一下状态
             const chronicList = res.chronicMeds || [];
             this._selectedIds = new Set(chronicList.map(c => c.drugInventoryId));
@@ -1386,6 +1386,16 @@ const PageChronicMeds = {
         } catch (err) {
             App.toast('保存失败: ' + (err.message || ''));
         }
+    },
+
+    // 长期用药会自动联动用药计划，把结果告诉用户（toast 是单行短文，别换行）
+    _planSyncToast(count, sync) {
+        const s = sync || {};
+        const parts = [];
+        if (s.created) parts.push(`新建计划 ${s.created} 条`);
+        if (s.restored) parts.push(`恢复 ${s.restored} 条`);
+        if (s.ended) parts.push(`停止 ${s.ended} 条`);
+        return `已保存 ${count} 种长期用药` + (parts.length ? '，' + parts.join('，') : '');
     }
 };
 

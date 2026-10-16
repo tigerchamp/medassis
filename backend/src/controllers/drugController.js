@@ -501,7 +501,11 @@ async function getChronicMeds(req, res) {
         }
       });
     });
-    res.json({ chronicMeds: chronicList });
+    // saveChronicMeds 中转过来的用药计划联动结果（新建/恢复/停止条数），供前端提示
+    res.json({
+      chronicMeds: chronicList,
+      planSync: req._chronicPlanSync || { created: 0, restored: 0, ended: 0 }
+    });
   } catch (err) {
     console.error('Get chronic meds error:', err);
     res.status(500).json({ error: '获取长期用药失败' });
@@ -526,12 +530,28 @@ async function saveChronicMeds(req, res) {
 
     const pool = getPool();
 
+    // 本次勾选前后的差值用于联动「用药计划」：本次生效前的旧集合要先读出来
+    // 范围限定在当前 elder（服药人），避免牵连同家庭其他成员的长期用药/计划
+    let prevRows = [];
+    if (elderId) {
+      [prevRows] = await pool.query(
+        `SELECT cm.drug_inventory_id, cm.drug_code, cm.drug_name
+         FROM chronic_medications cm
+         LEFT JOIN drug_inventory di ON cm.drug_inventory_id = di.id
+         WHERE cm.user_id = ? AND cm.family_id = ?
+           AND (cm.elder_id = ? OR (cm.elder_id IS NULL AND di.elder_id = ?))`,
+        [userId, familyId, elderId, elderId]
+      );
+    }
+
     // 校验：确保每个 drug_inventory_id 都属于当前家庭且有权限
     if (ids.length > 0) {
       const placeholders = ids.map(() => '?').join(',');
       const access = familyAccessFilter(familyId, 'di.');
       const [validRows] = await pool.query(
-        `SELECT di.id, di.drug_code, di.name FROM drug_inventory di 
+        `SELECT di.id, di.drug_code, di.name, di.specification, d.unit_capacity_unit
+         FROM drug_inventory di
+         LEFT JOIN drugs d ON di.drug_code COLLATE utf8mb4_unicode_ci = d.code
          WHERE di.id IN (${placeholders}) AND (${access.sql})`,
         [...ids, ...access.params]
       );
@@ -559,6 +579,10 @@ async function saveChronicMeds(req, res) {
             [uuidv4(), userId, familyId, elderId || null, r.id, r.drug_code || null, r.name, i]
           );
         }
+        // 联动「用药计划」：新增勾选的恢复/新建，取消勾选的结束
+        req._chronicPlanSync = await _syncMedicationPlans(conn, {
+          familyId, userId, elderId, prevRows, currentRows: validRows
+        });
         await conn.commit();
       } catch (txErr) {
         await conn.rollback();
@@ -569,6 +593,19 @@ async function saveChronicMeds(req, res) {
     } else {
       // 空数组：清空所有
       await pool.query('DELETE FROM chronic_medications WHERE user_id = ? AND family_id = ?', [userId, familyId]);
+      const conn = await pool.getConnection();
+      try {
+        await conn.beginTransaction();
+        req._chronicPlanSync = await _syncMedicationPlans(conn, {
+          familyId, userId, elderId, prevRows, currentRows: []
+        });
+        await conn.commit();
+      } catch (txErr) {
+        await conn.rollback();
+        throw txErr;
+      } finally {
+        conn.release();
+      }
     }
 
     // 返回更新后的列表
@@ -577,6 +614,83 @@ async function saveChronicMeds(req, res) {
     console.error('Save chronic meds error:', err);
     res.status(500).json({ error: '保存长期用药失败' });
   }
+}
+
+/**
+ * 长期用药 → 用药计划 联动
+ * - 新勾选的药品：该成员名下 history 里有 ended 计划则恢复；已有 active 则不动；
+ *   都没有时按「早上一次、每次 1 个单位剂量」新建，用法用量交给用户自行核对
+ * - 取消勾选的药品：结束该成员名下的 active 计划
+ *
+ * 只写 medications 表，不走 medicationController.addMedication —— 后者会调
+ * _syncToDrugInventory() 按 drug_code 给已有库存数量 +1，勾选已有药品会凭空多出一盒。
+ *
+ * @returns {{created:number, restored:number, ended:number}}
+ */
+async function _syncMedicationPlans(conn, { familyId, userId, elderId, prevRows, currentRows }) {
+  const summary = { created: 0, restored: 0, ended: 0 };
+  // 没有 elderId 时无法界定计划归属，跳过联动，避免误伤其他成员
+  if (!elderId) return summary;
+
+  const { v4: uuidv4 } = require('uuid');
+  const key = (row) => (row.drug_code || row.drugCode || null);
+  const nameOf = (row) => row.drug_name || row.name || '';
+  const prevIds = new Set((prevRows || []).map(r => r.drug_inventory_id));
+  const curIds = new Set((currentRows || []).map(r => r.id));
+
+  const added = (currentRows || []).filter(r => !prevIds.has(r.id));
+  const removed = (prevRows || []).filter(r => !curIds.has(r.drug_inventory_id));
+
+  // 计划归属范围：本家庭 + 本服药人
+  const scopeSql = 'family_id = ? AND elder_id = ?';
+  const scopeVals = [familyId, elderId];
+  // 匹配条件：优先按 drug_code，为空时退回药品名
+  const matchSql = (row) => {
+    const code = key(row);
+    return code ? { sql: 'drug_code = ?', params: [code] }
+                : { sql: 'name = ?', params: [nameOf(row)] };
+  };
+
+  for (const row of added) {
+    const m = matchSql(row);
+    const base = `SELECT id, status FROM medications WHERE ${scopeSql} AND ${m.sql}`;
+    const [rows] = await conn.query(base, [...scopeVals, ...m.params]);
+    if (rows.some(r => r.status === 'active')) continue;              // 已有在用计划，不重复建
+    const ended = rows.filter(r => r.status === 'ended');
+    if (ended.length) {                                               // 历史计划 → 直接恢复
+      await conn.query(
+        `UPDATE medications SET status = 'active', end_date = NULL, updated_by = ? WHERE id = ?`,
+        [userId, ended[0].id]
+      );
+      summary.restored += 1;
+      continue;
+    }
+    // 没有历史计划：不知道真实用法用量，按「早上一次、每次 1 个单位剂量」兜底，
+    // 剂量单位取药品的单位容量单位（片/粒/袋…），取不到兜底「片」
+    const unit = row.unit_capacity_unit || '片';
+    await conn.query(
+      `INSERT INTO medications (id, elder_id, family_id, drug_code, name, specification,
+        dose, dose_amount, dose_unit, quantity, quantity_unit, frequency, times,
+        start_date, note, reminder, status, created_by, updated_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURDATE(), ?, 1, 'active', ?, ?)`,
+      [uuidv4(), elderId, familyId, row.drug_code || null, row.name, row.specification || null,
+       `1${unit}`, 1, unit, 1, '盒', 1, JSON.stringify(['08:00']),
+       '由长期用药自动生成，用法用量请自行核对修改', userId, userId]
+    );
+    summary.created += 1;
+  }
+
+  for (const row of removed) {
+    const m = matchSql({ drug_code: row.drug_code, drug_name: row.drug_name });
+    const [rs] = await conn.query(
+      `UPDATE medications SET status = 'ended', end_date = CURDATE(), updated_by = ?
+       WHERE ${scopeSql} AND ${m.sql} AND status = 'active'`,
+      [userId, ...scopeVals, ...m.params]
+    );
+    summary.ended += rs.affectedRows || 0;
+  }
+
+  return summary;
 }
 
 // 自动消耗计算：根据家庭组里每个人的用药计划，自动扣减药品库存余量
