@@ -37,12 +37,15 @@ router.post('/parse', (req, res) => {
 
 /**
  * POST /api/ocr/recognize
- * multipart: files (多张图片) + type (record|report|prescription|drug)
+ * multipart: files (单张图片) + type (record|report|prescription|drug|auto)
  * 流程：仅调百度 OCR 识别 → 结构化解析（不保存到 MinIO/DB）
  * 图片的持久化保存在用户确认后由前端调 /api/upload 完成
- * 返回: { text, parsed }
+ * 返回: { text, parsed, detectedType }
+ *
+ * 只收 1 张：多张图片的 OCR 文本会被拼接在一起，导致类型判定与字段解析错乱。
+ * 附件上传（/api/upload）不受此限制，仍支持多张。
  */
-router.post('/recognize', upload.array('files', 9), async (req, res) => {
+router.post('/recognize', upload.array('files', 1), async (req, res) => {
   try {
     const files = req.files;
     const type = req.body.type || 'auto';

@@ -212,6 +212,80 @@ const MedTimesUI = {
   }
 };
 
+// ========== 表单草稿（防刷新丢数据） ==========
+// 移动端下拉刷新 / 误触返回都会整页重载，正在填写的表单会全部清空。
+// 这里把表单字段按「字段 id 指纹」存进 sessionStorage，重新进入页面时回填。
+// 只在当前字段为空时回填：服务端或 OCR 预填的值优先，草稿不会覆盖真实数据。
+const FormDraft = {
+    PREFIX: 'fh_draft_',
+    TTL: 12 * 60 * 60 * 1000,
+    _timer: null,
+
+    // 只收有 id 的可见可编辑字段（隐藏字段/锁定字段由程序控制，不进草稿）
+    _fields(container) {
+        if (!container) return [];
+        return Array.from(container.querySelectorAll('input[id],select[id],textarea[id]'))
+            .filter(el => el.type !== 'hidden' && !el.disabled && !el.readOnly);
+    },
+
+    // 用容器内字段 id 集合做指纹：不同表单天然得到不同 key，不需要各处手写 key
+    _key(container) {
+        const ids = this._fields(container).map(el => el.id).sort();
+        if (!ids.length) return null;
+        const sig = ids.join(',');
+        let h = 0;
+        for (let i = 0; i < sig.length; i++) h = ((h << 5) - h + sig.charCodeAt(i)) | 0;
+        return this.PREFIX + (h >>> 0).toString(36);
+    },
+
+    // 找到字段所属的表单容器：弹框优先，否则是主内容区
+    _containerOf(el) {
+        if (!el || !el.closest) return null;
+        return el.closest('.modal-content') || el.closest('#mainContent');
+    },
+
+    save(container) {
+        const key = this._key(container);
+        if (!key) return;
+        const data = {};
+        this._fields(container).forEach(el => { if (el.value) data[el.id] = el.value; });
+        if (!Object.keys(data).length) return;
+        try { sessionStorage.setItem(key, JSON.stringify({ ts: Date.now(), data })); } catch (e) { /* 配额满等，忽略 */ }
+    },
+
+    // 输入停顿 800ms 后落盘，避免逐字符写 sessionStorage
+    scheduleSave(el) {
+        const container = this._containerOf(el);
+        if (!container) return;
+        clearTimeout(this._timer);
+        this._timer = setTimeout(() => this.save(container), 800);
+    },
+
+    restore(container) {
+        if (!container) return;
+        const key = this._key(container);
+        if (!key) return;
+        let raw;
+        try { raw = sessionStorage.getItem(key); } catch (e) { return; }
+        if (!raw) return;
+        let saved;
+        try { saved = JSON.parse(raw); } catch (e) { return; }
+        if (!saved || !saved.data || Date.now() - saved.ts > this.TTL) { this.clear(container); return; }
+        this._fields(container).forEach(el => {
+            const v = saved.data[el.id];
+            if (v != null && v !== '' && !String(el.value || '').trim()) el.value = v;
+        });
+    },
+
+    clear(container) {
+        const key = this._key(container);
+        if (key) { try { sessionStorage.removeItem(key); } catch (e) { /* 忽略 */ } }
+    },
+
+    // 保存成功后调用：从触发保存的元素往上找所在容器并清掉草稿
+    clearHere(el) { this.clear(this._containerOf(el)); }
+};
+
 // ========== 药品库下拉建议组件 ==========
 // 用法：在药品名称输入框上 oninput="DrugSuggest.onInput(this, '隐藏code字段id')"
 // 选中后自动填充名称到当前输入框、code 到隐藏字段；未选中直接提交则后端按名匹配/入库
@@ -1533,6 +1607,15 @@ const App = {
     },
 
     init() {
+        // 输入停顿后自动存草稿：刷新/误触返回后重新进入表单能恢复未提交的内容
+        document.addEventListener('input', (e) => FormDraft.scheduleSave(e.target), true);
+        document.addEventListener('change', (e) => FormDraft.scheduleSave(e.target), true);
+        // 有弹框时拦截整页刷新（下拉刷新、误触刷新）——弹框里通常正是未提交的表单
+        window.addEventListener('beforeunload', (e) => {
+            if (!App._hasBlockingOverlay()) return;
+            e.preventDefault();
+            e.returnValue = '';
+        });
         const savedUser = localStorage.getItem(USER_KEY);
         const token = localStorage.getItem(TOKEN_KEY);
         if (savedUser && token) {
@@ -1769,6 +1852,8 @@ const App = {
         const main = document.getElementById('mainContent');
         main.innerHTML = `<div class="page active" id="page-${page}">${this.renderPage(page)}</div>`;
         main.scrollTop = 0;
+        // 回填上次未提交的内容（只填当前为空的字段，服务端/OCR 预填的值不会被覆盖）
+        FormDraft.restore(main);
         // 调用页面的 afterRender 异步钩子
         const pageObj = this._getPageObj(page);
         if (pageObj && typeof pageObj.afterRender === 'function') {
@@ -1880,6 +1965,19 @@ const App = {
     openModal(html) {
         document.getElementById('modalContent').innerHTML = html;
         document.getElementById('modalOverlay').classList.add('show');
+        // 回填上次未提交的内容（只填当前为空的字段，OCR 预填的值不会被覆盖）
+        FormDraft.restore(document.getElementById('modalContent'));
+    },
+
+    // 是否有浮层/弹框打开。用于拦截刷新：有未完成的弹框时不允许整页重载。
+    _hasBlockingOverlay() {
+        const overlays = document.querySelectorAll('[id$="Overlay"]');
+        for (const el of overlays) {
+            if (el.classList.contains('show')) return true;           // modalOverlay / dialogOverlay
+            if (getComputedStyle(el).display === 'none') continue;    // 已隐藏的建议类浮层
+            if (el.innerHTML && el.innerHTML.trim()) return true;     // imageViewerOverlay 靠 innerHTML 填充
+        }
+        return false;
     },
 
     closeModal() {
@@ -2043,17 +2141,17 @@ const App = {
 
     // 调起相机/相册选择图片
     // source: 'camera' 直接拍照；'album' 从相册选择；默认让系统选择
+    // 拍照识别每次只取一张：多选会让多张图片的 OCR 文本拼接在一起，导致类型判定与字段解析错乱
     _pickImages(source) {
         return new Promise((resolve) => {
             const input = document.createElement('input');
             input.type = 'file';
             input.accept = 'image/*';
             if (source === 'camera') input.capture = 'environment';
-            input.multiple = true;
             input.style.display = 'none';
             document.body.appendChild(input);
             input.addEventListener('change', () => {
-                const files = Array.from(input.files || []);
+                const files = Array.from(input.files || []).slice(0, 1);
                 if (input.parentNode) document.body.removeChild(input);
                 resolve(files);
             }, { once: true });
@@ -2397,6 +2495,7 @@ const App = {
                 fileIds,
                 ocrText: document.getElementById('ocrRawText')?.value || undefined,
             });
+            FormDraft.clear(document.getElementById('modalContent'));
             this.closeModal();
             this.toast('保存成功');
             if (this.state.currentPage === 'records' || this.state.currentPage === 'home') this.switchPage(this.state.currentPage);
@@ -2701,6 +2800,7 @@ const App = {
                     sourcePrescriptionId: prescriptionId,
                 });
             }
+            FormDraft.clear(document.getElementById('modalContent'));
             this.closeModal();
             this.toast(`处方已保存（${medsToSave.length} 个药品）`);
             if (this.state.currentPage === 'home') this.switchPage('home');
@@ -2742,6 +2842,7 @@ const App = {
                 note: document.getElementById('ocr-drug-note')?.value || '',
                 fileIds,
             });
+            FormDraft.clear(document.getElementById('modalContent'));
             this.closeModal();
             this.toast('药品已录入药箱');
             if (this.state.currentPage === 'pharmacy') this.switchPage('pharmacy');
@@ -2950,6 +3051,7 @@ const App = {
                 status: 'active',
                 fileIds: fileIds.length > 0 ? fileIds : undefined,
             });
+            FormDraft.clearHere(document.getElementById('medName'));
             this.toast('添加成功');
             this.goBack();
         } catch (err) { this.toast(err.message); }
@@ -3137,6 +3239,7 @@ const App = {
                     chiefComplaint: document.getElementById('recordComplaint').value,
                     fileIds: fileIds.length > 0 ? fileIds : undefined,
                 });
+                FormDraft.clearHere(document.getElementById('recordElderId'));
                 this.toast('添加成功');
                 this.goBack();
             } catch (err) { this.toast(err.message); }
@@ -3183,6 +3286,7 @@ const App = {
                 note: document.getElementById('drugNote').value,
                 fileIds: fileIds.length > 0 ? fileIds : undefined,
             });
+            FormDraft.clearHere(document.getElementById('drugName'));
             this.toast('添加成功');
             this.goBack();
         } catch (err) { this.toast(err.message); }

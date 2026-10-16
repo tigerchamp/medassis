@@ -454,7 +454,10 @@ async function getChronicMeds(req, res) {
 
     // 简单 LEFT JOIN：chronic_medications 本身有 family_id 做权限隔离
     // 不在 ON 子句放 familyAccessFilter，避免权限不匹配时 di.* 全 null 被丢弃
-    let sql = `SELECT cm.id as cm_id, cm.drug_inventory_id, cm.drug_code, cm.drug_name, cm.sort_order, cm.elder_id,
+    // elder_id 分别取别名：cm.elder_id 是"为谁设置的"，di.elder_id 是"库存归谁"，
+    // di.* 会覆盖同名字段，不区分别名会拿错
+    let sql = `SELECT cm.id as cm_id, cm.drug_inventory_id, cm.drug_code, cm.drug_name, cm.sort_order,
+            cm.elder_id AS cm_elder_id, di.elder_id AS di_elder_id,
             di.*, d.spec_dosage, d.spec_dosage_unit, d.unit_capacity, d.unit_capacity_unit, d.category, d.type1
      FROM chronic_medications cm
      LEFT JOIN drug_inventory di ON cm.drug_inventory_id = di.id
@@ -472,8 +475,34 @@ async function getChronicMeds(req, res) {
 
     const [rows] = await getPool().query(sql, params);
 
+    // 聚合全家庭的库存行：同一个药可能有多条入库记录（买新药时有效期不同就不会合并），
+    // 倒计时必须按"该服药人名下所有同药入库记录的余量合计"来算，否则永远读的是最初那一条。
+    const agg = await _aggregateInventory(getPool(), familyId);
+
     const chronicList = [];
+    const seenDrug = new Set();
     rows.forEach(r => {
+      const elderKey = r.cm_elder_id || r.di_elder_id || '__none__';
+      const drugKey = r.drug_code ? `CODE__${r.drug_code}` : `NAME__${r.drug_name || ''}`;
+      // 同一个药被勾选了多条入库记录时只保留一条，避免倒计时卡片重复且数量翻倍
+      const dedupeKey = `${drugKey}||${elderKey}`;
+      if (seenDrug.has(dedupeKey)) return;
+      seenDrug.add(dedupeKey);
+
+      // 用聚合值覆盖单条库存行的 quantity / expiryDate / status
+      const a = agg.get(dedupeKey);
+      if (a) {
+        if (a.quantity != null) r.quantity = a.quantity;
+        if (a.minExpiry) r.expiry_date = a.minExpiry;
+        if (a.minExpiry) {
+          const today = new Date(); today.setHours(0, 0, 0, 0);
+          const exp = new Date(a.minExpiry); exp.setHours(0, 0, 0, 0);
+          if (exp < today) r.status = 'expired';
+          else if (exp <= new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000)) r.status = 'expiring_soon';
+          else r.status = 'valid';
+        }
+      }
+
       // 即使 drug_inventory 被删除（di.id 为 null），也返回 chronic 记录，用 cm.drug_name 兜底
       const hasInv = !!r.id;
       chronicList.push({
@@ -481,7 +510,7 @@ async function getChronicMeds(req, res) {
         drugInventoryId: r.drug_inventory_id,
         drugCode: r.drug_code,
         drugName: r.drug_name,
-        elderId: r.elder_id || null,
+        elderId: r.cm_elder_id || r.di_elder_id || null,
         sortOrder: r.sort_order,
         drug: hasInv ? formatDrug(r) : {
           id: r.drug_inventory_id,
@@ -614,6 +643,41 @@ async function saveChronicMeds(req, res) {
     console.error('Save chronic meds error:', err);
     res.status(500).json({ error: '保存长期用药失败' });
   }
+}
+
+/**
+ * 把家庭内所有库存行按「药品 + 服药人」聚合，返回余量合计与最近有效期。
+ *
+ * 同一个药常有多条入库记录：addDrug 只在 drug_code + expiry_date + elder_id 三者全同时才合并，
+ * 买新药时有效期几乎必然不同，于是新建一条。倒计时若只读某一条，数量永远不涨（一直显示 0 天）。
+ * 口径与 getDrugs 保持一致：余量 = remaining_quantity，为 NULL 时退回 quantity。
+ *
+ * @returns {Map<string, {quantity:number, minExpiry:string|null}>}
+ *          key = `${drug_code 或 name}||${elder_id 或 '__none__'}`
+ */
+async function _aggregateInventory(pool, familyId) {
+  const access = familyAccessFilter(familyId, 'di.');
+  const [rows] = await pool.query(
+    `SELECT di.drug_code, di.name, di.elder_id, di.quantity, di.remaining_quantity, di.expiry_date
+     FROM drug_inventory di
+     WHERE (${access.sql})`,
+    access.params
+  );
+  const map = new Map();
+  for (const r of rows) {
+    const drugKey = r.drug_code ? `CODE__${r.drug_code}` : `NAME__${r.name || ''}`;
+    const key = `${drugKey}||${r.elder_id || '__none__'}`;
+    if (!map.has(key)) map.set(key, { quantity: 0, minExpiry: null });
+    const g = map.get(key);
+    const remain = r.remaining_quantity != null ? Number(r.remaining_quantity) : Number(r.quantity || 0);
+    g.quantity += Math.max(0, remain);
+    // 只统计还有余量的记录，已吃完的旧批次不该占用"最近有效期"
+    if (remain > 0 && r.expiry_date) {
+      const expStr = fmtDate(r.expiry_date);
+      if (expStr && (!g.minExpiry || expStr < g.minExpiry)) g.minExpiry = expStr;
+    }
+  }
+  return map;
 }
 
 /**

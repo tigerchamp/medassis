@@ -184,8 +184,32 @@ function extractDoctor(text) {
   return '';
 }
 
-// 收集某关键词所在行及其后续行，直到遇到下一个【标签】或结束标志（用于多行内容如"处置"区块）
-function extractBlock(text, keywords) {
+// 病历正文的段落标签：收集某个字段的内容时，遇到下一个标签就停止。
+// 之前只认【】标签和"医师签名/发药"这类页脚，而普通门诊病历没有这些，
+// 于是"主诉"会把后面的现病史、查体、诊断、处置一路吸收到结尾。
+const SECTION_LABEL_RE = /^\s*(主诉|现病史|既往史|过敏史|家族史|个人史|月经史|婚育史|生育史|流行病学史|体格检查|专科检查|辅助检查|检查|检验|化验|影像|诊断|初步诊断|临床诊断|中医诊断|西医诊断|处理意见|处理|处置|医嘱|治疗方案|治疗措施|治则治法|建议|健康指导|健康问题|评价|计划|客观资料|主观资料|西药方|中药方|处方|医生|医师|签名|备注|复诊|随诊|中医四诊|诊查)/;
+// 用法/用量单独拆出来：医嘱本身就包含用法用量，不能在遇到"用法："时就停止
+const USAGE_LABEL_RE = /^\s*(用法|用量|服法)/;
+
+// 疾病名常见结尾。OCR 常把多个诊断挤在一行、甚至跨行断字（"腰背" / "痛关节炎"），
+// 按结尾词切分后可还原成用顿号分隔的多个病名。
+const DISEASE_SUFFIX = '(?:综合征|功能不全|狭窄|突出|增生|结石|积液|梗塞|梗死|衰竭|减退|亢进|溃疡|结核|感染|贫血|畸形|损伤|障碍|痛|炎|症|病|证|瘤|癌)';
+// 切分点：结尾词后紧跟另一个汉字，且该汉字不是连接词——否则会把
+// "腰椎间盘突出伴坐骨神经痛" 这类本身就是一个病名的写法切碎
+const DISEASE_SPLIT_RE = new RegExp(`(${DISEASE_SUFFIX})(?=[\\u4e00-\\u9fa5])(?![伴合并或与型性])`, 'g');
+
+// 把挤在一起的病名串切成"病名A、病名B"
+function splitDiseases(s) {
+  if (!s) return '';
+  const marked = s.replace(DISEASE_SPLIT_RE, (m) => m + '\u0001');
+  return marked.split('\u0001').map(x => x.trim()).filter(Boolean).join('、');
+}
+
+// 收集某关键词所在行及其后续行，直到遇到下一个【标签】/段落标签或结束标志
+// （用于多行内容如"处置"区块）
+// opts.allowUsage = true 时不在"用法/用量"处停止（医嘱本身要包含用法用量）
+function extractBlock(text, keywords, opts) {
+  const allowUsage = !!(opts && opts.allowUsage);
   const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
   const stopRe = /^[【\[][^】\]]*[】\]]/;          // 下一个【标签】
   const endRe = /(医师签名|医师签字|签章|第\s*\d+\s*页|共\s*\d+\s*页|审核|调配|核对|发药)/;
@@ -198,6 +222,8 @@ function extractBlock(text, keywords) {
     for (let j = i + 1; j < lines.length; j++) {
       const nl = lines[j];
       if (stopRe.test(nl) || endRe.test(nl)) break;
+      if (SECTION_LABEL_RE.test(nl)) break;
+      if (!allowUsage && USAGE_LABEL_RE.test(nl)) break;
       // 跳过 <西药> </西药> <中药> 等分类标签
       if (/^<\/?[^>]+>$/.test(nl)) continue;
       parts.push(nl);
@@ -265,14 +291,18 @@ function findMetrics(text) {
 // 解决"诊断："后整段内容（含药品、用法、医师签名）被当作诊断的问题
 function extractDiagnosis(text) {
   const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-  const startKws = ['初步诊断', '临床诊断', '诊断'];  // 长关键字优先
+  // 要求该行以诊断标签开头（"诊断：" / "初步诊断："…），不能只判断"包含诊断"：
+  // "辅助检查：详见诊断报告。" 这类行会被误当成诊断起始行，导致真正的诊断区被跳过
+  const diagLabelRe = /^\s*(初步诊断|临床诊断|中医诊断|西医诊断|诊断意见|诊断结果|诊断)\s*[:：]?/;
 
-  // 找到诊断关键字所在行
   let startIdx = -1;
   for (let i = 0; i < lines.length; i++) {
-    if (startKws.some(kw => lines[i].includes(kw))) {
-      startIdx = i;
-      break;
+    if (diagLabelRe.test(lines[i])) { startIdx = i; break; }
+  }
+  // 兜底：仍按"包含诊断关键字"再找一次，兼容标签写在行中间的老排版
+  if (startIdx === -1) {
+    for (let i = 0; i < lines.length; i++) {
+      if (/初步诊断|临床诊断|诊断/.test(lines[i])) { startIdx = i; break; }
     }
   }
   if (startIdx === -1) return '';
@@ -286,50 +316,39 @@ function extractDiagnosis(text) {
   const stopRe = /^[【\[][^】\]]*[】\]]/;
   const endRe = /(医师签名|医师签字|主治医师|接诊医生|签章|第\s*\d+\s*页|共\s*\d+\s*页|审核|调配|核对|发药|签名|^R[pP]?(?:[:：]|$)|^处方|^药品|^用法[:：]|^用量|^体重[:：]|^取药|^注[:：]|^过敏试验)/;
 
+  // 遇到下一个段落标签（"健康问题:"/"西药方"…）或用法/用量段就停止，
+  // 否则会把后续的"西药方""中药方""何春"这类短行当成病名收进来
   for (let j = startIdx + 1; j < lines.length; j++) {
     const nl = lines[j];
     if (stopRe.test(nl) || endRe.test(nl)) break;
+    if (SECTION_LABEL_RE.test(nl) || USAGE_LABEL_RE.test(nl)) break;
     if (/^<\/?[^>]+>$/.test(nl)) continue;
     parts.push(nl);
   }
 
-  // 过滤：只保留疾病名称候选
-  // 常见非疾病短词（用法、体征、角色等）
+  // 常见非疾病短词（用法、体征、角色等），防止被当成病名
   const noiseWords = new Set([
     '口服', '外用', '静注', '静滴', '肌注', '皮下', '含服', '吸入', '静脉', '肌内',
     '医师', '医生', '护士', '药师', '签名', '签章', '注', '处方', '医嘱', '主诉',
     '病史', '体温', '血压', '脉搏', '呼吸', '心率', '体重', '身高', '复诊', '随访',
-    '建议', '嘱', 'Rp', 'R'
+    '建议', '嘱', 'Rp', 'R', '西药方', '中药方', '健康指导'
   ]);
-  // 药品/剂型后缀
-  const drugSuffix = /(片|丸|胶囊|口服液|注射液|颗粒|分散片|糖浆|滴丸|软膏|乳膏|气雾剂|喷剂|含片|栓|溶液|散|合剂|露|茶|贴|膏|滴剂|冲剂|瓶|盒|袋|支|次|日|周|月|年)$/i;
-  // 位置/流程词
-  const locationRe = /(楼|层|位置|门诊|病房|窗口|大厅|药房|取药|收费|挂号)/;
 
+  // 只保留"纯中文 + 数字 + 连字符"的候选：滤掉键值行（xxx：yyy）、
+  // 药品行（含 [] / . / 拉丁字母）、用量行。
+  // 不再限制长度——"腰椎间盘突出伴神经根病" 这类长病名会被长度过滤掉。
   const candidates = [];
   for (const p of parts) {
     const s = p.trim();
-    if (!s) continue;
-    // 跳过含分隔符的标签行（身份:xxx、体重：等）
-    if (/[:：、，,。.（()()\[\]【】\/\\]/.test(s)) continue;
-    // 跳过纯数字/编号
-    if (/^\d+$/.test(s)) continue;
-    // 跳过含拉丁字母的（R、Rp、100ml 等）
-    if (/[a-zA-Z]/.test(s)) continue;
-    // 长度限制：2-8个字符
-    if (s.length < 2 || s.length > 8) continue;
-    // 必须为中文（允许含数字，如 2型糖尿病）
-    if (!/^[\u4e00-\u9fa5\d]+$/.test(s)) continue;
-    // 跳过噪声词
+    if (s.length < 2) continue;
     if (noiseWords.has(s)) continue;
-    // 跳过药品/剂型后缀
-    if (drugSuffix.test(s)) continue;
-    // 跳过位置词
-    if (locationRe.test(s)) continue;
+    if (!/^[\u4e00-\u9fa5\d\-－]+$/.test(s)) continue;
     candidates.push(s);
   }
+  if (!candidates.length) return '';
 
-  return candidates.join('、');
+  // 多个诊断常被挤在一行、甚至跨行断字（"腰背" / "痛关节炎"），先拼接再按疾病结尾词切分
+  return splitDiseases(candidates.join(''));
 }
 
 function parseRecord(text) {
@@ -340,7 +359,8 @@ function parseRecord(text) {
     diagnosis: extractDiagnosis(text) || '',
     chiefComplaint: extractBlock(text, ['主诉']) || '',
     // 无"医嘱"时用"处置"等区块内容代替（多行药品/用法文本）
-    orders: extractBlock(text, ['医嘱', '处置', '处理', '处理意见', '治疗方案', '建议', 'Rp']) || '',
+    // allowUsage：医嘱本身要包含"用法：…"这些行，不在用法处停止
+    orders: extractBlock(text, ['医嘱', '处置', '处理', '处理意见', '治疗方案', '建议', 'Rp'], { allowUsage: true }) || '',
     doctor: extractDoctor(text),
     metrics: findMetrics(text)
   };

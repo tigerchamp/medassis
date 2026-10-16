@@ -2714,6 +2714,14 @@ const PageAddDrug = {
             <button style="background:none;border:none;cursor:pointer;font-size:20px;color:#2b7a78;margin-left:auto;padding:8px;" onclick="App.startScan('药品')" title="拍照识别"><i class="fas fa-camera"></i></button>
         </div>
         <div class="card">
+            <div class="form-group" style="background:#f0f7ff;border-radius:8px;padding:10px;border:1px dashed #2b7a78;position:relative;">
+                <label style="font-size:13px;color:#2b7a78;display:flex;align-items:center;gap:4px;"><i class="fas fa-paste"></i> 粘贴文本自动识别</label>
+                <textarea id="drugPasteBox" placeholder="将药盒/说明书上的文字粘贴到此处，自动识别并填写药品字段" style="width:100%;min-height:50px;max-height:100px;font-size:13px;border:1px solid #ddd;border-radius:6px;padding:8px;box-sizing:border-box;" onpaste="PageAddDrug.onPasteRecognize(event)"></textarea>
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;">
+                    <span style="font-size:11px;color:#94a3b8;">自动识别药名、规格、厂商</span>
+                    <button type="button" onclick="PageAddDrug.onPasteRecognize(null)" style="background:#2b7a78;color:#fff;border:none;border-radius:4px;padding:3px 10px;font-size:12px;cursor:pointer;">识别</button>
+                </div>
+            </div>
             <div class="form-group"><label>服药人 *</label><select id="drugElder">${elderOptions || '<option value="">请先添加家庭成员</option>'}</select></div>
             <div class="form-group"><label>药品名称 *</label><input id="drugName" placeholder="输入名称或拼音首字母（如 SHP）" autocomplete="off" onclick="DrugSuggest.showSuggestions(this)" oninput="DrugSuggest.onInput(this,'drugCodeHidden',{specDosage:'specDosage',specDosageUnit:'specDosageUnit',unitCapacity:'unitCap',unitCapacityUnit:'unitCapUnit',manufacturer:'drugManu'})"><input type="hidden" id="drugCodeHidden"></div>
             <div class="form-group"><label>规格（每片/袋含量） *</label><div style="display:flex;gap:8px"><input id="specDosage" type="number" step="1" min="0" placeholder="如 0.25" style="flex:2"><select id="specDosageUnit" style="flex:1"><option value="g">g</option><option value="mg">mg</option><option value="ml">ml</option><option value="μg">μg</option></select></div></div>
@@ -2729,6 +2737,55 @@ const PageAddDrug = {
 
     afterRender() {
         ImageUploader.init('drugImages');
+    },
+
+    // 粘贴药盒/说明书文本自动识别：event 来自 onpaste，传 null 时从文本框读取（手动点"识别"按钮）
+    async onPasteRecognize(event) {
+        if (this._pasteRecognizing) return;
+        this._pasteRecognizing = true;
+        try {
+            let text;
+            if (event && event.clipboardData) {
+                text = event.clipboardData.getData('text');
+                event.preventDefault();
+                const box = document.getElementById('drugPasteBox');
+                if (box) box.value = text;
+            } else {
+                text = document.getElementById('drugPasteBox')?.value || '';
+            }
+            if (!text || !text.trim()) { App.toast('请粘贴文本内容'); return; }
+
+            App.toast('正在识别...');
+            // 先让后端自动判定；在药品表单里粘贴，意图就是录药品，判定为非药品时按 drug 再解析一次
+            let res = await Api.ocr.parse('auto', text);
+            if (res.detectedType !== 'drug') res = await Api.ocr.parse('drug', text);
+            const p = res.parsed || {};
+
+            const setVal = (id, val) => {
+                if (val == null || val === '') return;
+                const el = document.getElementById(id);
+                if (el) el.value = val;
+            };
+            // 规格/单位容量：数值 + 单位下拉都要填，单位取不到时保持默认
+            setVal('specDosage', p.specDosage);
+            setVal('specDosageUnit', p.specDosageUnit);
+            setVal('unitCap', p.unitCapacity);
+            setVal('unitCapUnit', p.unitCapacityUnit);
+            setVal('drugManu', p.manufacturer);
+            // 药名走 matchAndFill：与药品库精确匹配后会自动补全并置灰规格/厂商，不精确则给出相似项
+            if (p.name) {
+                await DrugSuggest.matchAndFill(document.getElementById('drugName'), p.name, {
+                    specDosage: 'specDosage', specDosageUnit: 'specDosageUnit',
+                    unitCapacity: 'unitCap', unitCapacityUnit: 'unitCapUnit',
+                    manufacturer: 'drugManu'
+                });
+            }
+            App.toast(p.name ? `识别完成：${p.name}` : '识别完成，未识别到药名请手动填写');
+        } catch (err) {
+            App.toast('识别失败: ' + (err.message || ''));
+        } finally {
+            this._pasteRecognizing = false;
+        }
     }
 };
 
