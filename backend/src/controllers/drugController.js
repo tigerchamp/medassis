@@ -869,7 +869,10 @@ module.exports = {
   updateInventoryItem,
   autoConsume,
   getChronicMeds,
-  saveChronicMeds
+  saveChronicMeds,
+  // 内部函数，导出仅供 backend/test 回归测试使用
+  _aggregateInventory,
+  _syncMedicationPlans
 };
 
 // 更新单条入库记录（有效期/余量）

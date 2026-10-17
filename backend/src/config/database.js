@@ -973,4 +973,12 @@ function getPool() {
   return pool;
 }
 
-module.exports = { getPool, checkDatabase, initDatabase, rebuildDatabase };
+// 关闭全部连接池：测试收尾用，否则 node:test 子进程不退出、挂到超时判失败
+async function closeAll() {
+  await Promise.allSettled([
+    pool ? pool.end() : Promise.resolve(),
+    basePool.end()
+  ]);
+}
+
+module.exports = { getPool, checkDatabase, initDatabase, rebuildDatabase, closeAll };
