@@ -3,8 +3,11 @@
 > 用途：每次改动后，**对照「改动 → 应跑用例」映射表**，把相关模块的用例跑一遍，
 > 避免「修一个 bug 带出新问题」。
 >
-> 自动化入口：`cd backend && npm test`（Node 内置 `node:test`，零依赖，离线可跑）
+> 自动化入口：`cd backend && npm test`（Node 内置 `node:test`，零依赖、离线可跑）
 > 集成用例需要 MySQL；MySQL 不可用时会自动 **skip**（不会误报失败）。
+>
+> 相关文档：`MODULES.md`（各模块设计意图与易踩坑，**改动前必读**）、
+> `TECHNICAL.md`（结构/接口/表）、`TODO.md`（待办）。
 
 ---
 

@@ -1,84 +1,101 @@
-# 家庭健康助手 - 部署说明
+# 家庭健康助手
 
-📦 目录结构（已就绪，可直接拖入 Netlify Drop）：
+面向家庭的移动端健康管理 Web 应用：**原生前端 SPA + Node/Express 后端 + MySQL + MinIO + 百度 OCR**。
+
+## 📁 目录结构
 
 ```
 /
-├── index.html          主页面（移动端 SPA）
-├── netlify.toml        Netlify 部署配置（含安全 headers）
-├── README.md           本说明文件
-├── css/
-│   └── style.css       移动端样式（绿色主题）
-└── js/
-    ├── storage.js      数据持久化（localStorage）
-    ├── ocr.js          OCR 识别模块
-    └── app.js          主应用逻辑（路由 + 页面）
+├── index.html          前端入口（移动端 SPA）
+├── netlify.toml        Netlify 部署配置
+├── css/style.css       样式
+├── js/
+│   ├── app.js          应用主控制器（路由、状态、模态、表单草稿）
+│   ├── pages.js        所有页面组件（render + afterRender）
+│   ├── api.js          API 服务层（封装 fetch，自动带 JWT）
+│   └── storage.js      本地存储兼容层（早期无后端模式遗留）
+├── backend/
+│   ├── src/
+│   │   ├── index.js          Express 入口
+│   │   ├── config/           数据库（MySQL 连接池 + 建表/迁移）
+│   │   ├── controllers/      业务逻辑
+│   │   ├── routes/           路由
+│   │   ├── services/         MinIO / OCR / 药品说明书
+│   │   ├── utils/            家庭组权限、实体文件、药品库、拼音
+│   │   └── mock/             Mock 模式内存数据库
+│   ├── test/                 回归测试（node --test）
+│   ├── init.sql
+│   └── .env                  （不入库，参考 .env.example）
+├── MODULES.md          模块功能说明：设计意图 + 易踩坑（改动前必读）
+├── TECHNICAL.md        技术文档：结构 / 接口 / 表结构
+├── TESTCASES.md        测试用例 + 「改动 → 应跑用例」映射
+├── SRS-家庭健康助手.md  原始需求
+└── TODO.md             待办
 ```
 
-## 🚀 部署方式
+## 🚀 启动
 
-### 方式 1：Netlify Drop（最省事，零配置）
-1. 把本文件夹在本地电脑上准备好
-2. 用浏览器打开：https://app.netlify.com/drop
-3. 把本文件夹整个拖进去
-4. 几秒后获得一个形如 `https://xxx-xxx.netlify.app` 的网址
-5. 用手机浏览器打开该网址即可
-
-### 方式 2：Netlify CLI（适合会用命令行）
-```bash
-# 1. 安装 Netlify CLI
-npm install -g netlify-cli
-
-# 2. 登录（会跳浏览器授权）
-netlify login
-
-# 3. 在本目录执行
-netlify deploy --prod
-
-# 4. 生成的网址在输出的 "Website Draft URL" / "Unique Deploy URL" 中
-```
-
-### 方式 3：GitHub + Netlify 持续部署
-1. 把本目录推送到 GitHub 仓库
-2. 登录 https://app.netlify.com → "Add new site" → "Import an existing project"
-3. 选择仓库，Build command 留空，Publish directory 填 `./`
-4. 发布即可，之后每次 push 到 main 都会自动更新
-
-## 📱 访问说明
-
-- 手机/电脑浏览器均可访问
-- 首次打开即自动载入示例数据（张爷爷/李奶奶，含病历与用药）
-- 数据保存在**您的浏览器**（localStorage），不会上传到任何服务器
-- 建议用 Chrome / Safari / 微信自带浏览器访问（iOS Safari 已测试兼容）
-
-## 🔧 功能清单（对照 SRS）
-
-| 模块 | 功能 | 状态 |
-|------|------|------|
-| 老人档案 | 姓名/年龄/性别/血型/过敏史/基础疾病/联系电话 | ✅ |
-| 病历管理 | 就诊日期/医院/科室/诊断/主诉/检查指标/医嘱 | ✅ |
-| OCR 识别 | 病历/药方/检查单三种类型智能识别 + 人工校对 | ✅ |
-| 用药清单 | 药名/剂量/频次/时间/疗程 + 潜在冲突警告 + 过敏交叉检查 | ✅ |
-| 健康趋势 | 血压/血糖自动折线图（Canvas 绘制） | ✅ |
-| 服药提醒 | 时间列表 + 手动标记已服 + 浏览器 Notification 推送 | ✅ |
-| 搜索 | 全文检索药名/诊断/老人 | ✅ |
-| 导出 | 健康小结 TXT / 全部数据 JSON | ✅ |
-| 家庭 | 成员管理（主管理员/成员/只读） | ✅ |
-| 设置 | 大字体开关 / 数据清空 / 通知开关 | ✅ |
-| 适老化 | 大按钮、高对比度、短操作路径 | ✅ |
-
-## ⚠️ 注意事项
-
-1. **数据同步**：本应用数据存储在单台设备的浏览器中。如需多设备共享，请接入后端（见 `js/ocr.js` 顶部注释中的接入建议）。
-2. **OCR 说明**：当前 `js/ocr.js` 为演示版，使用模拟数据。如需真实识别，可接入百度/腾讯/阿里云的医疗 OCR API，并替换 `recognize()` 内部实现。
-3. **HTTPS**：Netlify 默认提供 HTTPS，浏览器通知（Notification API）需要 HTTPS 环境才能启用（除了 localhost）。
-
-## 🛠 本地开发
+### 后端
 
 ```bash
-# 任意一个方式都行
-python3 -m http.server 8080
-# 或
-npx http-server -p 8080
-# 然后访问 http://localhost:8080
+cd backend
+npm install
+cp .env.example .env      # 填 DB_* / JWT / MinIO / 百度 OCR 密钥
+npm run dev               # 开发模式（热重载），默认 :3000
 ```
+
+可选参数：
+
+```bash
+node src/index.js --init      # 首次初始化数据库
+node src/index.js --mock      # Mock 模式（内存数据库，无需 MySQL）
+node src/index.js --rebuild   # 重建数据库（清空数据）
+```
+
+### 前端
+
+前端通过 `js/api.js` 里的 `API_BASE` 访问后端。用静态服务器打开即可：
+
+```bash
+npx http-server -p 8080       # 然后访问 http://localhost:8080
+```
+
+## 🗄 数据库
+
+MySQL 不在本机，在远程 `82.157.202.113`，需先开 SSH 隧道：
+
+```bash
+ssh -L 3306:127.0.0.1:3306 ubuntu@82.157.202.113 -N
+```
+
+## 🧪 测试
+
+```bash
+cd backend
+npm test
+```
+
+- 用 Node 内置 `node:test`，**零依赖、离线可跑**
+- 集成用例需要 MySQL；连不上时**自动 skip**，不会误报失败
+- 改动后按 `TESTCASES.md` 的「改动 → 应跑用例映射表」跑相关模块
+
+## 📱 功能
+
+| 模块 | 说明 |
+|------|------|
+| 成员与家庭组 | 多成员、多家庭组切换、成员间编辑授权 |
+| 病历 / 检查报告 / 处方 | 记录 CRUD、关联病历、附件 |
+| 拍照 / 粘贴 OCR | 自动判定类型（病历/报告/处方/药品）并解析字段 |
+| 用药计划 | 剂量 + 频次 + 服药时间、服药日志、结束/删除、历史归档 |
+| 药箱 | 库存按药聚合 + 按服药人拆分、余量消耗、过期预警 |
+| 长期用药 | 勾选后驱动首页开药倒计时，并自动联动用药计划 |
+| 药品库 | 12.9 万条参考数据，按 名称+规格+容量+厂商 综合匹配 |
+| 留言反馈 | Bug / 建议、点赞、评论 |
+
+## ⚠️ 改动须知
+
+**改任何模块前，先读 `MODULES.md` 对应章节**——里面记的是"当初为什么这么设计"
+和"改这里会炸什么"。改完同步更新该文档，并跑 `TESTCASES.md` 里对应的用例。
+
+自动化测不到的前端行为（拍照单张限制、下拉刷新手势、表单草稿回填）
+需要手工验证，见 `TESTCASES.md` 的 M7 部分。

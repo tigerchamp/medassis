@@ -66,10 +66,29 @@ medassis/
 │   │   │   └── pinyin.js       # 拼音首字母
 │   │   └── mock/
 │   │       └── fakePool.js  # Mock 模式内存数据库
+│   ├── test/               # 回归测试（Node 内置 node:test，零依赖）
+│   │   ├── ocr.test.js         # 类型判定 / 病历 / 处方 / 药盒解析
+│   │   ├── drugLibrary.test.js # 归一化与综合评分
+│   │   ├── chronic.test.js     # 集成用例（需要 MySQL，事务回滚）
+│   │   ├── ocr_samples.js      # 真实病历/处方/药盒样本与期望值
+│   │   └── helpers/db.js       # 测试库连接助手（不可用时自动 skip）
 │   ├── init.sql            # 数据库建表脚本
 │   └── package.json
+├── MODULES.md              # 模块功能说明：设计意图 + 易踩坑（改动必读）
+├── TESTCASES.md            # 测试用例 + 「改动 → 应跑用例」映射
+├── TODO.md                 # 待办（每次改动后自跑相关用例）
 └── Dockerfile / docker-compose.yml
 ```
+
+### 文档之间的分工
+
+| 文档 | 回答什么 |
+|------|---------|
+| `MODULES.md` | **为什么**这么设计、改这里会炸什么（改动前必读） |
+| `TECHNICAL.md` | 代码结构、接口、表结构（怎么写） |
+| `TESTCASES.md` | 用例索引、改了哪里该跑哪些 |
+| `SRS-家庭健康助手.md` | 原始需求 |
+| `TODO.md` | 待办 |
 
 ---
 
@@ -446,9 +465,22 @@ WHERE prefix.family_id = ?
     → 保存 → Api.drugs.saveChronic(ids, elderId)
           # POST /api/drugs/chronic/save
           后端：全量覆盖写入 chronic_medications 表
-          - 删除旧记录，批量插入新记录
+          - 先读出旧集合求差值，删除旧记录，批量插入新记录
           - 关联 elder_id（当前成员）
+          - 返回 { chronicMeds, planSync }
 ```
+
+**保存时自动联动「用药计划」**（`_syncMedicationPlans`，详见 `MODULES.md` M3）：
+
+| 操作 | 行为 |
+|------|------|
+| 新勾选，存在 `ended` 计划 | 恢复（`status=active`, `end_date=NULL`） |
+| 新勾选，存在 `active` 计划 | 不动（幂等） |
+| 新勾选，无历史计划 | 新建「早上一次、每次 1 个单位剂量」，`note` 提示用法用量待核对 |
+| 取消勾选 | 该成员名下匹配的 `active` 计划 → `ended` + `end_date=CURDATE()` |
+
+> 联动**直接写 `medications` 表**，不走 `addMedication`——后者内部的
+> `_syncToDrugInventory()` 会给已有库存数量 +1，勾一盒药库存就凭空多一盒。
 
 ---
 
@@ -545,6 +577,10 @@ WHERE prefix.family_id = ?
 | drug_inventory_id | 关联药箱记录 |
 | drug_code / drug_name | 药品信息（冗余） |
 
+> 粒度：`UNIQUE(user_id, drug_inventory_id)`。
+> `DELETE` 用的是 `user_id + family_id`（**跨 elder**，既有行为）；
+> 用药计划联动则严格限定在当前 `elderId` 名下。详见 `MODULES.md` M3。
+
 ### 7.9 drugs - 药品库（参考数据表）
 | 字段 | 说明 |
 |------|------|
@@ -622,10 +658,34 @@ node src/index.js --rebuild  # 重建数据库（清空数据）
 3. 在 `backend/src/index.js` 中注册路由：`app.use('/api/xxx', xxxRoutes)`
 4. 在 `js/api.js` 中添加前端调用方法
 
-### 8.4 调试技巧
+### 8.4 跑测试
+
+```bash
+cd backend
+npm test                 # node --test test/*.test.js（零依赖，离线可跑）
+```
+
+- 集成用例需要 MySQL。本机 3306 不通时**自动 skip**，不会误报失败。
+- 数据库在远程，需先开 SSH 隧道：
+
+```bash
+ssh -L 3306:127.0.0.1:3306 ubuntu@82.157.202.113 -N
+```
+
+- 改动后按 `TESTCASES.md` 的「改动 → 应跑用例映射表」跑相关模块，再汇报结果。
+
+### 8.5 调试技巧
 
 - **Mock 模式**：`node src/index.js --mock` 启动，使用内存数据库，无需 MySQL
 - **SQL 调试**：在 controller 中 `console.log(sql, params)` 查看实际 SQL
 - **前端调试**：浏览器 DevTools Network 面板查看 API 请求/响应
 - **家庭组切换**：请求头 `family-id` 控制当前查询的家庭组
 - **文件上传**：文件 ID 存储在 `drug_inventory.files`/`records.files` JSON 字段中
+
+### 8.6 改动前的自检清单
+
+1. 读 `MODULES.md` 里对应模块的「设计意图」和「易踩坑」——那些约束不是随便定的
+2. 读该模块的需求（`SRS-家庭健康助手.md` 相关章节）和现有代码
+3. 改完同步更新 `MODULES.md`（设计变了）/`TECHNICAL.md`（结构变了）
+4. 跑 `TESTCASES.md` 里对应的用例
+5. 自动化测不到的前端行为（OCR 单张、下拉刷新、草稿回填）要提示用户手工验
