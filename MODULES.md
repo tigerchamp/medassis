@@ -205,6 +205,24 @@
 - 拍照识别**每次只 1 张**（多张 OCR 文本拼接会导致类型判定与字段解析错乱）；
   附件上传 `/api/upload` **不受此限制**，仍可多张。
 - 剂量单位支持中文写法（克/毫克/毫升），药盒常印"20克装"。
+---
+## M6.1 · 就诊记录与自动关联（`recordController` + `js/app.js` 关联逻辑）
+
+**职责**：病历 / 检查报告 / 处方 / 药方 四类记录的存取，以及把报告、处方**自动挂到已有的同次就诊病历**上（`records.related_record_id`）。
+
+**设计意图**
+- 一次就诊会产生多份单据（病历 + 报告 + 处方）。用户只勾一次「关联病历」，后面的报告/处方按 就诊日期 + 医院 + 科室 + 医生 自动归到同一条病历下，病历详情里能一次看到当次就诊的全部单据。
+- 匹配口径：**就诊日期 + 科室是必要条件**；医院 / 医生**允许缺失**（缺失则不参与比较）。这是为了防止 OCR 少解析出一个字段就让整个自动关联静默失效。
+- 判定三步：先按 日期+科室(+医生) 缩小候选 → 再逐个做医院名归一比较（`_isSameHospital` 支持简称/别名）→ 最后候选唯一时兜底关联。
+
+**易踩坑**
+- **医生不能当硬条件**。处方笺「医师签名」通常只印姓氏（如「王」），而病历记录的 `doctor` 常常为空 —— 一旦要求两边相等，候选会被整条筛掉，表现为「明明有当天的病历却关联不上」，且不报错，静默新建出一条重复病历。现在是：任一方为空就不参与比较；两边都有值时允许「姓氏 与 全名」的包含关系。
+- 报告 / 处方的 **OCR 弹框**与**页面粘贴识别**是两条不同入口，容易只改一处。两条都必须走同一个 `App._autoMatchRelated()`，否则会出现「粘贴识别能关联、拍照识别关联不上」。
+- 弹框里 `_loadRelatedRecords()` 只负责**清空**（切成员时防止残留上一个成员的 ID），自动匹配要另行调用 `_autoMatchRelated()`，且必须排在 `HospitalSuggest/DeptSuggest.matchAndFill` 之后（用归一后的名称去比）。
+- 表单打开时已自动关联 → 保存时 `relatedId` 非空 → 不会重复弹提示，保存时的 `_ensureRelatedRecord()` 也不会再新建病历。
+
+**涉及文件**：`backend/src/controllers/recordController.js`、`js/app.js`（`filterRecordCandidates` / `_findMatchingRecord` / `_autoMatchRelated` / `_onOcrElderChange`）、`js/pages.js`（`_tryAutoMatchRelatedRecord`）。
+
 
 ---
 
@@ -271,4 +289,6 @@
 | `drugController.js` | M2、M3 | M5 联动 / M6 倒计时 |
 | `medicationController.js` | M4 | M5；并确认没走 `addMedication` 同步库存 |
 | `js/pages.js` 用药计划 | M4（48 小时规则） | M7 手工 |
+| `js/app.js` 自动关联病历 / `recordController.js` | M6.1（医生不能当硬条件、两条入口要共用） | M8 |
+| `js/pages.js` 粘贴识别 | M6.1 | M8 |
 | `js/app.js` 草稿/刷新 | M7 | M7 手工（自动化测不到） |

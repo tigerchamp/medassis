@@ -1595,6 +1595,40 @@ const CalendarPicker = {
 };
 
 // ========== 应用主体 ==========
+// ========== 就诊记录自动关联（纯逻辑，供回归测试 eval 提取） ==========
+// 按「就诊日期 + 科室(+医生)」缩小候选病历。
+// 医生：任一方缺失即不参与比较 —— OCR 常漏解析医生，或只解析出姓氏，
+// 若当作硬条件会把本可关联的病历整条筛掉（M1 回归点）。
+function filterRecordCandidates(records, visitDate, department, doctor) {
+  const norm = (s) => String(s == null ? '' : s).replace(/\s+/g, '').trim();
+  const vd = norm(visitDate);
+  const dept = norm(department);
+  const doc = norm(doctor);
+  if (!vd || !dept) return [];
+  // 姓氏 vs 全名也算同一个人（处方笺只印姓氏「王」，病历里可能记全名）
+  const sameDoctor = (a, b) => a === b || a.startsWith(b) || b.startsWith(a);
+  return (records || []).filter(r =>
+    norm(r.visitDate) === vd &&
+    norm(r.department) === dept &&
+    (!doc || !norm(r.doctor) || sameDoctor(norm(r.doctor), doc))
+  );
+}
+
+// OCR 报告 / 处方 弹框里「关联病历」相关字段的 id 映射
+// 两个表单字段命名不同，集中在一处避免散落各处时改漏
+const OCR_RELATED_IDS = {
+  report: {
+    elderId: 'ocr-record-elder', dateId: 'ocr-record-date',
+    hospId: 'ocr-hospital', deptId: 'ocr-department', doctorId: 'ocr-doctor',
+    hiddenId: 'ocr-record-related'
+  },
+  prescription: {
+    elderId: 'ocr-med-elder', dateId: 'ocr-med-visitdate',
+    hospId: 'ocr-med-hospital', deptId: 'ocr-med-dept', doctorId: 'ocr-med-doctor',
+    hiddenId: 'ocr-med-related'
+  }
+};
+
 const App = {
     state: {
         currentPage: 'login',
@@ -2307,7 +2341,7 @@ const App = {
                 </div>
                 ${thumbsHtml}
                 ${ocrTextHtml}
-                <div class="form-group"><label>关联成员</label><select id="ocr-record-elder" onchange="App._loadRelatedRecords(this.value,'ocr-record-related')">${this._memberOptions()}</select></div>
+                <div class="form-group"><label>关联成员</label><select id="ocr-record-elder" onchange="App._onOcrElderChange(this,'report')">${this._memberOptions()}</select></div>
                 <div class="form-group"><label>类型</label><select id="ocr-record-type"><option>病历</option><option selected>检查报告</option></select></div>
                 <div class="form-group"><label>检查日期</label><input id="ocr-record-date" type="text" readonly value="${parsed.visitDate || today}" onclick="CalendarPicker.attach(this,{max:'today'})" placeholder="点击选择日期" style="background:#fff;"></div>
                 <div class="form-group"><label>医院 *</label><input id="ocr-hospital" value="${this._escAttr(parsed.hospital)}" placeholder="如：市中心医院" onclick="HospitalSuggest.showSuggestions(this)" oninput="HospitalSuggest.onInput(this)"></div>
@@ -2324,7 +2358,10 @@ const App = {
             if (parsed.hospital) HospitalSuggest.matchAndFill(document.getElementById('ocr-hospital'), parsed.hospital);
             if (parsed.department) DeptSuggest.matchAndFill(document.getElementById('ocr-department'), parsed.department);
             const initElder2 = document.getElementById('ocr-record-elder')?.value;
-            if (initElder2) this._loadRelatedRecords(initElder2, 'ocr-record-related');
+            if (initElder2) {
+                this._loadRelatedRecords(initElder2, 'ocr-record-related');
+                this._autoMatchRelated(OCR_RELATED_IDS.report);
+            }
         } else if (type === '处方') {
             const meds = (parsed.medications && parsed.medications.length) ? parsed.medications : [{ name: '', dose: '', frequency: '每日1次', note: '' }];
             const specUnitOpts = ['g', 'mg', 'ml', 'μg'];
@@ -2362,7 +2399,7 @@ const App = {
                 </div>
                 ${thumbsHtml}
                 ${ocrTextHtml}
-                <div class="form-group"><label>关联成员</label><select id="ocr-med-elder" onchange="App._loadRelatedRecords(this.value,'ocr-med-related')">${this._memberOptions()}</select></div>
+                <div class="form-group"><label>关联成员</label><select id="ocr-med-elder" onchange="App._onOcrElderChange(this,'prescription')">${this._memberOptions()}</select></div>
                 <div class="form-group"><label>就诊日期</label><input id="ocr-med-visitdate" type="text" readonly value="${this._escAttr(parsed.visitDate || today)}" onclick="CalendarPicker.attach(this,{max:'today'})" placeholder="点击选择日期" style="background:#fff;"></div>
                 <div class="form-group"><label>医院 *</label><input id="ocr-med-hospital" value="${this._escAttr(parsed.hospital)}" placeholder="医院名称" autocomplete="off" onclick="HospitalSuggest.showSuggestions(this)" oninput="HospitalSuggest.onInput(this)"></div>
                 <div class="form-group"><label>科室 *</label><input id="ocr-med-dept" value="${this._escAttr(parsed.department)}" placeholder="科室" autocomplete="off" onclick="DeptSuggest.showSuggestions(this)" oninput="DeptSuggest.onInput(this)"></div>
@@ -2391,9 +2428,12 @@ const App = {
                     await DrugSuggest.matchAndFill(nameInput, meds[i].name, { specDosage: `${p}SpecDosage`, specDosageUnit: `${p}SpecDosageUnit`, unitCapacity: `${p}UnitCap`, unitCapacityUnit: `${p}UnitCapUnit`, manufacturer: `${p}Manu` });
                 }
             }
-            // 加载关联病历选项
+            // 加载关联病历选项，并自动匹配到已有的同次就诊病历
             const initElder = document.getElementById('ocr-med-elder')?.value;
-            if (initElder) this._loadRelatedRecords(initElder, 'ocr-med-related');
+            if (initElder) {
+                this._loadRelatedRecords(initElder, 'ocr-med-related');
+                this._autoMatchRelated(OCR_RELATED_IDS.prescription);
+            }
         } else if (type === '药品') {
             // 规格/单位容量的单位下拉：按 OCR 解析出的单位选中，避免停在默认第一项（g）
             // 未识别到单位时默认 mg / 片——药盒剂量以 mg、包装以片最为常见
@@ -2556,6 +2596,35 @@ const App = {
             PageAddRecord.onRelatedChange('');
         }
     },
+    // 自动匹配「关联病历」并回填 hidden + 显示文本。返回匹配到的病历ID，无匹配返回 ''
+    // ids: { elderId|dateId|hospId|deptId|doctorId|hiddenId }，文本输入框固定为 hiddenId + 'Text'
+    async _autoMatchRelated(ids) {
+        const val = (id) => (document.getElementById(id) || {}).value || '';
+        const hiddenEl = document.getElementById(ids.hiddenId);
+        const textEl = document.getElementById(ids.hiddenId + 'Text');
+        if (!hiddenEl || !textEl) return '';
+        const matchId = await this._findMatchingRecord(
+            val(ids.elderId), val(ids.dateId), val(ids.hospId), val(ids.deptId), val(ids.doctorId)
+        );
+        if (!matchId) return '';
+        hiddenEl.value = matchId;
+        let label = '';
+        try {
+            const res = await Api.records.get(matchId);
+            const rec = res.record || {};
+            label = [rec.visitDate, rec.hospital, rec.department, rec.doctor]
+                .filter(p => p && String(p).trim()).join(' | ');
+        } catch (e) { /* 取详情失败也不影响关联本身，退化成只显示已关联 */ }
+        textEl.value = label || '已关联';
+        return matchId;
+    },
+    // 切换关联成员：先清空（否则会残留上一个成员的病历ID），再按新成员重新自动匹配
+    _onOcrElderChange(sel, kind) {
+        const ids = OCR_RELATED_IDS[kind];
+        if (!ids) return;
+        this._loadRelatedRecords(sel.value, ids.hiddenId);
+        this._autoMatchRelated(ids);
+    },
 
     // 通用确认对话框（返回 Promise<'link'|'new'|'cancel'>）
     // options: { htmlContent: true } 表示 message 为 HTML 内容
@@ -2597,15 +2666,8 @@ const App = {
         try {
             const res = await Api.records.getAll(elderId);
             const records = (res.records || []).filter(r => r.type === '病历');
-            const norm = (s) => String(s == null ? '' : s).replace(/\s+/g, '').trim();
-            const dept = norm(department);
-            const doc = norm(doctor);
             // 先用 就诊日期+科室(+医生) 缩小候选，再逐个做医院名判断，避免逐条去查医院库
-            const candidates = records.filter(r =>
-                r.visitDate === visitDate &&
-                norm(r.department) === dept &&
-                (!doc || norm(r.doctor) === doc)
-            );
+            const candidates = filterRecordCandidates(records, visitDate, department, doctor);
             console.log('[auto-link] 传入:', { visitDate, hospital, department, doctor },
                 '| 候选病历:', candidates.length, '条');
             if (candidates.length === 0) return null;

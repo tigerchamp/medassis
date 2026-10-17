@@ -2529,25 +2529,16 @@ const PageAddRecord = {
         const visitDate = document.getElementById(dateId)?.value;
         const hospital = document.getElementById(hospId)?.value;
         const department = document.getElementById(deptId)?.value;
-        const doctor = document.getElementById(doctorId)?.value;
 
         if (!visitDate || !hospital || !department) return;
 
         try {
-            // 统一复用 App._findMatchingRecord（含医院名简称/别名归一 + 唯一候选兜底），
-            // 避免此处另有一套判断导致行为不一致
-            const matchId = await App._findMatchingRecord(elderId, visitDate, hospital, department, doctor);
+            // 统一复用 App._autoMatchRelated（内含 _findMatchingRecord 的医院名简称/别名归一
+            // + 唯一候选兜底），避免此处另有一套判断导致行为不一致
+            const matchId = await App._autoMatchRelated({
+                elderId: 'recordElderId', dateId, hospId, deptId, doctorId, hiddenId: 'recordRelated'
+            });
             if (!matchId) return;
-            // 关联病历控件已是「输入框 + hidden」，不能再按 select.options 处理
-            const hidden = document.getElementById('recordRelated');
-            const text = document.getElementById('recordRelatedText');
-            if (hidden) hidden.value = matchId;
-            if (text) {
-                const res = await Api.records.get(matchId);
-                const rec = res.record || {};
-                text.value = [rec.visitDate, rec.hospital, rec.department, rec.doctor]
-                    .filter(p => p && String(p).trim()).join(' | ') || '无匹配，同步创建';
-            }
             this.onRelatedChange(matchId);
             App.toast('已自动关联到已有病历');
         } catch (e) { /* 静默失败 */ }
