@@ -281,7 +281,9 @@ async function updateMedication(req, res) {
     const { id } = req.params;
     const familyId = req.familyId;
     const userId = req.user.id;
-    const { elderId, drugCode, name, dose, frequency, times, startDate, endDate, note, reminder, status, fileIds } = req.body;
+    // doseAmount/doseUnit 必须收：编辑用药计划时改的就是这两个字段，
+    // 漏了解构会让前端传上来的剂量被静默丢弃（保存提示成功，但列表里数值不变）
+    const { elderId, drugCode, name, dose, doseAmount, doseUnit, frequency, times, startDate, endDate, note, reminder, status, fileIds } = req.body;
 
     const access = familyAccessFilter(familyId);
     const [medications] = await getPool().query(`
@@ -313,6 +315,8 @@ async function updateMedication(req, res) {
 
     if (elderId !== undefined) { updates.push('elder_id = ?'); values.push(elderId); }
     if (dose !== undefined) { updates.push('dose = ?'); values.push(dose); }
+    if (doseAmount !== undefined) { updates.push('dose_amount = ?'); values.push(doseAmount); }
+    if (doseUnit !== undefined) { updates.push('dose_unit = ?'); values.push(doseUnit); }
     if (frequency !== undefined) { updates.push('frequency = ?'); values.push(frequency); }
     if (times !== undefined) { updates.push('times = ?'); values.push(JSON.stringify(times)); }
     if (startDate !== undefined) { updates.push('start_date = ?'); values.push(startDate); }

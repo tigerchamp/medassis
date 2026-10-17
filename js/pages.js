@@ -3246,18 +3246,21 @@ const PageMedEdit = {
             const cardsHtml = meds.map(m => {
                 const timesHtml = formatTimes(m.times);
                 const doseText = [m.doseAmount != null ? cleanNumber(m.doseAmount) + (m.doseUnit || '') : (m.dose || ''), m.frequency ? m.frequency + '次/日' : ''].filter(Boolean).join(' ');
-                // 添加后48小时内可删除，超过48小时只能结束
+                // 48小时内可删除（刚录错的兜底）；"结束"不限时间——
+                // 之前只有超过48小时才显示结束，导致刚由长期用药同步自动建出来的
+                // 计划只看得到"删除"，找不到"结束"。
                 const createdTs = m.createdAt ? parseLocal(m.createdAt).getTime() : (m.startDate ? parseLocal(m.startDate).getTime() : Date.now());
                 const hoursElapsed = (Date.now() - createdTs) / 3600000;
                 const canDelete = hoursElapsed < 48;
                 let actionsHtml = '';
                 if (canModify) {
-                    const actionBtn = canDelete
+                    const deleteBtn = canDelete
                         ? `<button class="med-edit-btn btn-delete" onclick="PageMedEdit.deleteMed('${m.id}','${m.name.replace(/'/g, "\\'")}')"><i class="fas fa-trash"></i> 删除</button>`
-                        : `<button class="med-edit-btn btn-end" onclick="PageMedEdit.endMed('${m.id}','${m.name.replace(/'/g, "\\'")}')"><i class="fas fa-stop-circle"></i> 结束</button>`;
+                        : '';
+                    const endBtn = `<button class="med-edit-btn btn-end" onclick="PageMedEdit.endMed('${m.id}','${m.name.replace(/'/g, "\\'")}')"><i class="fas fa-stop-circle"></i> 结束</button>`;
                     actionsHtml = `<div class="med-edit-actions">
                         <button class="med-edit-btn btn-edit" onclick="PageMedEdit.showEditForm('${m.id}')"><i class="fas fa-edit"></i> 修改</button>
-                        ${actionBtn}
+                        ${deleteBtn}${endBtn}
                     </div>`;
                 }
                 return `<div class="med-edit-card">
