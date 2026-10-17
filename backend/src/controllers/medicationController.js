@@ -205,7 +205,13 @@ async function addMedication(req, res) {
     }
 
     // 同步到药箱：为该药品创建/合并一条库存记录
-    await _syncToDrugInventory(familyId, elderId, finalCode, finalName, finalSpec, quantity || 1, quantityUnit || null, req.body.expiryDate, id, sourcePrescriptionId || null);
+    //
+    // status=ended（历史快照）绝不参与同步：编辑用药计划时会写一条 ended 快照做归档，
+    // 若参与同步，它会按 drug_code 命中已有库存并数量 +1 —— 每编辑一次药箱就多一盒
+    // （线上出现过：某药被反复编辑后被加到 6 盒）。
+    if (status !== 'ended') {
+      await _syncToDrugInventory(familyId, elderId, finalCode, finalName, finalSpec, quantity || 1, quantityUnit || null, req.body.expiryDate, id, sourcePrescriptionId || null);
+    }
 
     const [medications] = await getPool().query('SELECT * FROM medications WHERE id = ?', [id]);
     const images = await getEntityFiles('medication', id);

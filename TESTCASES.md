@@ -80,6 +80,13 @@
 | M5-04 | 重新勾选已停止的药 | restored=1，status=active，end_date=NULL |
 | M5-05 | 未提供 elderId | 全部为 0，不触碰任何计划 |
 | M5-06 | 只在当前 elder 名下生效 | 其他成员的计划不受影响 |
+| M5-07 | **编辑用药计划保存** | 药箱库存**不变**（历史快照 `status=ended` 不得参与库存同步） |
+
+> M5-07 是线上出过的事故：编辑保存会写一条 ended 快照，而 `addMedication` 内部
+> `_syncToDrugInventory()` 会给已有库存 +1，导致每编辑一次药箱就多一盒
+> （某药被反复编辑后变成 6 盒）。`addMedication` 已加守卫 `status === 'ended'` 时跳过同步。
+
+---
 
 ### M6 · 首页开药倒计时
 
@@ -113,12 +120,15 @@
 | `backend/test/ocr.test.js` | M1 / M2 / M3 | 否 |
 | `backend/test/drugLibrary.test.js` | M4（归一化与评分） | 否 |
 | `backend/test/chronic.test.js` | M5 / M6（聚合与联动） | **是**（不可用则 skip） |
-| `backend/test/ocr_samples.js` | 病历样本与期望值 | 否 |
+| `backend/test/medication.test.js` | M5-07（编辑用药计划不加库存） | **是**（不可用则 skip） |
+| `backend/test/ocr_samples.js` | 病历/处方/药盒样本与期望值 | 否 |
 
-最近一次全量结果：**31 用例 / 31 通过 / 0 失败 / 0 跳过**（耗时约 13s）
+最近一次全量结果：**34 用例 / 34 通过 / 0 失败 / 0 跳过**
 
 > 集成用例连不上 MySQL 时会显示 `# SKIP`，不会计入失败。若看到大量 SKIP，
 > 先执行 `ssh -L 3306:127.0.0.1:3306 ubuntu@82.157.202.113 -N` 再重跑。
+> `npm test` 已设为 `--test-concurrency=1` 串行：并行时各文件同时执行 `checkDatabase()`
+> 迁移会互相阻塞，导致连接超时被误判成 skip。
 
 ---
 

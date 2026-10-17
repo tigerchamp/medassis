@@ -117,6 +117,11 @@
   **新增可编辑字段必须同时改两处**（解构 + `updates.push`），否则前端传了也被静默丢弃、
   保存还提示成功 —— `doseAmount`/`doseUnit` 就是这样丢的（M4 回归点）。
 - 列表显示的剂量是 `doseAmount + doseUnit`，不是 `dose` 字符串。两者都要维护一致。
+- **「历史快照」不能用 `addMedication` 写，或者写了也必须让它不参与库存同步。**
+  编辑用药计划保存时会写一条 `status=ended` 的快照做归档，而 `addMedication` 内部会调
+  `_syncToDrugInventory()` 按 `drug_code` 命中已有库存并 **数量 +1** —— 每编辑一次药箱就多一盒。
+  现在 `addMedication` 里已有守卫：`status === 'ended'` 时跳过同步（2026-10-17 修）。
+  M3（长期用药联动）有同类陷阱，两处都别踩。
 
 ---
 
