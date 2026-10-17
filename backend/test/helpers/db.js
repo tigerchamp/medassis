@@ -28,19 +28,31 @@ async function connect() {
   if (_checked) return _conn;
   _checked = true;
   try {
-    _conn = await mysql.createConnection({
-      host: process.env.DB_HOST || '127.0.0.1',
-      port: Number(process.env.DB_PORT || 3306),
-      user: process.env.DB_USER || 'root',
-      password: process.env.DB_PASSWORD || '',
-      database: process.env.DB_NAME || 'family_health',
-      connectTimeout: 5000,
-      timezone: '+08:00'
-    });
+    // 隧道在但远端 MySQL 不可达时，connect 会一直挂着而不是报错，
+    // 这里加一层硬超时，保证测试能走到 skip 分支而不是把整个套件拖挂
+    _conn = await withTimeout(
+      mysql.createConnection({
+        host: process.env.DB_HOST || '127.0.0.1',
+        port: Number(process.env.DB_PORT || 3306),
+        user: process.env.DB_USER || 'root',
+        password: process.env.DB_PASSWORD || '',
+        database: process.env.DB_NAME || 'family_health',
+        connectTimeout: 5000,
+        timezone: '+08:00'
+      }),
+      10000
+    );
   } catch (err) {
     _conn = null;
   }
   return _conn;
+}
+
+function withTimeout(promise, ms) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error(`DB 操作超时 ${ms}ms`)), ms))
+  ]);
 }
 
 async function end() {
@@ -74,4 +86,4 @@ async function closePool() {
 // 把单个连接包装成 pool 形状，供接受 pool 参数的内部函数使用
 const asPool = (conn) => ({ query: (sql, params) => conn.query(sql, params) });
 
-module.exports = { connect, end, loadEnv, initPool, closePool, asPool };
+module.exports = { connect, end, loadEnv, initPool, closePool, asPool, withTimeout };

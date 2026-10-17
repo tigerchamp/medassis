@@ -144,6 +144,23 @@ function extractDoctor(text) {
   const keywords = ['申请医生', '申请医师', '报告医师', '检查医师', '医师签名', '医师签字', '主治医师', '接诊医生', '医师', '医生', '签名'];
   // 姓名：2-4个连续中文，或2-20个英文字母
   const isName = (s) => /^[\u4e00-\u9fa5]{2,4}$/.test(s) || /^[a-zA-Z]{2,20}$/.test(s);
+
+  // 处方笺常见排版：签名行后姓名单独成行（"医师签名（签章）：" / "王"）。
+  // 姓名可能是单字（王/李），与上面的 isName(2-4字) 不同，这里放宽到 1-4 字。
+  const notNameWords = new Set(['提示', '注', '说明', '核对', '审核', '调配', '发药', '底方', '过敏试验', '签章']);
+  for (const kw of ['医师签名', '医师签字', '药师签名']) {
+    for (let i = 0; i < lines.length; i++) {
+      if (!lines[i].includes(kw)) continue;
+      for (let j = i + 1; j <= i + 2 && j < lines.length; j++) {
+        const nl = lines[j];
+        if (/^\d+$/.test(nl)) continue;             // 跳过工号
+        if (/[:：]/.test(nl)) break;                // 已经是下一行的标签
+        if (/^[\u4e00-\u9fa5]{1,4}$/.test(nl) && !notNameWords.has(nl)) return nl;
+        break;
+      }
+    }
+  }
+
   for (const kw of keywords) {
     for (let i = 0; i < lines.length; i++) {
       const l = lines[i];
@@ -576,6 +593,13 @@ function parsePrescription(text) {
   const freqRe = /(\d\s*\/\s*日|每日\d次|每天\d次|qd|bid|tid|qid|qn|prn|必要时|每日[一二三四]次|每晚[一二]?次|每周[一二]?次)/i;
   // 数量：2盒, 1瓶, 3袋
   const qtyRe = /(\d+\s*(?:盒|瓶|袋|支|板|包))/i;
+  // 另一种常见排版：药名（商品名）(规格/盒)x数量盒/单次剂量用法
+  // 例：玻璃酸钠滴眼液(10ml:10mg/盒)x1盒/0.2ml滴眼
+  //     双氯芬酸二乙胺乳胶剂（扶他林膏）(20g:0.2g(1%)/盒)x2盒
+  // 这种写法不带"数字+单位*数字"，上面的 specLineRe 匹配不到，整个处方就会解析不出药品。
+  // 注意规格里可能出现嵌套括号（如 (20g:0.2g(1%)/盒)），所以用 .* 而不是 [^）)]*，
+  // 后者会停在 (1%) 的那个 ")" 上，导致后面匹配不到 x + 数量。
+  const rxDrugLineRe = /^(.+?)\s*[\(（].*\d+\.?\d*\s*(?:mg|g|ml|ug|μg).*[\)）]\s*[xX×*]\s*(\d+)\s*(盒|瓶|袋|支|板|包)/;
   // 元数据行（不作为药名候选）
   const metaRe = /^(R[pxp]?[:：]?|诊断|用法|用量|服法|口服|外用|科室|姓名|性别|年龄|身份|体重|费别|药房|病人|医保|医疗|机构|编号|NO|参考|过敏|取药|新门诊|微信|点单|防止|请扫|主[:：]|医师|签章|调配|审核|核对|发药|日期|底方)/i;
 
@@ -602,6 +626,25 @@ function parsePrescription(text) {
 
   for (let i = startIdx; i < lines.length; i++) {
     const l = lines[i];
+
+    // 0. "药名(规格/盒)xN盒/单次剂量" 写法 → 药名与数量同行
+    const rxM = l.match(rxDrugLineRe);
+    if (rxM) {
+      const rxName = rxM[1].replace(/[（(【\[].*$/, '').trim();
+      flush();
+      currentMed = {
+        name: rxName,
+        specDosage: '', specDosageUnit: '', unitCap: '',
+        doseAmount: '', doseUnit: '',
+        quantity: parseInt(rxM[2], 10) || 1, quantityUnit: rxM[3],
+        frequency: '每日1次', note: ''
+      };
+      // 数量之后可能还跟着单次剂量（如 ...x1盒/0.2ml滴眼）
+      const afterQty = l.substring(rxM.index + rxM[0].length);
+      const dM = afterQty.match(/(\d+\.?\d*)\s*(mg|g|ml|片|粒|袋|丸|支|ug|μg)/i);
+      if (dM) { currentMed.doseAmount = dM[1]; currentMed.doseUnit = dM[2]; }
+      continue;
+    }
 
     // 1. 规格行 → 药名（同行或往前找）
     const specM = l.match(specLineRe);
@@ -703,7 +746,8 @@ function parseDrug(text) {
   const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
   // 药名：优先取"通用名"（真实名称），而非商品名。
   // 通用名通常含剂型词（胶囊/片/颗粒/注射液…），商品名一般较短且不含剂型词。
-  const dosageFormRe = /(肠溶|缓释|控释|分散|泡腾|咀嚼|口崩|舌下|阴道|吸入|软胶囊|硬胶囊|胶囊|颗粒|注射液|注射剂|输液|口服液|口服溶液|栓剂|软膏|乳膏|凝胶|贴剂|贴膏|丸|滴剂|混悬|喷雾剂|气雾剂|糖浆|滴眼液|眼膏|滴耳液|溶液|含片|冲剂|片剂|片)/;
+  // 用共用常量 DOSAGE_FORM_RE，与药品判定用同一份剂型词表，避免两边不同步。
+  const dosageFormRe = DOSAGE_FORM_RE;
   const metaExcludeRe = /(批准文号|国药准字|适应症|成份|成分|性状|贮藏|储藏|生产日期|有效期|批号|规格|otc|请仔细阅读|生产企业|生产厂家|生产厂商|禁忌|不良反应|注意事项|执行标准|注册证号|条形码)/i;
   const candidates = lines.filter(l =>
     /[一-龥]/.test(l) &&
@@ -723,10 +767,10 @@ function parseDrug(text) {
     // 2) 无剂型词时回退到第一个候选
     name = candidates[0].replace(/【.*?】/g, '').trim();
   }
-  // 规格：含 数字+单位 + /盒 或 × 片
+  // 规格：含 数字+单位 + /盒 或 × 片。单位含中文写法（"20克装"这类包装规格）
   let specification = '';
   for (const l of lines) {
-    const m = l.match(/(\d+\.?\d*\s*(?:mg|g|ml|ug|μg)[*×x]?\d*\s*(?:片|粒|袋|丸|支|盒)?\/?(?:盒|瓶|板)?)/i);
+    const m = l.match(/(\d+\.?\d*\s*(?:mg|g|ml|ug|μg|克|毫克|毫升)[*×x]?\d*\s*(?:片|粒|袋|丸|支|盒)?\/?(?:盒|瓶|板)?)/i);
     if (m) { specification = m[1]; break; }
     const m2 = l.match(/(\d+\s*(?:片|粒|袋|丸|支)\/(?:盒|瓶|板))/);
     if (m2) { specification = m2[1]; break; }
@@ -762,6 +806,11 @@ function parseDrug(text) {
   return { name, specification, manufacturer, specDosage, specDosageUnit, unitCapacity, unitCapacityUnit };
 }
 
+// 剂型词：药盒/说明书上印的是通用名（含剂型词），商品名一般不含。
+// 列表要覆盖常见剂型，缺一个就会退化成"取第一个候选"而选到商品名（如"扶他林"而非"双氯芬酸二乙胺乳胶剂"）。
+const DOSAGE_FORM = '乳胶剂|搽剂|洗剂|霜剂|膜剂|植入剂|含漱液|油剂|醑|酊|凝胶|贴膏|贴剂|软膏|乳膏|注射液|注射剂|输液|口服液|口服溶液|滴眼液|滴耳液|滴鼻液|眼膏|气雾剂|喷雾剂|混悬液|混悬|糖浆|栓剂|栓|颗粒|软胶囊|硬胶囊|胶囊|含片|片剂|片|丸|散|合剂|露|茶|冲剂|溶液|滴剂';
+const DOSAGE_FORM_RE = new RegExp(`(?:${DOSAGE_FORM})`);
+
 // 药品（药盒 / 说明书）判定的特征词
 // 强特征：命中任一个即判定为药品，均为药盒/说明书独有（病历、处方、报告上不会出现）
 const DRUG_STRONG_RE = [
@@ -792,8 +841,9 @@ const DRUG_MID_RE = [
 // 剂型名（如"匹伐他汀钙片"）与剂量规格（如"2mg"、"20mg*7"）同时出现算 1 票中特征。
 // 不单独作为强特征：处方笺里同样同时带剂型与规格的药品行，会因此被误判成药盒。
 // 剂量规格放宽到独立的"2mg"：药盒常把剂量与包装数量印在不同行（2mg / 14片/盒），不带 * 连接。
-const DRUG_FORM_RE = /[\u4e00-\u9fa5]{2,12}(?:片|胶囊|颗粒|注射液|口服液|软膏|乳膏|丸|滴剂|气雾剂|贴剂)/;
-const DRUG_SPEC_RE = /\d+\.?\d*\s*(?:mg|g|ml|ug|μg)(?:\s*[*×x]\s*\d+)?/i;
+const DRUG_FORM_RE = new RegExp(`[\\u4e00-\\u9fa5]{2,12}(?:${DOSAGE_FORM})`);
+// 单位同时支持中文写法：药盒常印"20克装""0.2克"，只认 mg/g/ml 会整个漏掉
+const DRUG_SPEC_RE = /\d+\.?\d*\s*(?:mg|g|ml|ug|μg|克|毫克|毫升)(?:\s*[*×x]\s*\d+)?/i;
 
 // 处方笺 / 门诊病历 / 检查报告 上才会出现的字段，药盒绝不会印。
 // 用于把"剂型+规格"这一组合提升为药品的判据，同时排除处方笺里的药品行。
@@ -813,6 +863,10 @@ const CLINICAL_MARKER_RE = new RegExp([
 
 // 判定 OCR 文本是否来自药盒/说明书
 function isDrugText(text) {
+  // 0. 处方笺/门诊病历/检查报告的独有字段 → 一定不是药盒。
+  //    药品判定必须排在处方判定之前（处方药盒自身就印着"凭医师处方销售…"，
+  //    不这样做药盒会被处方规则抢走），所以这里要先排除真的是处方笺的文本。
+  if (CLINICAL_MARKER_RE.test(text)) return false;
   // 1. 强特征
   if (DRUG_STRONG_RE.some(re => re.test(text))) return true;
   // 说明书术语组合：适应症 + 成份/成分/性状

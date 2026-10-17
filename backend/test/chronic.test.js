@@ -30,13 +30,18 @@ const stubRes = (onJson, onError) => ({
 async function setup() {
   const conn = await db.connect();
   if (!conn) return null;
-  await db.initPool();
-  const [fams] = await conn.query(
-    `SELECT cm.family_id, cm.elder_id FROM chronic_medications cm
-     WHERE cm.elder_id IS NOT NULL ORDER BY cm.created_at DESC LIMIT 1`
-  );
-  if (!fams.length) return null;
-  return { conn, familyId: fams[0].family_id, elderId: fams[0].elder_id };
+  try {
+    // 隧道在但远端 MySQL 不可达时 query 会挂住，加硬超时保证走到 skip 分支
+    await db.withTimeout(db.initPool(), 30000);
+    const [fams] = await db.withTimeout(conn.query(
+      `SELECT cm.family_id, cm.elder_id FROM chronic_medications cm
+       WHERE cm.elder_id IS NOT NULL ORDER BY cm.created_at DESC LIMIT 1`
+    ), 15000);
+    if (!fams.length) return null;
+    return { conn, familyId: fams[0].family_id, elderId: fams[0].elder_id };
+  } catch (e) {
+    return null; // 超时/异常一律按"不可用"处理，调用方 skip
+  }
 }
 
 // 关闭连接与连接池，保证 test runner 子进程能正常退出

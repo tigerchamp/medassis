@@ -9,7 +9,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { detectType, parseRecord, parseDrug } = require('../src/services/ocr.js');
+const { detectType, parseRecord, parsePrescription, parseDrug } = require('../src/services/ocr.js');
 const samples = require('./ocr_samples.js');
 
 // ============ 1. 类型自动判定 ============
@@ -51,6 +51,39 @@ for (const [name, s] of Object.entries(samples)) {
     ['西药方', '中药方', '何春', '医生', '医师', '签名'].forEach(noisy => {
       assert.ok(!dx.includes(noisy), `诊断混入了噪声词「${noisy}」`);
     });
+  });
+}
+
+// ============ 2b. 处方笺解析（真实样本） ============
+for (const [name, s] of Object.entries(samples)) {
+  if (s.type !== 'prescription') continue;
+  test(`处方解析 / ${name}`, () => {
+    assert.equal(detectType(s.text), 'prescription', '类型判定应为处方');
+    const r = parsePrescription(s.text);
+    for (const [k, v] of Object.entries(s.expect)) {
+      assert.equal(r[k], v, `${name} 的 ${k} 字段`);
+    }
+    // 药品行：数量、药名、单次剂量、频次都要解析出来
+    assert.equal(r.medications.length, s.medications.length,
+      `药品数量不符，实际: ${JSON.stringify(r.medications.map(m => m.name))}`);
+    s.medications.forEach((exp, i) => {
+      const got = r.medications[i];
+      for (const [k, v] of Object.entries(exp)) {
+        assert.equal(String(got[k] == null ? '' : got[k]), String(v), `第 ${i + 1} 个药品的 ${k}`);
+      }
+    });
+  });
+}
+
+// ============ 2c. 药盒解析（真实样本，必须取通用名） ============
+for (const [name, s] of Object.entries(samples)) {
+  if (s.type !== 'drug') continue;
+  test(`药盒解析 / ${name}`, () => {
+    assert.equal(detectType(s.text), 'drug', '类型判定应为药品');
+    const r = parseDrug(s.text);
+    for (const [k, v] of Object.entries(s.expect)) {
+      assert.equal(String(r[k] == null ? '' : r[k]), String(v), `${name} 的 ${k}`);
+    }
   });
 }
 

@@ -1610,12 +1610,15 @@ const App = {
         // 输入停顿后自动存草稿：刷新/误触返回后重新进入表单能恢复未提交的内容
         document.addEventListener('input', (e) => FormDraft.scheduleSave(e.target), true);
         document.addEventListener('change', (e) => FormDraft.scheduleSave(e.target), true);
-        // 有弹框时拦截整页刷新（下拉刷新、误触刷新）——弹框里通常正是未提交的表单
+        // 有弹框时拦截整页刷新（误触浏览器刷新按钮）——弹框里通常正是未提交的表单。
+        // 注意：靠 beforeunload 拦「下拉刷新」会让浏览器的刷新动图卡住不消失，
+        // 所以下拉刷新改由下面的手势拦截处理，这里只兜住非手势触发的刷新。
         window.addEventListener('beforeunload', (e) => {
             if (!App._hasBlockingOverlay()) return;
             e.preventDefault();
             e.returnValue = '';
         });
+        this._preventPullToRefresh();
         const savedUser = localStorage.getItem(USER_KEY);
         const token = localStorage.getItem(TOKEN_KEY);
         if (savedUser && token) {
@@ -1967,6 +1970,28 @@ const App = {
         document.getElementById('modalOverlay').classList.add('show');
         // 回填上次未提交的内容（只填当前为空的字段，OCR 预填的值不会被覆盖）
         FormDraft.restore(document.getElementById('modalContent'));
+    },
+
+    // 拦截移动端"下拉刷新"手势。
+    // CSS 的 overscroll-behavior 在部分 webview（含微信内置浏览器）不生效，
+    // 而且靠 beforeunload 拦下拉刷新会让浏览器的刷新动图卡住不消失，
+    // 所以直接在手势层面拦：有弹框时，滚动容器已在顶部还继续下拉就阻止默认行为，
+    // 让 pull-to-refresh 根本触发不了。
+    _preventPullToRefresh() {
+        let startY = 0;
+        document.addEventListener('touchstart', (e) => {
+            startY = (e.touches && e.touches[0] && e.touches[0].clientY) || 0;
+        }, { passive: true });
+        document.addEventListener('touchmove', (e) => {
+            if (!App._hasBlockingOverlay()) return;
+            const y = (e.touches && e.touches[0] && e.touches[0].clientY) || 0;
+            if (y <= startY) return;               // 向上滑，正常滚动，不拦
+            const scroller = (e.target && e.target.closest)
+                ? (e.target.closest('.modal-content') || e.target.closest('#mainContent') || document.documentElement)
+                : document.documentElement;
+            if ((scroller.scrollTop || 0) > 0) return;  // 容器还没滚到顶，不拦
+            if (e.cancelable) e.preventDefault();
+        }, { passive: false });
     },
 
     // 是否有浮层/弹框打开。用于拦截刷新：有未完成的弹框时不允许整页重载。

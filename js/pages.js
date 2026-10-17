@@ -3360,6 +3360,9 @@ const PageMedEdit = {
             const escAttr = (v) => String(v || '').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
             const p = 'ef' + medId; // 唯一前缀，避免 ID 冲突
             const freq = m.frequency || (m.times && m.times.length) || 1;
+            // 剂量单位与「添加用药计划」表单保持一致，自动创建的计划也能在这里改单位
+            const DOSE_UNITS = ['mg', 'g', 'ml', 'μg', '片', '粒', '袋', '支', '贴'];
+            const doseUnitOpts = (cur) => DOSE_UNITS.map(u => `<option value="${u}"${u === (cur || 'mg') ? ' selected' : ''}>${u}</option>`).join('');
 
             // 初始化 MedTimesUI 选中状态
             const timeKeyMap = { '08:00': 'morning', '12:00': 'noon', '18:00': 'evening', '21:00': 'night' };
@@ -3371,7 +3374,7 @@ const PageMedEdit = {
             <div style="border-top:1px solid #eee;padding-top:10px;">
                 <div style="font-weight:600;margin-bottom:8px;">修改用药</div>
                 <div class="form-group"><label class="form-label">药品名称</label><input class="form-input" id="${p}Name" value="${escAttr(m.name || '')}" disabled style="background:#f5f5f5;color:#999;cursor:not-allowed;"><input type="hidden" id="${p}Code" value="${escAttr(m.drug_code || m.drugCode || '')}"></div>
-                <div class="form-group"><label class="form-label">每次剂量</label><input class="form-input" id="${p}Dose" type="number" step="1" min="0" value="${m.doseAmount != null ? m.doseAmount : (m.dose || '')}"></div>
+                <div class="form-group"><label class="form-label">每次剂量</label><div style="display:flex;gap:8px;"><input class="form-input" id="${p}DoseAmount" type="number" step="1" min="0" placeholder="如 5" style="flex:2" value="${m.doseAmount != null ? m.doseAmount : ''}"><select class="form-input" id="${p}DoseUnit" style="flex:1">${doseUnitOpts(m.doseUnit)}</select></div></div>
                 <div class="form-group"><label class="form-label">每日次数</label><input class="form-input" id="${p}Freq" type="number" step="1" min="1" max="4" value="${freq}" oninput="MedTimesUI.render('${p}')"></div>
                 <div class="form-group"><label class="form-label">服药时间</label><div id="${p}TimeSlots"></div></div>
                 <div class="form-group"><label class="form-label">备注</label><input class="form-input" id="${p}Note" value="${escAttr(m.note || '')}"></div>
@@ -3398,7 +3401,8 @@ const PageMedEdit = {
 
     async saveEdit(medId, p) {
         const name = document.getElementById(p + 'Name')?.value;
-        const doseAmount = document.getElementById(p + 'Dose')?.value;
+        const doseAmount = document.getElementById(p + 'DoseAmount')?.value;
+        const doseUnit = document.getElementById(p + 'DoseUnit')?.value;
         const frequency = document.getElementById(p + 'Freq')?.value;
         const times = MedTimesUI.getTimes(p);
         const note = document.getElementById(p + 'Note')?.value;
@@ -3411,13 +3415,22 @@ const PageMedEdit = {
             const oldRes = await Api.medications.get(medId);
             const oldMed = oldRes.medication;
 
-            await Api.medications.update(medId, { name: name.trim(), doseAmount: doseAmount ? Number(doseAmount) : undefined, frequency: frequency ? Number(frequency) : undefined, times, note, drugCode });
+            await Api.medications.update(medId, {
+                name: name.trim(),
+                doseAmount: doseAmount ? Number(doseAmount) : undefined,
+                dose: doseAmount ? `${doseAmount}${doseUnit || ''}` : undefined,
+                doseUnit: doseAmount ? doseUnit : undefined,
+                frequency: frequency ? Number(frequency) : undefined,
+                times, note, drugCode
+            });
 
             // 保存历史记录（用 addMedication 添加一条 status=ended 的记录作为快照）
             await Api.medications.add({
                 elderId: oldMed.elderId,
                 name: oldMed.name,
                 dose: oldMed.dose,
+                doseAmount: oldMed.doseAmount,
+                doseUnit: oldMed.doseUnit,
                 frequency: oldMed.frequency,
                 times: oldMed.times,
                 startDate: oldMed.startDate,
