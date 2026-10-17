@@ -28,6 +28,24 @@
 
 **易踩坑**
 - `storage.js` 是早期无后端模式的遗留，现在数据一律走 `api.js`，不要再用它存业务数据。
+- **前端是静态文件，手机浏览器/微信 webview 会长时间缓存。**
+  `index.html` 里 `css/style.css` 与 `js/*.js` 都带 `?v=YYYYMMDD` 版本号，
+  **改了前端必须把版本号 +1**，否则用户拿到的还是旧代码（典型症状：反馈"改了没生效"）。
+  后端则相反，改动后需要 `pm2 restart medassis`。
+
+---
+
+## M0.1 · 附件上传（`ImageUploader`）
+
+**职责**：给病历/药品/用药计划等记录附加图片（最多 9 张）。
+
+**设计意图**
+- 附件**只存图，不做 OCR 识别**（后端所有 controller 都没有调用 OCR 服务）。
+  需要识别的走 M6 的 `startScan` → `_pickImages`，那里才是单张。
+
+**易踩坑**
+- 别把附件和 OCR 入口搞混：`_pickImages`（OCR，单张）vs `ImageUploader`（附件，多张）。
+  限单张的约束只对 OCR 生效。
 
 ---
 

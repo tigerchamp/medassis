@@ -6,7 +6,9 @@
     <title>家庭健康中心</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="css/style.css">
+    <!-- 带版本号：前端是静态文件，手机浏览器/微信 webview 会长时间缓存，
+         改完必须同步 +1，否则用户拿到的还是旧代码（表现为"改了没生效"） -->
+    <link rel="stylesheet" href="css/style.css?v=20261017">
 </head>
 <body>
 <div class="phone-frame" id="app">
@@ -55,9 +57,9 @@
         </div>
     </div>
 </div>
-<script src="js/api.js"></script>
-<script src="js/pages.js"></script>
-<script src="js/app.js"></script>
+<script src="js/api.js?v=20261017"></script>
+<script src="js/pages.js?v=20261017"></script>
+<script src="js/app.js?v=20261017"></script>
 <script>
 App.init();
 // 点击其他区域关闭下拉菜单
