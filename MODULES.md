@@ -96,6 +96,9 @@
 - 任何"读库存数量"的地方都要用**聚合口径**，不能只读单条记录。
   `getChronicMeds` 曾经只读 chronic 指向的单条行，导致加药后开药倒计时不涨（已修，见 `_aggregateInventory`）。
 - 库存行可能属于**别的家庭组**（历史数据），聚合时用 `familyAccessFilter` 过滤，查不到就兜底用单行值，不要跨家庭取数。
+- **日期输入一律用自研 `CalendarPicker`（`js/app.js`），不要用原生 `<input type="date">`。**
+  原生控件在手机/微信 webview 里只能逐月翻，改年份极难（用户报过：药品详情改有效期改不动年份）。
+  `CalendarPicker` 支持 ‹‹/›› 跳年、点标题切到月份/年份视图，与处方表单一致（2026-10-21 统一）。
 - **有效期只在「药箱录入」这条路上是必填**（药盒识别 `saveOcrDrug`、手工添加 `saveDrug`）。
   处方/用药计划表单（OCR 处方弹框、添加记录-处方）的**有效期是非必填**：label 不带 `*`，
   空值后端按 NULL 入库（`_syncToDrugInventory` 里 `if (expiryDate)` 才更新，否则沿用旧有效期）。

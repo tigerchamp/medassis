@@ -2918,7 +2918,7 @@ const PageDrugDetail = {
                 </div>
                 <div style="display:flex;align-items:center;gap:6px;">
                     <span style="color:#64748b;white-space:nowrap;">有效期</span>
-                    <input id="exp_${r.id}" type="date" value="${r.expiryDate || ''}" style="min-width:0;max-width:150px;padding:4px 6px;border:1px solid #2b7a78;border-radius:4px;${bgStyle}">
+                    <input id="exp_${r.id}" type="text" readonly value="${r.expiryDate || ''}" onclick="CalendarPicker.attach(this)" placeholder="点击选择日期" style="min-width:0;max-width:150px;padding:4px 6px;border:1px solid #2b7a78;border-radius:4px;background:#fff;cursor:pointer;${bgStyle}">
                 </div>
                 <div style="display:flex;gap:8px;margin-left:auto;">
                     <button onclick="PageDrugDetail.saveRow('${r.id}')" style="background:#2b7a78;color:#fff;border:none;padding:5px 14px;border-radius:16px;cursor:pointer;font-size:0.82em;white-space:nowrap;">保存</button>
