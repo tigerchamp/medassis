@@ -28,6 +28,12 @@
 
 **易踩坑**
 - `storage.js` 是早期无后端模式的遗留，现在数据一律走 `api.js`，不要再用它存业务数据。
+- **保存类函数的「防重复提交」标志（`_saving` / `_ocrMedsSaving` / `_ocrDrugSaving`）必须由 `finally` 解锁，
+  且所有 `return` 都要在 `try` 之内。**
+  `saveOcrMeds` 曾把校验写在 `try` 外面：任何一次校验失败都 early return 且永不解锁 →
+  之后再点保存永远只提示「正在保存，请稍候…」、不保存也不退出（2026-10-21 修）。
+  改这类函数时先确认：校验是否在 `try` 内、有没有 `finally`。
+  （`saveOcrDrug` / `saveMed` / `saveDrug` 另有 15 秒 `setTimeout` 兜底解锁，属于历史补丁，不是范例。）
 - **前端是静态文件，手机浏览器/微信 webview 会长时间缓存。**
   `index.html` 里 `css/style.css` 与 `js/*.js` 都带 `?v=YYYYMMDD` 版本号，
   **改了前端必须把版本号 +1**，否则用户拿到的还是旧代码（典型症状：反馈"改了没生效"）。
@@ -90,6 +96,10 @@
 - 任何"读库存数量"的地方都要用**聚合口径**，不能只读单条记录。
   `getChronicMeds` 曾经只读 chronic 指向的单条行，导致加药后开药倒计时不涨（已修，见 `_aggregateInventory`）。
 - 库存行可能属于**别的家庭组**（历史数据），聚合时用 `familyAccessFilter` 过滤，查不到就兜底用单行值，不要跨家庭取数。
+- **有效期只在「药箱录入」这条路上是必填**（药盒识别 `saveOcrDrug`、手工添加 `saveDrug`）。
+  处方/用药计划表单（OCR 处方弹框、添加记录-处方）的**有效期是非必填**：label 不带 `*`，
+  空值后端按 NULL 入库（`_syncToDrugInventory` 里 `if (expiryDate)` 才更新，否则沿用旧有效期）。
+  别把处方表单的有效期加成必填——2026-10-21 修过一次（当时还会连带把保存按钮卡死，见 M0）。
 
 ---
 
@@ -129,6 +139,10 @@
 **关键约定**
 - `status`: `active` / `ended`。结束写 `end_date = CURDATE()`；恢复写 `end_date = NULL`。
 - `frequency` 是**每日次数（整数）**，`times` 是 JSON 时间数组（如 `["08:00","18:00"]`）。
+- **服药时间段的默认勾选不能按 `slots` 顺序取前 N 个**（`MedTimesUI.defaultKeys`）：
+  1 次→早；**2 次→早 + 晚**；3 次→早/中/晚；4 次→全部。
+  取前 N 个会把「一天两次」默认成 早/中（用户报的线上问题，2026-10-21 修）。
+  新增「按频次初始化时间段」的地方都要调 `defaultKeys`，别再写 `slots.slice(0, n)`。
 
 **易踩坑**
 - `updateMedication` 用**字段白名单**：解构出来的字段才会进 `updates`。
@@ -289,6 +303,8 @@
 | `drugController.js` | M2、M3 | M5 联动 / M6 倒计时 |
 | `medicationController.js` | M4 | M5；并确认没走 `addMedication` 同步库存 |
 | `js/pages.js` 用药计划 | M4（48 小时规则） | M7 手工 |
+| `js/app.js` `MedTimesUI` / 服药时间段 | M4（2 次→早+晚） | M9 全部 |
+| `js/app.js` 保存类函数（`save*`） | M0（`finally` 解锁） | M7-10 手工（校验失败后仍能保存） |
 | `js/app.js` 自动关联病历 / `recordController.js` | M6.1（医生不能当硬条件、两条入口要共用） | M8 |
 | `js/pages.js` 粘贴识别 | M6.1 | M8 |
 | `js/app.js` 草稿/刷新 | M7 | M7 手工（自动化测不到） |

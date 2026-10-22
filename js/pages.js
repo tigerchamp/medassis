@@ -2570,7 +2570,7 @@ const PageAddRecord = {
                 const { frequency } = App._freqTextToCount(med.frequency);
                 const freqEl = document.getElementById(`${p}Freq`);
                 if (freqEl) freqEl.value = frequency;
-                MedTimesUI._state[p] = new Set(MedTimesUI.slots.slice(0, frequency).map(s => s.key));
+                MedTimesUI._state[p] = new Set(MedTimesUI.defaultKeys(frequency));
                 MedTimesUI.render(p);
             }
             this._updateHeader(b.uid);
@@ -3358,7 +3358,7 @@ const PageMedEdit = {
             // 初始化 MedTimesUI 选中状态
             const timeKeyMap = { '08:00': 'morning', '12:00': 'noon', '18:00': 'evening', '21:00': 'night' };
             const selectedKeys = (m.times || []).map(t => timeKeyMap[t] || '').filter(Boolean);
-            MedTimesUI._state[p] = new Set(selectedKeys.length > 0 ? selectedKeys : MedTimesUI.slots.slice(0, freq).map(s => s.key));
+            MedTimesUI._state[p] = new Set(selectedKeys.length > 0 ? selectedKeys : MedTimesUI.defaultKeys(freq));
 
             container.style.display = 'block';
             container.innerHTML = `

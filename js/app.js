@@ -133,6 +133,19 @@ const MedTimesUI = {
   ],
   _state: {},  // prefix -> Set of selected keys
 
+  // 默认选中的时间段：一天两次是「早 + 晚」，不是「早 + 中」
+  // （直接取 slots 前 N 个会把 2 次默认成 早/中，与实际服药习惯不符）
+  defaultKeys(freq) {
+    const n = Math.min(Math.max(parseInt(freq) || 1, 1), this.slots.length);
+    const presets = [
+      ['morning'],
+      ['morning', 'evening'],
+      ['morning', 'noon', 'evening'],
+      ['morning', 'noon', 'evening', 'night'],
+    ];
+    return presets[n - 1].slice();
+  },
+
   render(prefix) {
     const freqInput = document.getElementById(prefix + 'Freq');
     const container = document.getElementById(prefix + 'TimeSlots');
@@ -140,8 +153,8 @@ const MedTimesUI = {
 
     const freq = Math.min(Math.max(parseInt(freqInput.value) || 1, 1), 4);
     if (!this._state[prefix]) {
-      // 默认选中前 freq 个
-      this._state[prefix] = new Set(this.slots.slice(0, freq).map(s => s.key));
+      // 默认选中
+      this._state[prefix] = new Set(this.defaultKeys(freq));
     }
 
     // 如果频次变小，移除多余的选中项
@@ -2407,7 +2420,7 @@ const App = {
                 <div class="form-group"><label>医生</label><input id="ocr-med-doctor" value="${this._escAttr(parsed.doctor)}" placeholder="主治医生"></div>
                 <div class="form-group"><label>关联病历</label><input id="ocr-med-relatedText" type="text" readonly placeholder="点击选择关联病历" autocomplete="off" onclick="RecordSuggest.showSuggestions(this,'ocr-med-related',null)" style="background:#fff;"><input type="hidden" id="ocr-med-related"><div style="font-size:12px;color:#ea7e2c;margin-top:4px;">如未选择病历记录，在保存时，将自动创建一条病历记录。</div></div>
                 ${medBlocks}
-                <button class="btn-primary" onclick="App.saveOcrMeds()">添加用药</button>
+                <button class="btn-primary" onclick="App.saveOcrMeds()">保存</button>
                 <button class="btn-outline" style="margin-top:8px;" onclick="App.closeModal()">取消</button>
             `);
             // 初始化每个药品的服用时间段
@@ -2750,66 +2763,66 @@ const App = {
     async saveOcrMeds() {
         if (this._ocrMedsSaving) { App.toast('正在保存，请稍候…'); return; }
         this._ocrMedsSaving = true;
-        App.toast('保存中…');
-        // 医院/科室必填
-        if (!document.getElementById('ocr-med-hospital')?.value.trim()) { this.toast('请填写医院'); return; }
-        if (!document.getElementById('ocr-med-dept')?.value.trim()) { this.toast('请填写科室'); return; }
-        // 保存前校验医院/科室是否存在，不存在提示选择或添加（OCR modal 表单传 true：创建后回表单手动提交）
-        if (false === await HospitalSuggest.ensure(document.getElementById('ocr-med-hospital'), true)) return;
-        if (false === await DeptSuggest.ensure(document.getElementById('ocr-med-dept'), true)) return;
-        // 保存前校验每个药品是否存在，不存在提示选择或新建（与医院逻辑一致）
-        const _preMedCount = App._ocrMeds ? App._ocrMeds.length : 0;
-        // 必填字段（除生产厂家、有效期、备注外）
-        const _reqFields = [['SpecDosage','规格'],['UnitCap','单位容量'],['Qty','数量'],['DoseAmount','每次剂量'],['Freq','每日次数']];
-        const medsToSave = [];
-        for (let i = 0; i < _preMedCount; i++) {
-            const _p = `ocrMed${i}`;
-            const _nameEl = document.getElementById(`${_p}Name`);
-            if (!_nameEl || !_nameEl.value.trim()) continue;
-            const _name = _nameEl.value.trim();
-            // 校验必填数值/文本字段（disabled 锁定的字段必有值，跳过）
-            for (const [suffix, label] of _reqFields) {
-                const el = document.getElementById(`${_p}${suffix}`);
-                if (el && !el.disabled && !String(el.value).trim()) {
-                    this.toast(`请填写药品“${_name}”的${label}`);
+        // 校验必须放在 try 内：早退时 finally 才会解锁 _ocrMedsSaving。
+        // 否则一次校验失败就让按钮永久卡在「正在保存，请稍候…」（点不动、不退出、也不报错）
+        try {
+            // 医院/科室必填
+            if (!document.getElementById('ocr-med-hospital')?.value.trim()) { this.toast('请填写医院'); return; }
+            if (!document.getElementById('ocr-med-dept')?.value.trim()) { this.toast('请填写科室'); return; }
+            // 保存前校验医院/科室是否存在，不存在提示选择或添加（OCR modal 表单传 true：创建后回表单手动提交）
+            if (false === await HospitalSuggest.ensure(document.getElementById('ocr-med-hospital'), true)) return;
+            if (false === await DeptSuggest.ensure(document.getElementById('ocr-med-dept'), true)) return;
+            // 保存前校验每个药品是否存在，不存在提示选择或新建（与医院逻辑一致）
+            const _preMedCount = App._ocrMeds ? App._ocrMeds.length : 0;
+            // 必填字段（除生产厂家、有效期、备注外）
+            const _reqFields = [['SpecDosage','规格'],['UnitCap','单位容量'],['Qty','数量'],['DoseAmount','每次剂量'],['Freq','每日次数']];
+            const medsToSave = [];
+            for (let i = 0; i < _preMedCount; i++) {
+                const _p = `ocrMed${i}`;
+                const _nameEl = document.getElementById(`${_p}Name`);
+                if (!_nameEl || !_nameEl.value.trim()) continue;
+                const _name = _nameEl.value.trim();
+                // 校验必填数值/文本字段（disabled 锁定的字段必有值，跳过）
+                for (const [suffix, label] of _reqFields) {
+                    const el = document.getElementById(`${_p}${suffix}`);
+                    if (el && !el.disabled && !String(el.value).trim()) {
+                        this.toast(`请填写药品“${_name}”的${label}`);
+                        return;
+                    }
+                }
+                // 校验服用时间段至少一个
+                const _times = MedTimesUI.getTimes(_p);
+                if (!_times || _times.length === 0) {
+                    this.toast(`请选择药品“${_name}”的服用时间段`);
                     return;
                 }
+                if (false === await DrugSuggest.ensure(_nameEl, true)) return;
+                console.log(`[saveOcrMeds] 药品${i} ensure通过`);
+                // 有效期非必填（表单 label 无 *），空值时后端按 NULL 入库，不校验
+                const expiryDate = document.getElementById(`${_p}Expiry`)?.value || '';
+                medsToSave.push({
+                    prefix: _p,
+                    name: _name,
+                    drugCode: (document.getElementById(`${_p}Code`) || {}).value || '',
+                    specDosageVal: document.getElementById(`${_p}SpecDosage`).value,
+                    specDosageUnit: document.getElementById(`${_p}SpecDosageUnit`).value,
+                    unitCapVal: document.getElementById(`${_p}UnitCap`)?.value,
+                    unitCapacityUnit: document.getElementById(`${_p}UnitCapUnit`)?.value || '',
+                    manufacturer: document.getElementById(`${_p}Manu`)?.value || '',
+                    doseAmountVal: document.getElementById(`${_p}DoseAmount`).value,
+                    doseUnit: document.getElementById(`${_p}DoseUnit`).value,
+                    quantity: parseInt(document.getElementById(`${_p}Qty`).value) || 1,
+                    quantityUnit: document.getElementById(`${_p}QtyUnit`)?.value || '',
+                    frequency: parseInt(document.getElementById(`${_p}Freq`).value) || 1,
+                    times: _times,
+                    startDate: document.getElementById(`${_p}Start`).value || _todayLocal(),
+                    note: document.getElementById(`${_p}Note`)?.value || '',
+                    expiryDate: expiryDate || undefined,
+                });
             }
-            // 校验服用时间段至少一个
-            const _times = MedTimesUI.getTimes(_p);
-            if (!_times || _times.length === 0) {
-                this.toast(`请选择药品“${_name}”的服用时间段`);
-                return;
-            }
-            if (false === await DrugSuggest.ensure(_nameEl, true)) return;
-            console.log(`[saveOcrMeds] 药品${i} ensure通过`);
-            // 校验有效期
-            const expiryDate = document.getElementById(`${_p}Expiry`).value;
-            if (!expiryDate) { this.toast(`请填写药品${i + 1}的有效期`); return; }
-            medsToSave.push({
-                prefix: _p,
-                name: _name,
-                drugCode: (document.getElementById(`${_p}Code`) || {}).value || '',
-                specDosageVal: document.getElementById(`${_p}SpecDosage`).value,
-                specDosageUnit: document.getElementById(`${_p}SpecDosageUnit`).value,
-                unitCapVal: document.getElementById(`${_p}UnitCap`)?.value,
-                unitCapacityUnit: document.getElementById(`${_p}UnitCapUnit`)?.value || '',
-                manufacturer: document.getElementById(`${_p}Manu`)?.value || '',
-                doseAmountVal: document.getElementById(`${_p}DoseAmount`).value,
-                doseUnit: document.getElementById(`${_p}DoseUnit`).value,
-                quantity: parseInt(document.getElementById(`${_p}Qty`).value) || 1,
-                quantityUnit: document.getElementById(`${_p}QtyUnit`)?.value || '',
-                frequency: parseInt(document.getElementById(`${_p}Freq`).value) || 1,
-                times: _times,
-                startDate: document.getElementById(`${_p}Start`).value || _todayLocal(),
-                note: document.getElementById(`${_p}Note`)?.value || '',
-                expiryDate,
-            });
-        }
-        // 必须至少有一个药品
-        if (medsToSave.length === 0) { this.toast('请至少添加一个药品'); return; }
-        this._ocrMedsSaving = true;
-        try {
+            // 必须至少有一个药品
+            if (medsToSave.length === 0) { this.toast('请至少添加一个药品'); return; }
+            App.toast('保存中…');
             const fileIds = await this._uploadOcrFiles();
             const elderId = document.getElementById('ocr-med-elder')?.value || this.state.currentMemberId;
 
