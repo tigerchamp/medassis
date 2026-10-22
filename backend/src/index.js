@@ -6,6 +6,9 @@ const express = require('express');
 const cors = require('cors');
 const { checkDatabase, initDatabase } = require('./config/database');
 const { checkMinio, ensureBucket } = require('./services/minio');
+// 启动自检：.env 少配一项时功能会静默失效（如缺 SHOWAPI_KEY → 说明书一直取不到），
+// 必须先于任何连接检查把缺失项打出来，否则排查时毫无线索
+const { logEnvStatus } = require('./config/env');
 
 // 导入路由
 const authRoutes = require('./routes/auth');
@@ -72,6 +75,8 @@ app.use(logger.errorLogger);
 // 启动服务器
 async function startServer() {
   logger.info(`服务启动中 (mode=${process.argv.includes('--mock') ? 'mock' : 'normal'}, port=${PORT})`);
+  // 配置自检放在最前面：缺哪几项、影响哪个功能，一眼可见（不因 DB 连不上而被跳过）
+  logEnvStatus(logger);
   try {
     const useMock = process.argv.includes('--mock') || process.argv.includes('--mock-data');
     const shouldRebuild = process.argv.includes('--rebuild');

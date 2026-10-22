@@ -122,6 +122,19 @@
 | M9-05 | 0 / 非法值 / >4 | 向下兜底为 1 次；向上兜底为全部 |
 | M9-06 | 连续调用 | 返回副本，调用方改动不污染下一次 |
 
+### M10 · 环境变量自检（`backend/src/config/env.js` → `checkEnv`）
+
+| 编号 | 输入 | 期望 |
+|---|---|---|
+| M10-01 | 配置齐全 | `ok=true`，无告警 |
+| M10-02 ★ | 缺 `SHOWAPI_KEY` | 报「药品说明书」不可用，missing 含该项 |
+| M10-03 ★ | 值为占位符 `your_xxx` | 视为缺失（等同于没配） |
+| M10-04 | 值为空串/空白串 | 视为缺失 |
+| M10-05 | 缺 `BAIDU_OCR_API_KEY` + `SECRET_KEY` | 报「拍照识别」不可用 |
+| M10-06 | 缺 `DB_HOST` 等 | 报「数据库」不可用 |
+| M10-07 | 多项同时缺失 | 全部列出，不只报第一项 |
+| M10-08 | 告警文案 | 含缺失变量名 + 影响的功能 |
+
 > M9-01 是用户报的线上问题：默认按 `slots` 顺序取前 N 个，把「一天两次」默认成了早/中。
 
 ---
@@ -137,6 +150,7 @@
 | `backend/src/controllers/medicationController.js`（用药计划） | M5 全部 + M6（含"不能走 addMedication 同步库存"这条回归） |
 | `js/app.js` / `js/pages.js`（前端表单/下拉/草稿） | M7 手工用例 |
 | `js/app.js` `MedTimesUI`（服药时间段） | M9 全部 + M7 用药计划相关 |
+| `backend/src/config/env.js` / `.env.example` / 新增第三方配置 | M10 全部 |
 | `js/app.js` 自动关联病历 / `js/pages.js` 粘贴识别 | M8 全部 + M7-09 |
 | `recordController.js` | M8 全部 |
 | `css/style.css` | M7 手工用例 |
@@ -154,8 +168,10 @@
 | `backend/test/ocr_samples.js` | 病历/处方/药盒样本与期望值 | 否 |
 | `backend/test/recordLink.test.js` | M8-01~08（直接 eval 前端纯函数，无需 jsdom） | 否 |
 | `backend/test/medTimes.test.js` | M9-01~06（直接 eval 前端纯函数，无需 jsdom） | 否 |
+| `backend/test/envCheck.test.js` | M10-01~08（`checkEnv` 纯函数，无需 DB/网络） | 否 |
 
-最近一次全量结果（2026-10-21）：**48 用例 / 48 通过 / 0 失败 / 0 跳过**（含新增 M9 服药时间段默认选中 6 例）
+最近一次全量结果（2026-10-21）：**56 用例 / 56 通过 / 0 失败 / 0 跳过**
+（含新增 M9 服药时间段默认选中 6 例、M10 环境变量自检 8 例）
 
 > 集成用例连不上 MySQL 时会显示 `# SKIP`，不会计入失败。若看到大量 SKIP，
 > 先执行 `ssh -L 3306:127.0.0.1:3306 ubuntu@82.157.202.113 -N` 再重跑。

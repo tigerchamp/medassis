@@ -393,10 +393,14 @@ async function fetchInfo(req, res) {
 
     // 3. 从 ShowAPI 获取
     if (!isConfigured()) {
+      // 不能静默返回：曾经因为 .env 丢了 SHOWAPI_KEY，说明书长期取不到却毫无日志线索
+      const msg = 'ShowAPI 未配置：.env 缺少 SHOWAPI_KEY，药品说明书在线获取不可用';
+      console.warn(`[fetchInfo] ${msg}`);
+      logger.warn(msg, { drug: row.name, code: row.code });
       return res.json({
         drug: _formatDrugFields(row),
         fetched: false,
-        note: 'ShowAPI 未配置'
+        note: '药品说明书服务未配置（SHOWAPI_KEY）'
       });
     }
 
@@ -406,10 +410,11 @@ async function fetchInfo(req, res) {
     const apiData = await fetchDrugInfo({ drugName: fetchName, approvalNumber: fetchApproval });
 
     if (!apiData) {
+      logger.warn('ShowAPI 未找到该药品数据', { drug: fetchName, approval: fetchApproval });
       return res.json({
         drug: _formatDrugFields(row),
         fetched: false,
-        note: 'ShowAPI 未找到该药品数据'
+        note: '未找到该药品的说明书数据'
       });
     }
 

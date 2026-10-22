@@ -3053,10 +3053,14 @@ const PageDrugInfo = {
                     this._showInfo(fetchRes.drug);
                     if (fetchRes.fetched) {
                         App.toast('说明书已更新');
+                    } else if (fetchRes.note) {
+                        // 未配置 / 未找到都要说清原因，别让用户对着"暂无数据"猜
+                        App.toast(fetchRes.note);
                     }
                 }
             } catch (err) {
                 console.warn('[fetchInfo] 获取失败:', err.message);
+                App.toast('获取说明书失败：' + (err.message || '未知错误'));
             }
         }
     },
