@@ -166,7 +166,7 @@ html,body{overscroll-behavior-y:none}
 .toast.show{opacity:1}
 .dialog-overlay{position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.5);z-index:400;display:none;justify-content:center;align-items:center;border-radius:40px}
 .dialog-overlay.show{display:flex}
-.dialog-box{background:#fff;border-radius:26px;padding:24px;width:85%;max-width:320px;box-shadow:0 12px 40px rgba(0,0,0,.2)}
+.dialog-box{background:#fff;border-radius:26px;padding:24px;width:85%;max-width:320px;box-shadow:0 12px 40px rgba(0,0,0,.2);max-height:88vh;overflow-y:auto;overscroll-behavior:contain}
 .dialog-title{font-size:17px;font-weight:700;color:#1e293b;margin-bottom:10px;text-align:center}
 .dialog-message{font-size:14px;color:#475569;margin-bottom:18px;text-align:center;line-height:1.6;white-space:pre-line}
 .dialog-input-row{margin-bottom:18px}
@@ -182,7 +182,7 @@ html,body{overscroll-behavior-y:none}
 .select-box.locked:active{background:#f1f5f9}
 .select-box.locked .select-box-arrow{color:#cbd5e1}
 /* 自研选项弹层（.dialog-box 内，字号与页面一致 15px） */
-.dialog-select-list{display:none;flex-direction:column;gap:8px;margin:14px 0 4px;max-height:50vh;overflow-y:auto}
+.dialog-select-list{display:none;flex-direction:column;gap:8px;margin:14px 0 4px;max-height:42vh;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;touch-action:pan-y}
 .dialog-select-item{display:flex;justify-content:space-between;align-items:center;gap:10px;width:100%;padding:12px 14px;border:1.5px solid #e2e8f0;border-radius:14px;background:#fff;color:#1e293b;font-size:15px;font-family:inherit;text-align:left;cursor:pointer}
 .dialog-select-item:active{background:#f1f5f9}
 .dialog-select-item.selected{border-color:#2b7a78;background:#e8f3f2;color:#0f5f5b;font-weight:600}

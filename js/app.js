@@ -2335,13 +2335,18 @@ const App = {
             startY = (e.touches && e.touches[0] && e.touches[0].clientY) || 0;
         }, { passive: true });
         document.addEventListener('touchmove', (e) => {
-            if (!App._hasBlockingOverlay()) return;
             const y = (e.touches && e.touches[0] && e.touches[0].clientY) || 0;
             if (y <= startY) return;               // 向上滑，正常滚动，不拦
+            // 找到手指所在的滚动容器（自研下拉列表、弹框、主内容区），让它们内部能正常滚
             const scroller = (e.target && e.target.closest)
-                ? (e.target.closest('.modal-content') || e.target.closest('#mainContent') || document.documentElement)
+                ? (e.target.closest('.dialog-select-list')
+                   || e.target.closest('.dialog-box')
+                   || e.target.closest('.modal-content')
+                   || e.target.closest('#mainContent')
+                   || document.documentElement)
                 : document.documentElement;
             if ((scroller.scrollTop || 0) > 0) return;  // 容器还没滚到顶，不拦
+            // 在顶部还继续下拉 → 拦掉原生下拉刷新：否则微信/安卓 webview 会冒出刷新动图，且取消后卡住不消失
             if (e.cancelable) e.preventDefault();
         }, { passive: false });
     },
