@@ -239,6 +239,8 @@
 | `js/pages.js` `PageElderDetail` / `PageChronicMeds`（成员档案里的长期用药入口） | M3.1 全部 + M7-15 |
 | `backend/src/controllers/drugController.js` `updateInventoryItem`（药品详情改有效期/余量） | M2.1 全部 + M7-11 |
 | `js/app.js` `calcRefillDays` / `js/pages.js` `PageHome`（开药倒计时剩余天数） | M2.2 全部 + M6 全部 |
+| `js/app.js` `promptSelect` / `adoptSelects` / `_initSelectAdoption`（表单下拉自研 picker） | M7-16 |
+
 
 | `js/app.js` `App.promptDate`（日期弹框，别的页面也会用） | M7-14 |
 
@@ -385,4 +387,12 @@
    需要连 MySQL 才能验真实数据，无 DB 时至少跑 M3.1 三条
 6. 未授权：进页面 → **期望**：复选框禁用、没有保存按钮，只能看
 7. 首页「去设置」长期用药 → 保存后 → **期望**：回到**首页**（原来是硬跳我的页）
+
+### M7-16 表单下拉（自研 picker 替代原生 select）
+1. 任一表单的下拉字段（快速添加库存-服药人、添加用药计划-关联成员、规格/单位下拉等）→ 点字段
+2. **期望**：弹出**自研圆角选项列表**（不是系统特大号字列表）；字号与页面一致（15px）；选中项主题色高亮 + 对勾
+3. 选一个选项 → **期望**：展示框显示新值；弹框里点「取消」→ **期望**：保留原值
+4. 药品库自动填充锁定仍生效：添加药品/识别处方，药名精确匹配药品库 → 规格/单位字段**置灰不可点**（disabled 拦截同步到展示框）；改药名后解锁恢复可点
+5. 表单填一半（含下拉选择）切走再回来 → **期望**：下拉的值也被草稿回填（`data-adopted-select` 走 FormDraft）
+6. OCR 弹框切换关联成员 → **期望**：自动关联病历仍跟随刷新（`onchange` 重放生效）
 

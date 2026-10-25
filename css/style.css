@@ -161,16 +161,32 @@ html,body{overscroll-behavior-y:none}
 .scan-cancel{margin-top:12px;background:#f1f5f9;color:#64748b;border:none;padding:14px;border-radius:60px;font-weight:600;font-size:16px;width:100%;cursor:pointer;font-family:inherit}
 .modal-overlay{position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.5);z-index:300;display:none;justify-content:center;align-items:center;border-radius:40px;overflow:hidden}
 .modal-overlay.show{display:flex}
-.modal-content{background:#fff;border-radius:24px;padding:24px;width:90%;max-width:380px;max-height:80vh;overflow-y:auto}
+.modal-content{background:#fff;border-radius:30px;padding:24px;width:90%;max-width:380px;max-height:80vh;overflow-y:auto}
 .toast{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,.8);color:#fff;padding:12px 24px;border-radius:8px;font-size:14px;z-index:999;pointer-events:none;opacity:0;transition:opacity .3s;max-width:80%;text-align:center}
 .toast.show{opacity:1}
 .dialog-overlay{position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.5);z-index:400;display:none;justify-content:center;align-items:center;border-radius:40px}
 .dialog-overlay.show{display:flex}
-.dialog-box{background:#fff;border-radius:20px;padding:24px;width:85%;max-width:320px;box-shadow:0 12px 40px rgba(0,0,0,.2)}
+.dialog-box{background:#fff;border-radius:26px;padding:24px;width:85%;max-width:320px;box-shadow:0 12px 40px rgba(0,0,0,.2)}
 .dialog-title{font-size:17px;font-weight:700;color:#1e293b;margin-bottom:10px;text-align:center}
 .dialog-message{font-size:14px;color:#475569;margin-bottom:18px;text-align:center;line-height:1.6;white-space:pre-line}
 .dialog-input-row{margin-bottom:18px}
 .dialog-input{width:100%;padding:10px 14px;border:1.5px solid #e2e8f0;border-radius:12px;font-size:15px;outline:none;transition:border-color .2s;font-family:inherit}
+/* 自研下拉展示框（替代原生 <select>：原生选项层是系统 UI，字号/圆角 CSS 改不动） */
+.select-box-wrap{width:100%}
+.select-box{display:flex;justify-content:space-between;align-items:center;gap:8px;width:100%;padding:10px 12px;border:1px solid #e2e8f0;border-radius:12px;font-size:15px;background:#fff;color:#1e293b;cursor:pointer;box-sizing:border-box;transition:background .15s}
+.select-box:active{background:#f8fafd}
+.select-box-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.select-box-label.placeholder{color:#94a3b8}
+.select-box-arrow{font-size:12px;color:#94a3b8;flex-shrink:0}
+.select-box.locked{background:#f1f5f9;color:#64748b;cursor:default}
+.select-box.locked:active{background:#f1f5f9}
+.select-box.locked .select-box-arrow{color:#cbd5e1}
+/* 自研选项弹层（.dialog-box 内，字号与页面一致 15px） */
+.dialog-select-list{display:none;flex-direction:column;gap:8px;margin:14px 0 4px;max-height:50vh;overflow-y:auto}
+.dialog-select-item{display:flex;justify-content:space-between;align-items:center;gap:10px;width:100%;padding:12px 14px;border:1.5px solid #e2e8f0;border-radius:14px;background:#fff;color:#1e293b;font-size:15px;font-family:inherit;text-align:left;cursor:pointer}
+.dialog-select-item:active{background:#f1f5f9}
+.dialog-select-item.selected{border-color:#2b7a78;background:#e8f3f2;color:#0f5f5b;font-weight:600}
+.dialog-select-item i{color:#2b7a78;flex-shrink:0}
 .dialog-input:focus{border-color:#2b7a78}
 .dialog-actions{display:flex;gap:12px}
 .dialog-btn{flex:1;padding:10px 0;border:none;border-radius:12px;font-size:15px;font-weight:600;cursor:pointer;transition:all .2s;font-family:inherit}

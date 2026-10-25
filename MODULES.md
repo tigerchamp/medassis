@@ -38,6 +38,15 @@
   `index.html` 里 `css/style.css` 与 `js/*.js` 都带 `?v=YYYYMMDD` 版本号，
   **改了前端必须把版本号 +1**，否则用户拿到的还是旧代码（典型症状：反馈"改了没生效"）。
   后端则相反，改动后需要 `pm2 restart medassis`。
+- **表单下拉一律自研 picker，别指望原生 `<select>`**（2026-10-25 用户报「选项层字体太大、圆角小、不协调」）：
+  原生 select 点开后是**系统级弹层**，字号/圆角 CSS 完全改不动（select 上写了 font-size:15px 也没用）。
+  与「日期一律自研 CalendarPicker」同根。`App._initSelectAdoption()` 用 MutationObserver 监听
+  `mainContent`/`modalContent`，自动把新出现的 select 收养成「展示框 + 同名隐藏 input」+ `App.promptSelect` 弹层：
+  ① 下游 `getElementById(id).value` 读写透明（隐藏 input 拦截了 `value`/`disabled`，
+  `DrugSuggest` 自动填充后的锁定置灰、`FormDraft` 草稿回填都会同步展示框）；
+  ② `FormDraft._fields` 只放行 `data-adopted-select` 的隐藏字段进草稿，其余隐藏字段照旧排除；
+  ③ 内联 `onchange` 用 `new Function('value', src).call(hiddenInput)` 重放，调用方都只读 `.value`。
+  写新表单时照常写 `<select>` 即可被自动收养；手机上看到「特大号字选项层」= 该 select 不在两个容器内（收养没兜住）。
 
 ---
 

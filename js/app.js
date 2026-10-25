@@ -238,7 +238,7 @@ const FormDraft = {
     _fields(container) {
         if (!container) return [];
         return Array.from(container.querySelectorAll('input[id],select[id],textarea[id]'))
-            .filter(el => el.type !== 'hidden' && !el.disabled && !el.readOnly);
+            .filter(el => (el.type !== 'hidden' || el.dataset.adoptedSelect) && !el.disabled && !el.readOnly);
     },
 
     // 用容器内字段 id 集合做指纹：不同表单天然得到不同 key，不需要各处手写 key
@@ -1793,6 +1793,8 @@ const App = {
     },
 
     init() {
+        // 表单下拉统一收养为自研 picker（原生 select 选项层是系统 UI，字号/圆角改不了）
+        this._initSelectAdoption();
         // 输入停顿后自动存草稿：刷新/误触返回后重新进入表单能恢复未提交的内容
         document.addEventListener('input', (e) => FormDraft.scheduleSave(e.target), true);
         document.addEventListener('change', (e) => FormDraft.scheduleSave(e.target), true);
@@ -2175,6 +2177,142 @@ const App = {
             cancelBtn.addEventListener('click', onCancel);
             overlay.classList.add('show');
         });
+    },
+
+
+    // 自研选项弹层（替代原生 <select> 的选项层：那是系统级 UI，字号/圆角 CSS 改不动，
+    // 手机上表现为特大号字 + 小圆角，与页面风格不一致）。复用 promptDate 的 dialog 容器。
+    // options: [{value,label}]；选中 resolve(value)，点取消 resolve(null)（调用方保留原值）
+    promptSelect(message, options, current, title) {
+        return new Promise(resolve => {
+            const overlay = document.getElementById('dialogOverlay');
+            document.getElementById('dialogTitle').textContent = title || '请选择';
+            const msg = document.getElementById('dialogMessage');
+            msg.textContent = message || '';
+            msg.style.display = message ? '' : 'none';
+            document.getElementById('dialogInputRow').style.display = 'none';
+            const list = document.getElementById('dialogSelectList');
+            const okBtn = document.getElementById('dialogOkBtn');
+            const cancelBtn = document.getElementById('dialogCancelBtn');
+            const cleanup = () => {
+                overlay.classList.remove('show');
+                list.style.display = 'none';
+                list.innerHTML = '';
+                okBtn.style.display = '';
+                msg.style.display = '';
+                cancelBtn.onclick = null;
+            };
+            list.innerHTML = '';
+            (options || []).forEach(o => {
+                const isCur = String(o.value) === String(current);
+                const b = document.createElement('button');
+                b.type = 'button';
+                b.className = 'dialog-select-item' + (isCur ? ' selected' : '');
+                const sp = document.createElement('span');
+                sp.textContent = o.label || o.value;
+                b.appendChild(sp);
+                if (isCur) {
+                    const ck = document.createElement('i');
+                    ck.className = 'fas fa-check';
+                    b.appendChild(ck);
+                }
+                b.addEventListener('click', () => { cleanup(); resolve(o.value); });
+                list.appendChild(b);
+            });
+            list.style.display = '';
+            okBtn.style.display = 'none';
+            cancelBtn.onclick = () => { cleanup(); resolve(null); };
+            overlay.classList.add('show');
+        });
+    },
+
+    // 把容器内新出现的原生 <select> 收养为「展示框 + 同名隐藏 input」。
+    // 下游代码不用改：getElementById(id).value 读值 / 程序赋值（DrugSuggest 自动填充、
+    // 草稿回填）都落在隐藏 input 上，value/disabled 被拦截器同步到展示框外观。
+    adoptSelects(root) {
+        if (!root) return;
+        const sels = (root.matches && root.matches('select')) ? [root]
+            : (root.querySelectorAll ? Array.from(root.querySelectorAll('select')) : []);
+        sels.forEach(sel => this._adoptSelect(sel));
+    },
+
+    _adoptSelect(sel) {
+        if (sel.dataset.adoptedSelect) return;
+        sel.dataset.adoptedSelect = '1';
+        const options = Array.from(sel.options).map(o => ({ value: o.value, label: o.text }));
+        const cur = sel.value;
+        const curDisabled = !!sel.disabled;
+        const onChangeSrc = sel.getAttribute('onchange');
+        // 取 label 文案做弹层标题（在 replaceWith 前取，之后 sel 脱离文档树）
+        const group = sel.closest ? sel.closest('.form-group') : null;
+        const labelEl = group ? group.querySelector('label') : null;
+        const capText = labelEl ? labelEl.textContent.replace(/\s*[\*＊]\s*$/, '').trim() : '';
+        // 只继承布局类内联样式（flex/width），外观统一走 .select-box
+        const layout = (sel.getAttribute('style') || '')
+            .split(';').map(s => s.trim())
+            .filter(s => /^(flex|width|max-width|min-width)\s*:/.test(s))
+            .join('; ');
+        const wrap = document.createElement('div');
+        wrap.className = 'select-box-wrap';
+        if (layout) wrap.setAttribute('style', layout);
+        const box = document.createElement('div');
+        box.className = 'select-box';
+        const labelSpan = document.createElement('span');
+        labelSpan.className = 'select-box-label';
+        const arrow = document.createElement('i');
+        arrow.className = 'fas fa-chevron-down select-box-arrow';
+        box.append(labelSpan, arrow);
+        const hidden = document.createElement('input');
+        hidden.type = 'hidden';
+        hidden.id = sel.id;
+        hidden.dataset.adoptedSelect = '1';
+        let _v = cur, _d = curDisabled;
+        const syncLabel = () => {
+            const o = options.find(x => x.value === _v);
+            labelSpan.textContent = o ? o.label : (_v || '请选择');
+            labelSpan.classList.toggle('placeholder', !_v && !o);
+        };
+        syncLabel();
+        box.classList.toggle('locked', _d);
+        // 拦截 value/disabled：程序化赋值（药品库自动填充后锁定字段、草稿回填）也要同步展示框
+        Object.defineProperty(hidden, 'value', {
+            get: () => _v,
+            set: v => { _v = (v == null ? '' : String(v)); syncLabel(); },
+        });
+        Object.defineProperty(hidden, 'disabled', {
+            get: () => _d,
+            set: d => { _d = !!d; box.classList.toggle('locked', _d); },
+        });
+        box.onclick = () => {
+            if (_d) return;
+            App.promptSelect(capText, options, _v, capText ? '选择' + capText : '请选择').then(v => {
+                if (v === null || v === undefined) return; // 取消：保留原值
+                hidden.value = v; // 走 setter 同步展示框
+                if (onChangeSrc) {
+                    // 内联 handler 里 this 指向原 select，这里用隐藏 input 充当（调用方都只读 .value）
+                    try { new Function('value', onChangeSrc).call(hidden); }
+                    catch (e) { console.error('select onchange error:', e); }
+                }
+            });
+        };
+        wrap.append(box, hidden);
+        sel.replaceWith(wrap);
+    },
+
+    // 页面/弹框都是动态渲染的，渲染点散落各处，用 MutationObserver 统一兜住新出现的 <select>
+    _initSelectAdoption() {
+        if (typeof MutationObserver === 'undefined') return;
+        const obs = new MutationObserver(muts => {
+            muts.forEach(m => m.addedNodes.forEach(n => {
+                if (!n || n.nodeType !== 1) return;
+                this.adoptSelects(n);
+            }));
+        });
+        ['mainContent', 'modalContent'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) obs.observe(el, { childList: true, subtree: true });
+        });
+        this.adoptSelects(document.getElementById('mainContent'));
     },
 
     openModal(html) {
