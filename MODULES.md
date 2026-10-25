@@ -38,6 +38,12 @@
   `index.html` 里 `css/style.css` 与 `js/*.js` 都带 `?v=YYYYMMDD` 版本号，
   **改了前端必须把版本号 +1**，否则用户拿到的还是旧代码（典型症状：反馈"改了没生效"）。
   后端则相反，改动后需要 `pm2 restart medassis`。
+- **`_preventPullToRefresh` 的滚动容器链必须包含所有可滚动区域**（2026-10-25 修两处 bug）：
+  原生 select 弹层、自研下拉列表 `.dialog-select-list`、弹框 `.dialog-box` 都不在
+  `.modal-content`/`#mainContent` 下，若链里没它们，这些浮层内的 `touchmove` 会被误 `preventDefault`
+  → 手机上列表/弹框滚不动；且去掉「仅弹框时拦截」的早退后，普通页面也走同一套拦截，
+  可避免微信/安卓 webview 的下拉刷新动图在取消后卡住不消失。改手势拦截逻辑时，
+  新增浮层要同步加进 `_hasBlockingOverlay` 判断与 scroller 链。
 - **表单下拉一律自研 picker，别指望原生 `<select>`**（2026-10-25 用户报「选项层字体太大、圆角小、不协调」）：
   原生 select 点开后是**系统级弹层**，字号/圆角 CSS 完全改不动（select 上写了 font-size:15px 也没用）。
   与「日期一律自研 CalendarPicker」同根。`App._initSelectAdoption()` 用 MutationObserver 监听
@@ -323,6 +329,8 @@
 **易踩坑**
 - 测试文件里 require 顺序：`src/config/database.js` 在**模块加载时**就读 `process.env` 建连接池，
   必须先 `require('./helpers/db.js')` 加载 `.env`，否则空密码连库报 `ER_ACCESS_DENIED_ERROR`。
+
+- **手势拦截的 `closest` 必须含 overlay 根节点（`#dialogOverlay`/`#modalOverlay`）**：弹框/下拉层是 `position:fixed` 居中浮层，四周是半透明遮罩。手指从屏幕顶部往下拉时，touch 常落在遮罩上——若 `closest` 链没有这些根节点，会回落到 `document.documentElement`，其 `scrollTop` 是**背景页面**滚动位置（长表单通常已滚下去 >0），于是 `if(scrollTop>0)return` 提前返回、不 `preventDefault`，原生下拉刷新照样触发且取消后卡死。修复后「是否到顶」只看手指所在容器，背景页滚动不参与判断。
 
 ---
 
