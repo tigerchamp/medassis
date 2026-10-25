@@ -256,6 +256,16 @@ input:disabled,select:disabled,textarea:disabled{background:#f1f5f9;color:#64748
 .login-btn:active{background:#1e6b68}
 .login-remember{display:flex;align-items:center;gap:8px;margin:2px 0 0;color:#64748b;font-size:14px;user-select:none}
 .login-remember input[type=checkbox]{width:18px;height:18px;accent-color:#2b7a78;margin:0}
+.login-accounts{margin-top:18px;border-top:1px solid #eef2f6;padding-top:12px}
+.login-accounts-title{font-size:13px;color:#94a3b8;margin-bottom:8px}
+.login-account{display:flex;align-items:center;gap:10px;padding:10px 12px;margin-bottom:8px;background:#f8fafc;border:1px solid #eef2f6;border-radius:12px;cursor:pointer}
+.login-account:active{background:#eef7f6;border-color:#2b7a78}
+.login-account .fa-user-circle{color:#2b7a78;font-size:20px}
+.login-account-name{flex:1;font-size:15px;color:#1e293b;font-weight:500}
+.login-account-phone{font-size:13px;color:#94a3b8}
+.login-account-del{padding:2px 6px;color:#94a3b8;font-size:14px}
+.login-account-del:active{color:#d33}
+
 .login-switch{text-align:center;margin-top:20px;color:#64748b;font-size:14px}
 .login-switch a{color:#2b7a78;font-weight:600;cursor:pointer;text-decoration:none}
 .empty-state{text-align:center;padding:40px 20px;color:#64748b}

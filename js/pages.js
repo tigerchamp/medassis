@@ -167,10 +167,23 @@ function renderMdTable(tlines, esc) {
 const PageLogin = {
     render() {
         // 记住的账号密码直接回填（手机上是安卓 WebView，重开 APP 后靠这个免输入）
-        const saved = (typeof RememberCreds !== 'undefined') ? RememberCreds.get() : null;
+        const creds = (typeof RememberCreds !== 'undefined') ? RememberCreds : null;
+        const saved = creds ? creds.getLast() : null;
+        const accounts = creds ? creds.list() : [];
         const phone = saved ? escHtml(saved.phone) : '';
         const password = saved ? escHtml(saved.password) : '';
         const checked = 'checked'; // 默认勾选：手机上就是要能记住，不想记的用户自行取消
+        // 记住多个账号时（一台手机几个人轮流用）列出来让用户选，右侧 × 可单独忘记
+        const accountList = accounts.length > 1 ? `
+            <div class="login-accounts">
+                <div class="login-accounts-title">选择账号登录</div>
+                ${accounts.map(a => `<div class="login-account" onclick="App.loginAs('${escHtml(a.phone)}')">
+                    <i class="fas fa-user-circle"></i>
+                    <span class="login-account-name">${escHtml(a.name || a.phone)}</span>
+                    ${a.name ? `<span class="login-account-phone">${escHtml(a.phone)}</span>` : ''}
+                    <span class="login-account-del" onclick="event.stopPropagation();App.forgetAccount('${escHtml(a.phone)}')" title="忘记此账号"><i class="fas fa-times"></i></span>
+                </div>`).join('')}
+            </div>` : '';
         return `
         <div class="login-page">
             <div class="login-logo"><i class="fas fa-heartbeat"></i></div>
@@ -181,6 +194,7 @@ const PageLogin = {
                 <div class="form-group"><input id="loginPassword" type="password" placeholder="密码" value="${password}"></div>
                 <label class="login-remember"><input type="checkbox" id="loginRemember" ${checked}><span>记住密码</span></label>
                 <button class="login-btn" onclick="App.doLogin()">登录</button>
+                ${accountList}
                 <div class="login-switch">还没有账号？<a onclick="App.showRegister()">立即注册</a></div>
             </div>
             <div class="login-form" id="registerForm" style="display:none;">

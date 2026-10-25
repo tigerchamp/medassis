@@ -199,7 +199,7 @@ App.state = {
 | `fh_token` | localStorage | 登录 JWT |
 | `fh_user` | localStorage | 登录用户信息 |
 | `fh_lastPage` / `fh_lastMember` | localStorage | 恢复上次浏览的页面与成员（退出登录时清除） |
-| `fh_remember` | localStorage **+ 同名 cookie** | 「记住密码」的账号密码，1 年有效；双写是为安卓 WebView 兜底（见 MODULES.md M1.1） |
+| `fh_remember` | localStorage **+ 同名 cookie** | 「记住密码」的**账号列表** `{ accounts:[{phone,password,name,lastAt}], autoLogin }`，1 年有效；双写是为安卓 WebView 兜底（见 MODULES.md M1.1） |
 | `fh_draft_*` | sessionStorage | 表单草稿，12 小时，按字段名集合做指纹生成 key |
 
 ---

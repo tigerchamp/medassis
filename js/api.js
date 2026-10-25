@@ -36,7 +36,8 @@ async function api(endpoint, options = {}) {
         const res = await fetch(url, { ...options, headers });
         const data = await res.json();
         if (!res.ok) {
-            if (res.status === 401 && !isAuthEndpoint) { App.logout(); throw new Error('登录已过期'); }
+            // 401 是服务端判定过期，不是用户主动退出：记住的账号照旧，下次仍可自动登录
+            if (res.status === 401 && !isAuthEndpoint) { App.onSessionExpired(); throw new Error('登录已过期'); }
             throw new Error(data.error || '请求失败');
         }
         return data;

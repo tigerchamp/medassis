@@ -1652,27 +1652,95 @@ const REMEMBER_KEY = 'fh_remember';
 const RememberCreds = {
     TTL_SECONDS: 365 * 24 * 3600,
 
-    get() {
+    // 存储结构：{ accounts: [{ phone, password, name, lastAt }], autoLogin: true }
+    // 一台手机上可能记住多个账号（家里几个人轮流用），所以存的是列表不是单个；
+    // list()[0] 是最近登录过的那个。autoLogin=false 表示上次是「主动退出」，下次要让用户自己选。
+    _load() {
         let raw = null;
         try { raw = localStorage.getItem(REMEMBER_KEY); } catch (e) { /* 隐私模式等，忽略 */ }
         if (!raw) raw = this._readCookie();
-        if (!raw) return null;
+        if (!raw) return { accounts: [], autoLogin: true };
         try {
             const d = JSON.parse(raw);
-            if (!d || !d.phone) return null;
-            return { phone: String(d.phone), password: String(d.password || '') };
-        } catch (e) { return null; }
+            if (!d) return { accounts: [], autoLogin: true };
+            // 兼容旧格式：那时只存了一个 { phone, password }
+            const rawAccounts = Array.isArray(d.accounts) ? d.accounts : (d.phone ? [d] : []);
+            const accounts = rawAccounts
+                .filter(a => a && a.phone)
+                .map(a => ({
+                    phone: String(a.phone),
+                    password: String(a.password || ''),
+                    name: a.name ? String(a.name) : '',
+                    lastAt: Number(a.lastAt) || 0,
+                }));
+            return { accounts, autoLogin: d.autoLogin !== false };
+        } catch (e) { return { accounts: [], autoLogin: true }; }
     },
 
-    save(phone, password) {
-        const raw = JSON.stringify({ phone, password });
+    _save(data) {
+        const raw = JSON.stringify(data);
         try { localStorage.setItem(REMEMBER_KEY, raw); } catch (e) { /* 配额满等，忽略 */ }
         this._writeCookie(raw, this.TTL_SECONDS);
+    },
+
+    // 记住的账号列表，最近登录的排在最前
+    list() {
+        return this._load().accounts.slice().sort((a, b) => b.lastAt - a.lastAt);
+    },
+
+    // 最近登录的那个（自动登录 / 登录页回填用它）
+    getLast() {
+        const list = this.list();
+        return list.length ? list[0] : null;
+    },
+
+    get(phone) {
+        return this.list().find(a => a.phone === String(phone)) || null;
+    },
+
+    // 登录成功后调用：已存在则更新密码与登录时间，不存在则新增（不会重复）
+    save(phone, password, name) {
+        const data = this._load();
+        const p = String(phone);
+        // 严格递增：同一毫秒内连续登录两个账号时，list() 的排序不会并列（否则「最近登录的」会飘）
+        const maxAt = data.accounts.reduce((m, a) => Math.max(m, a.lastAt || 0), 0);
+        const lastAt = Math.max(Date.now(), maxAt + 1);
+        const acc = data.accounts.find(a => a.phone === p);
+        if (acc) {
+            acc.password = String(password);
+            if (name) acc.name = String(name);
+            acc.lastAt = lastAt;
+        } else {
+            data.accounts.push({ phone: p, password: String(password), name: name ? String(name) : '', lastAt });
+        }
+        data.autoLogin = true; // 手动登录成功 → 恢复自动登录
+        this._save(data);
+    },
+
+    // 忘记某一个账号（列表里点 ×），其他账号不受影响
+    remove(phone) {
+        const data = this._load();
+        data.accounts = data.accounts.filter(a => a.phone !== String(phone));
+        if (!data.accounts.length) { this.clear(); return; }
+        this._save(data);
     },
 
     clear() {
         try { localStorage.removeItem(REMEMBER_KEY); } catch (e) { /* 忽略 */ }
         this._writeCookie('', 0);
+    },
+
+    // 主动退出登录：记住的账号都留着，但下次打开不再自动登录（用户多半是要换号）
+    pauseAutoLogin() {
+        if (!this.list().length) return;
+        const data = this._load();
+        data.autoLogin = false;
+        this._save(data);
+    },
+
+    // 是否允许自动登录：得有记住的账号，且上次不是主动退出
+    autoLoginAllowed() {
+        return this.list().length > 0 && this._load().autoLogin !== false;
     },
 
     _writeCookie(raw, maxAge) {
@@ -3035,18 +3103,36 @@ const App = {
         const phone = document.getElementById('loginPhone').value.trim();
         const password = document.getElementById('loginPassword').value;
         if (!phone || !password) { this.toast('请输入手机号和密码'); return; }
+        // 勾了才存；取消勾选则不记住这一个账号（其他已记住的账号不受影响）
+        const remember = !!document.getElementById('loginRemember')?.checked;
+        if (!remember) RememberCreds.remove(phone);
+        await this.loginWith(phone, password, remember);
+    },
+
+    // 登录页里点记住的某个账号 → 直接用它登录
+    async loginAs(phone) {
+        const acc = RememberCreds.get(phone);
+        if (!acc || !acc.password) { this.toast('该账号已忘记，请重新输入密码'); return; }
+        this.toast('登录中…');
+        await this.loginWith(acc.phone, acc.password, true);
+    },
+
+    // 登录的公共实现：remember=true 时把该账号并入记住的列表（同一手机可记多个账号）
+    async loginWith(phone, password, remember = true) {
         try {
             const data = await Api.auth.login(phone, password);
-            // 勾了才存，取消勾选要把之前存的清掉（否则"不记住"形同虚设）
-            if (document.getElementById('loginRemember')?.checked) {
-                RememberCreds.save(phone, password);
-            } else {
-                RememberCreds.clear();
-            }
+            if (remember) RememberCreds.save(phone, password, data.user?.name);
             this._applyLogin(data);
             await this.loadData();
             this.switchPage('home');
         } catch (err) { this.toast(err.message); }
+    },
+
+    // 登录页里忘记某个记住的账号（列表右侧 ×）：只删这一个，其他账号保留
+    forgetAccount(phone) {
+        RememberCreds.remove(phone);
+        this.switchPage('login');
+        this.toast('已忘记该账号');
     },
 
     // 恢复上次浏览的页面与成员，避免刷新后回到首页 / 自动换成默认成员
@@ -3077,7 +3163,8 @@ const App = {
     // 记住了密码 → 打开 APP 自动登录（不再手点登录）。手机 WebView 里 localStorage
     // 可能被清，登录态丢了也能靠记住的密码自己登回来。
     async autoLogin() {
-        const cred = RememberCreds.get();
+        if (!RememberCreds.autoLoginAllowed()) return false; // 上次是主动退出 → 让用户自己选账号
+        const cred = RememberCreds.getLast();
         if (!cred || !cred.phone || !cred.password) return false;
         this.toast('自动登录中…');
         try {
@@ -3110,7 +3197,19 @@ const App = {
         } catch (err) { this.toast(err.message); }
     },
 
+    // 用户主动退出登录（「我的」页按钮）：记住的账号保留，但下次打开不再自动登录，
+    // 让用户自己选要用哪个账号 —— 一台手机上可能记住了家里几个人的账号。
     logout() {
+        RememberCreds.pauseAutoLogin();
+        this._clearSession();
+    },
+
+    // 服务端判定登录过期（401）：不是用户主动退出，不清「记住的账号」，也不暂停自动登录
+    onSessionExpired() {
+        this._clearSession();
+    },
+
+    _clearSession() {
         localStorage.removeItem(TOKEN_KEY);
         localStorage.removeItem(USER_KEY);
         localStorage.removeItem('fh_lastPage');
