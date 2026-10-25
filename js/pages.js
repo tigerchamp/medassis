@@ -3462,17 +3462,35 @@ const PageMedEdit = {
         }
     },
 
+    // 结束用药：让用户填结束日期（默认今天）。
+    // 常见情况是忘了及时点结束，所以允许往回补填，但不允许早于开始服药日期、也不允许晚于今天。
     async endMed(medId, medName) {
         if (!await App.confirm(`确定结束「${medName}」的用药？\n当前用药安排将被归档到历史记录。`)) return;
+        let oldMed;
         try {
-            const oldRes = await Api.medications.get(medId);
-            const oldMed = oldRes.medication;
-            const today = _todayLocal();
-
+            oldMed = (await Api.medications.get(medId)).medication;
+        } catch (err) {
+            App.toast('读取用药失败: ' + err.message);
+            return;
+        }
+        const today = _todayLocal();
+        const startDate = oldMed.startDate || '';
+        // 开始日期若在未来（理论上不会），min 会大于 max 导致日历没有可选日期，这里兜一下
+        const min = (startDate && startDate > today) ? today : (startDate || '1970-01-01');
+        const endDate = await App.promptDate(
+            startDate ? `开始服药日期 ${startDate}，结束日期不能早于它，也不能晚于今天`
+                : '结束日期不能晚于今天',
+            today, { min, max: 'today' }, '选择结束日期');
+        if (endDate === null) return; // 点了取消
+        const errMsg = validateMedEndDate(endDate, startDate, today);
+        if (errMsg) { App.toast(errMsg); return; }
+        try {
             // 将当前用药标记为 ended
-            await Api.medications.update(medId, { status: 'ended', endDate: today });
+            await Api.medications.update(medId, { status: 'ended', endDate });
 
-            App.toast('用药已结束，已归档到历史记录');
+            App.toast(endDate === today
+                ? '用药已结束，已归档到历史记录'
+                : `用药已结束（结束日期 ${endDate}），已归档到历史记录`);
             PageMedEdit.loadContent();
         } catch (err) {
             App.toast('操作失败: ' + err.message);

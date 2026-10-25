@@ -1465,6 +1465,18 @@ const RecordSuggest = {
     }
 };
 
+// ========== 用药计划「结束日期」校验 ==========
+// 用户可能忘了及时点结束，所以结束日期要能往前补填，但：
+//   不能早于开始服药日期（那段时间确实在吃），也不能晚于今天（未来的还没发生）。
+// 全是 YYYY-MM-DD 本地日期字符串，直接字符串比较即可；别用 new Date() 比，会被时区带偏。
+function validateMedEndDate(endDate, startDate, today) {
+    const isDate = (s) => typeof s === 'string' && new RegExp('^[0-9]{4}-[0-9]{2}-[0-9]{2}$').test(s);
+    if (!isDate(endDate)) return '请选择结束日期';
+    if (isDate(startDate) && endDate < startDate) return '结束日期不能早于开始服药日期（' + startDate + '）';
+    if (isDate(today) && endDate > today) return '结束日期不能晚于今天';
+    return '';
+}
+
 // ========== 日历选择器组件 ==========
 // 用法：<input type="text" readonly onclick="CalendarPicker.attach(this)" placeholder="点击选择日期">
 // 限制范围：CalendarPicker.attach(this, {max:'today'}) 或 {max:'2030-12-31', min:'2020-01-01'}
@@ -2115,6 +2127,41 @@ const App = {
             input.addEventListener('keydown', onKey);
             overlay.classList.add('show');
             setTimeout(() => input.focus(), 50);
+        });
+    },
+
+    // 带日历的日期输入弹框（opts: { min, max }，值可以是 'today' 或 'YYYY-MM-DD'）
+    // 返回值是 YYYY-MM-DD 字符串；取消返回 null，清空后点确定返回 ''（由调用方决定怎么处理）
+    promptDate(message, defaultValue, opts, title) {
+        opts = opts || {};
+        return new Promise(resolve => {
+            const overlay = document.getElementById('dialogOverlay');
+            document.getElementById('dialogTitle').textContent = title || '提示';
+            document.getElementById('dialogMessage').textContent = message;
+            document.getElementById('dialogInputRow').style.display = '';
+            const input = document.getElementById('dialogInput');
+            input.value = defaultValue || '';
+            input.readOnly = true; // 手机上原生日期控件没法跳年，统一走自研日历
+            input.placeholder = '点击选择日期';
+            input.style.background = '#fff';
+            input.onclick = () => CalendarPicker.attach(input, opts);
+            document.getElementById('dialogOkBtn').textContent = '确定';
+            const okBtn = document.getElementById('dialogOkBtn');
+            const cancelBtn = document.getElementById('dialogCancelBtn');
+            const cleanup = () => {
+                overlay.classList.remove('show');
+                okBtn.removeEventListener('click', onOk);
+                cancelBtn.removeEventListener('click', onCancel);
+                input.readOnly = false;
+                input.onclick = null;
+                input.style.background = '';
+                CalendarPicker.close(); // 确定时日历可能还开着
+            };
+            const onOk = () => { const v = (input.value || '').trim(); cleanup(); resolve(v); };
+            const onCancel = () => { cleanup(); resolve(null); };
+            okBtn.addEventListener('click', onOk);
+            cancelBtn.addEventListener('click', onCancel);
+            overlay.classList.add('show');
         });
     },
 

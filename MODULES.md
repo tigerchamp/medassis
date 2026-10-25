@@ -168,6 +168,10 @@
 - **48 小时规则（用户确认的原设计，不要改）**：
   创建 **48 小时内**显示「删除」（录错的兜底，直接删掉）；
   **超过 48 小时**显示「结束」（只能归档，保留历史）。**二选一**，不是同时显示。
+- **结束用药要让用户填结束日期**（`PageMedEdit.endMed`，2026-10-25 加）：
+  默认今天，弹自研日历（复用 `App.promptDate` + `CalendarPicker`），可选范围 **开始服药日期 ~ 今天**。
+  原因：用户常常忘了及时点结束，若一律写 `CURDATE()`，历史记录里的停药日期就是错的。
+  校验用纯函数 `validateMedEndDate(endDate, startDate, today)`（日期是 `YYYY-MM-DD`，直接字符串比较）。
 
 **关键约定**
 - `status`: `active` / `ended`。结束写 `end_date = CURDATE()`；恢复写 `end_date = NULL`。
@@ -182,6 +186,9 @@
   **新增可编辑字段必须同时改两处**（解构 + `updates.push`），否则前端传了也被静默丢弃、
   保存还提示成功 —— `doseAmount`/`doseUnit` 就是这样丢的（M4 回归点）。
 - 列表显示的剂量是 `doseAmount + doseUnit`，不是 `dose` 字符串。两者都要维护一致。
+- **结束日期的「不能晚于今天」只在前端校验**：「今天」是**客户端本地日期**（`_todayLocal()`），
+  后端按 UTC 之类的时区算会得到不同的「今天」，跨零点时可能误拒。别把它搬到后端去校验。
+  长期用药被移除时的自动结束（`drugController` 里 `end_date = CURDATE()`）不经用户，仍写当天，这是两套路径。
 - **「历史快照」不能用 `addMedication` 写，或者写了也必须让它不参与库存同步。**
   编辑用药计划保存时会写一条 `status=ended` 的快照做归档，而 `addMedication` 内部会调
   `_syncToDrugInventory()` 按 `drug_code` 命中已有库存并 **数量 +1** —— 每编辑一次药箱就多一盒。
