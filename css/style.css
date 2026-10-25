@@ -20,6 +20,9 @@ body{font-family:'Inter',-apple-system,sans-serif;background:#f4f7fc;display:fle
    正在填写的内容。关闭 html/body 的 overscroll，并让内部滚动容器的滚动不传导到 body。 */
 html,body{overscroll-behavior-y:none}
 .main-content,.modal-content,.dropdown-menu,.scan-overlay{overscroll-behavior:contain}
+html.ptr-locked .main-content,html.ptr-locked #dialogOverlay,html.ptr-locked #modalOverlay,html.ptr-locked .dialog-box{touch-action:none}
+html.ptr-locked,html.ptr-locked body{overscroll-behavior:none}
+.dialog-overlay,.modal-overlay{overscroll-behavior:contain}
 .phone-frame{max-width:420px;width:100%;background:#fff;border-radius:40px;box-shadow:0 25px 60px rgba(0,20,40,.12);overflow:hidden;position:relative;height:780px;display:flex;flex-direction:column}
 .app-header{padding:8px 12px 5px;display:flex;justify-content:space-between;align-items:center;background:#fff;border-bottom:1px solid rgba(0,0,0,.03);flex-shrink:0;position:relative}
 .header-left{display:flex;align-items:center;gap:8px;flex-shrink:0;min-width:0}

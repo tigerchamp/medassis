@@ -1806,7 +1806,18 @@ const App = {
             e.preventDefault();
             e.returnValue = '';
         });
+        // 兜底：下拉刷新触发 beforeunload 且用户「留在本页」后，刷新动图可能卡死，2 秒后强制复位
+        window.addEventListener('beforeunload', () => {
+            if (!App._hasBlockingOverlay()) return;
+            setTimeout(() => App._clearStuckPTR(), 2000);
+        });
         this._preventPullToRefresh();
+        // 弹框/下拉层打开时锁定下拉刷新（遮罩 touch-action:none，背景不响应手势）
+        this._syncPtrLock();
+        if (!this._ptrObserver) {
+            this._ptrObserver = new MutationObserver(() => this._syncPtrLock());
+            this._ptrObserver.observe(document.body, { attributes: true, subtree: true, childList: true, characterData: true });
+        }
         const savedUser = localStorage.getItem(USER_KEY);
         const token = localStorage.getItem(TOKEN_KEY);
         if (savedUser && token) {
@@ -2349,6 +2360,7 @@ const App = {
             const root = scroller || document.documentElement;
             if ((root.scrollTop || 0) > 0) return;  // 容器还没滚到顶，不拦
             // 在顶部还继续下拉 → 拦掉原生下拉刷新：否则微信/安卓 webview 会冒出刷新动图，且取消后卡住不消失
+            this._ptrGestureAt = Date.now();
             if (e.cancelable) e.preventDefault();
         }, { passive: false });
     },
@@ -2364,6 +2376,20 @@ const App = {
         return false;
     },
 
+    _syncPtrLock() {
+        const lock = this._hasBlockingOverlay();
+        document.documentElement.classList.toggle('ptr-locked', lock);
+    },
+    _clearStuckPTR() {
+        // 兜底：若「留在本页」后刷新动图卡死，强制切换 overflow 触发合成器复位被卡住的 overscroll 动画
+        const de = document.documentElement;
+        de.style.overflow = 'hidden';
+        void de.offsetHeight;            // 强制重排
+        requestAnimationFrame(() => {
+            de.style.overflow = '';
+            try { window.scrollTo(0, window.scrollY || 0); } catch (e) {}
+        });
+    },
     closeModal() {
         document.getElementById('modalOverlay').classList.remove('show');
     },
