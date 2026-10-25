@@ -47,6 +47,8 @@
   ② `FormDraft._fields` 只放行 `data-adopted-select` 的隐藏字段进草稿，其余隐藏字段照旧排除；
   ③ 内联 `onchange` 用 `new Function('value', src).call(hiddenInput)` 重放，调用方都只读 `.value`。
   写新表单时照常写 `<select>` 即可被自动收养；手机上看到「特大号字选项层」= 该 select 不在两个容器内（收养没兜住）。
+  **注意**：`#dialogSelectList` 的 CSS 默认 `display:none`，显示时必须 `style.display='flex'`，
+  不能用 `''`（空串只是清内联样式，会退回类默认值=隐藏）——2026-10-25 因此出过「弹框里一个选项都不显示」的事故。
 
 ---
 

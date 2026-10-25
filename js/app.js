@@ -2219,7 +2219,9 @@ const App = {
                 b.addEventListener('click', () => { cleanup(); resolve(o.value); });
                 list.appendChild(b);
             });
-            list.style.display = '';
+            // 注意：.dialog-select-list 的 CSS 默认 display:none，必须显式给 'flex'
+            // （display:'' 只是清空内联样式，会退回类默认值 = 隐藏）
+            list.style.display = 'flex';
             okBtn.style.display = 'none';
             cancelBtn.onclick = () => { cleanup(); resolve(null); };
             overlay.classList.add('show');
