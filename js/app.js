@@ -1642,6 +1642,53 @@ const OCR_RELATED_IDS = {
   }
 };
 
+// ========== 记住账号密码 ==========
+// 手机上是安卓 WebView 打开本应用：WebView 若没调用 setDomStorageEnabled(true)，
+// localStorage 只在内存里，APP 一重启就没了 —— 那样"记住密码"等于没做。
+// 所以这里同时写一份 cookie（WebView 默认接受 cookie，且落盘持久化），
+// 读取时 localStorage 优先、cookie 兜底，两边取到任一即可。
+// 注意：cookie 里的密码会随请求头带到服务端（见 MODULES.md 登录模块的风险说明）。
+const REMEMBER_KEY = 'fh_remember';
+const RememberCreds = {
+    TTL_SECONDS: 365 * 24 * 3600,
+
+    get() {
+        let raw = null;
+        try { raw = localStorage.getItem(REMEMBER_KEY); } catch (e) { /* 隐私模式等，忽略 */ }
+        if (!raw) raw = this._readCookie();
+        if (!raw) return null;
+        try {
+            const d = JSON.parse(raw);
+            if (!d || !d.phone) return null;
+            return { phone: String(d.phone), password: String(d.password || '') };
+        } catch (e) { return null; }
+    },
+
+    save(phone, password) {
+        const raw = JSON.stringify({ phone, password });
+        try { localStorage.setItem(REMEMBER_KEY, raw); } catch (e) { /* 配额满等，忽略 */ }
+        this._writeCookie(raw, this.TTL_SECONDS);
+    },
+
+    clear() {
+        try { localStorage.removeItem(REMEMBER_KEY); } catch (e) { /* 忽略 */ }
+        this._writeCookie('', 0);
+    },
+
+    _writeCookie(raw, maxAge) {
+        try {
+            document.cookie = `${REMEMBER_KEY}=${encodeURIComponent(raw)};path=/;max-age=${maxAge}`;
+        } catch (e) { /* 忽略 */ }
+    },
+
+    _readCookie() {
+        try {
+            const m = document.cookie.match(new RegExp('(?:^|;\\s*)' + REMEMBER_KEY + '=([^;]*)'));
+            return m ? decodeURIComponent(m[1]) : null;
+        } catch (e) { return null; }
+    },
+};
+
 const App = {
     state: {
         currentPage: 'login',
@@ -1674,20 +1721,11 @@ const App = {
         this.updateTime();
         setInterval(() => this.updateTime(), 60000);
         if (this.state.user) {
-            this.loadData().then(() => {
-                // 恢复上次浏览的页面与成员，避免刷新后回到首页 / 自动换成默认成员
-                const savedMember = localStorage.getItem('fh_lastMember');
-                if (savedMember && this.state.members.some(m => m.id === savedMember)) {
-                    this.state.currentMemberId = savedMember;
-                }
-                const savedPage = localStorage.getItem('fh_lastPage');
-                const validPages = ['home', 'records', 'pharmacy', 'profile', 'messages', 'family', 'chronicMeds', 'feedback', 'feedbackList'];
-                const page = (savedPage && validPages.includes(savedPage)) ? savedPage : 'home';
-                this.updateHeader();
-                this.switchPage(page);
-            }).catch(() => this.switchPage('login'));
+            this.loadData().then(() => this._restoreLastView())
+                .catch(() => { this.switchPage('login'); this.autoLogin(); });
         } else {
             this.switchPage('login');
+            this.autoLogin();
         }
     },
 
@@ -2999,17 +3037,60 @@ const App = {
         if (!phone || !password) { this.toast('请输入手机号和密码'); return; }
         try {
             const data = await Api.auth.login(phone, password);
-            localStorage.setItem(TOKEN_KEY, data.token);
-            localStorage.setItem(USER_KEY, JSON.stringify(data.user));
-            this.state.user = data.user;
-            this.state.family = data.family;
-            this.state.families = data.families || [];
-            if (data.user?.familyId) {
-                window.__currentFamilyId = data.user.familyId;
+            // 勾了才存，取消勾选要把之前存的清掉（否则"不记住"形同虚设）
+            if (document.getElementById('loginRemember')?.checked) {
+                RememberCreds.save(phone, password);
+            } else {
+                RememberCreds.clear();
             }
+            this._applyLogin(data);
             await this.loadData();
             this.switchPage('home');
         } catch (err) { this.toast(err.message); }
+    },
+
+    // 恢复上次浏览的页面与成员，避免刷新后回到首页 / 自动换成默认成员
+    _restoreLastView() {
+        const savedMember = localStorage.getItem('fh_lastMember');
+        if (savedMember && this.state.members.some(m => m.id === savedMember)) {
+            this.state.currentMemberId = savedMember;
+        }
+        const savedPage = localStorage.getItem('fh_lastPage');
+        const validPages = ['home', 'records', 'pharmacy', 'profile', 'messages', 'family', 'chronicMeds', 'feedback', 'feedbackList'];
+        const page = (savedPage && validPages.includes(savedPage)) ? savedPage : 'home';
+        this.updateHeader();
+        this.switchPage(page);
+    },
+
+    // 登录成功后的公共收尾：写 token/user、同步内存里的登录态
+    _applyLogin(data) {
+        localStorage.setItem(TOKEN_KEY, data.token);
+        localStorage.setItem(USER_KEY, JSON.stringify(data.user));
+        this.state.user = data.user;
+        this.state.family = data.family;
+        this.state.families = data.families || [];
+        if (data.user?.familyId) {
+            window.__currentFamilyId = data.user.familyId;
+        }
+    },
+
+    // 记住了密码 → 打开 APP 自动登录（不再手点登录）。手机 WebView 里 localStorage
+    // 可能被清，登录态丢了也能靠记住的密码自己登回来。
+    async autoLogin() {
+        const cred = RememberCreds.get();
+        if (!cred || !cred.phone || !cred.password) return false;
+        this.toast('自动登录中…');
+        try {
+            const data = await Api.auth.login(cred.phone, cred.password);
+            this._applyLogin(data);
+            await this.loadData();
+            this._restoreLastView();
+            return true;
+        } catch (err) {
+            // 密码改过/网络不通：留在已回填的登录页让用户自己登，不清除记住的密码
+            this.toast('自动登录失败：' + err.message);
+            return false;
+        }
     },
 
     async doRegister() {

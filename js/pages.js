@@ -166,14 +166,20 @@ function renderMdTable(tlines, esc) {
 // ---------- 登录页 ----------
 const PageLogin = {
     render() {
+        // 记住的账号密码直接回填（手机上是安卓 WebView，重开 APP 后靠这个免输入）
+        const saved = (typeof RememberCreds !== 'undefined') ? RememberCreds.get() : null;
+        const phone = saved ? escHtml(saved.phone) : '';
+        const password = saved ? escHtml(saved.password) : '';
+        const checked = 'checked'; // 默认勾选：手机上就是要能记住，不想记的用户自行取消
         return `
         <div class="login-page">
             <div class="login-logo"><i class="fas fa-heartbeat"></i></div>
             <div class="login-title">家庭健康中心</div>
             <div class="login-subtitle">守护家人健康，从记录开始</div>
             <div class="login-form" id="loginForm">
-                <div class="form-group"><input id="loginPhone" type="tel" placeholder="手机号" maxlength="11"></div>
-                <div class="form-group"><input id="loginPassword" type="password" placeholder="密码"></div>
+                <div class="form-group"><input id="loginPhone" type="tel" placeholder="手机号" maxlength="11" value="${phone}"></div>
+                <div class="form-group"><input id="loginPassword" type="password" placeholder="密码" value="${password}"></div>
+                <label class="login-remember"><input type="checkbox" id="loginRemember" ${checked}><span>记住密码</span></label>
                 <button class="login-btn" onclick="App.doLogin()">登录</button>
                 <div class="login-switch">还没有账号？<a onclick="App.showRegister()">立即注册</a></div>
             </div>

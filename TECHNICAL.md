@@ -192,6 +192,16 @@ App.state = {
 | 留言详情 | `PageFeedbackDetail` | 留言列表点击 |
 | 消息中心 | `PageMessages` | 我的页入口（预留） |
 
+### 4.5 前端本地存储键
+
+| 键 | 位置 | 用途 |
+|------|------|------|
+| `fh_token` | localStorage | 登录 JWT |
+| `fh_user` | localStorage | 登录用户信息 |
+| `fh_lastPage` / `fh_lastMember` | localStorage | 恢复上次浏览的页面与成员（退出登录时清除） |
+| `fh_remember` | localStorage **+ 同名 cookie** | 「记住密码」的账号密码，1 年有效；双写是为安卓 WebView 兜底（见 MODULES.md M1.1） |
+| `fh_draft_*` | sessionStorage | 表单草稿，12 小时，按字段名集合做指纹生成 key |
+
 ---
 
 ## 五、后端架构

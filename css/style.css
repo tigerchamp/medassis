@@ -254,6 +254,8 @@ input:disabled,select:disabled,textarea:disabled{background:#f1f5f9;color:#64748
 .login-form input:focus{border-color:#2b7a78}
 .login-btn{width:100%;padding:16px;background:#2b7a78;color:#fff;border:none;border-radius:60px;font-size:16px;font-weight:600;cursor:pointer;font-family:inherit;margin-top:8px}
 .login-btn:active{background:#1e6b68}
+.login-remember{display:flex;align-items:center;gap:8px;margin:2px 0 0;color:#64748b;font-size:14px;user-select:none}
+.login-remember input[type=checkbox]{width:18px;height:18px;accent-color:#2b7a78;margin:0}
 .login-switch{text-align:center;margin-top:20px;color:#64748b;font-size:14px}
 .login-switch a{color:#2b7a78;font-weight:600;cursor:pointer;text-decoration:none}
 .empty-state{text-align:center;padding:40px 20px;color:#64748b}

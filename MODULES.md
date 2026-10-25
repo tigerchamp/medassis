@@ -75,6 +75,26 @@
   新增写操作必须走 `canModifyElder()` 校验。
 - 移除成员是**软解绑**（解除关联 + 数据回退到缺省家庭组），不删任何资料。别改成硬删除。
 
+### M1.1 · 记住账号密码（`RememberCreds` / `PageLogin`）
+
+**设计意图**
+- 手机上是**安卓 WebView** 打开本应用，用户要的是「装到手机上以后不用每次输密码」。
+- 凭据**双写**：`localStorage['fh_remember']` + 同名 cookie（有效期 1 年），读取 localStorage 优先、cookie 兜底。
+  双写的原因：WebView 若没调用 `setDomStorageEnabled(true)`，localStorage 只活在内存里，**APP 一重启就清空**，
+  那样「记住密码」等于没做；cookie 在 WebView 里默认开启且会落盘，所以拿它兜底。
+- 勾选「记住密码」才存；**取消勾选会清掉已存的凭据**（否则「不记住」形同虚设）。
+- 有记住的凭据时 `App.init()` 直接 `autoLogin()` 进首页；失败（密码改过/断网）就停在已回填的登录页，
+  **不清除**记住的密码（网络抖动不该让用户重输）。
+- 「退出登录」**不清除**记住的密码（清了就等于没记住）。
+
+**易踩坑**
+- 密码是**明文**存在 localStorage / cookie 里的，且 cookie 里的密码会随每个请求头带到服务端。
+  这是用户明确要求的取舍（个人家庭应用、手机专属）；若要更安全，应改成长效 refresh token，别只做「混淆加密」。
+- 顺序：`switchPage('login')` 会走 `FormDraft.restore`，草稿只填空字段，不会覆盖回填的账号密码。
+- 改登录页/登录流程后记得 `index.html` 的静态资源版本号 `?v=YYYYMMDD` +1，否则手机拿不到新代码。
+- **安卓封装侧必须确认**：`WebSettings.setDomStorageEnabled(true)`（否则登录态 token 也保不住，
+  每次开 APP 都得靠自动登录重新换取），以及 `setAcceptCookie(true)`（默认开，别关）。
+
 ---
 
 ## M2 · 药箱库存（`drugController` / `drug_inventory` 表）
