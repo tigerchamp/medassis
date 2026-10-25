@@ -1465,6 +1465,18 @@ const RecordSuggest = {
     }
 };
 
+// ========== 开药倒计时「剩余天数」计算 ==========
+// 给定「当前余量 qty」（盒/单位）与「每单位能撑多少天 packDays」，返回还能撑多少天。
+// 注意：qty 是**当前剩余库存**（autoConsume 已按实际消耗递减过，用户手动改余量也写的是当前剩多少），
+// 所以剩余天数就是 qty × packDays，**不要再拿「用药起始日至今」去减**——
+// 否则长期药起始日早、daysUsed 远大于库存天数，用户把余量改成 5 也永远显示「剩余 0 天」（这次的 bug）。
+function calcRefillDays(qty, packDays) {
+    const q = Number(qty) || 0;
+    const p = Number(packDays) || 0;
+    if (q <= 0) return 0;
+    return Math.max(0, Math.floor(q * p));
+}
+
 // ========== 用药计划「结束日期」校验 ==========
 // 用户可能忘了及时点结束，所以结束日期要能往前补填，但：
 //   不能早于开始服药日期（那段时间确实在吃），也不能晚于今天（未来的还没发生）。

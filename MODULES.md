@@ -132,6 +132,11 @@
 - **有效期只在「药箱录入」这条路上是必填**（药盒识别 `saveOcrDrug`、手工添加 `saveDrug`）。
   处方/用药计划表单（OCR 处方弹框、添加记录-处方）的**有效期是非必填**：label 不带 `*`，
   空值后端按 NULL 入库（`_syncToDrugInventory` 里 `if (expiryDate)` 才更新，否则沿用旧有效期）。
+- **余量（remaining_quantity）不能大于初始数量（quantity）**：`updateInventoryItem` 用纯函数
+  `validateRemainingQuantity` 校验，前端 `PageDrugDetail.saveRow` 也拦一道。余量是「还剩多少」，不可能比当初买的多。
+- **首页开药倒计时 `daysLeft = 余量 × 每单位天数（`calcRefillDays`）`，不要再拿「用药起始日至今」去减。**
+  `remaining_quantity` 已是当前剩余（autoConsume 按实际消耗递减过），长期药起始日早、daysUsed 远大于库存天数，
+  减了之后余量改多大都显示「剩余 0 天」——这是 2026-10-25 修的 bug，别再写回 `daysUsed` 减法。
   别把处方表单的有效期加成必填——2026-10-21 修过一次（当时还会连带把保存按钮卡死，见 M0）。
 
 ---

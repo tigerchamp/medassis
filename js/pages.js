@@ -335,22 +335,16 @@ const PageHome = {
                 const doseEach = (mm && mm.doseAmount != null) ? mm.doseAmount : 1;
                 const perDayPills = timesLen * doseEach;
 
-                // 起点：medication.startDate 优先，否则 drug.createdAt，否则今天
-                let startDt = (mm && mm.startDate) ? parseLocal(mm.startDate)
-                          : (d.createdAt ? parseLocal(d.createdAt) : new Date());
-                startDt.setHours(0, 0, 0, 0);
-                const daysUsed = Math.max(0, Math.floor((todayTs - startDt.getTime()) / DAY_MS));
-
                 const packDays = calcPackDays(unitCapacity, perDayPills);
-                const totalDays = Math.max(1, qty * packDays);
-                const daysLeft = qty <= 0 ? 0 : Math.max(0, totalDays - daysUsed);
-                const progress = Math.max(0, Math.min(100, (daysLeft / Math.max(1, totalDays)) * 100));
+                // 余量是「当前还剩多少」，直接换算成还能撑多少天（见 calcRefillDays 注释，这就是这次修的 bug）
+                const daysLeft = calcRefillDays(qty, packDays);
+                const totalDays = daysLeft; // 当前库存即全部可用天数（progress 未渲染，仅为结构一致）
 
                 const basis = unitCapacity
                     ? `按每日 ${timesLen} 次 × 每次 ${doseEach}${specDosageUnit || '片'} · 每盒 ${unitCapacity}${unitCapacityUnit || '片'} 估算`
                     : `按每盒约 ${packDays} 天 · 每日 ${timesLen} 次估算`;
 
-                medStats.push({ name: drugName, daysLeft, progress, totalDays, basis, drugCode: d.drugCode || '', specification: d.specification || '', manufacturer: d.manufacturer || '' });
+                medStats.push({ name: drugName, daysLeft, totalDays, basis, drugCode: d.drugCode || '', specification: d.specification || '', manufacturer: d.manufacturer || '' });
             });
 
             // 没有长期用药时，回退到用药计划表
@@ -370,7 +364,6 @@ const PageHome = {
 
                     const startDt = m.startDate ? parseLocal(m.startDate) : parseLocal(m.createdAt);
                     startDt.setHours(0, 0, 0, 0);
-                    const daysUsed = Math.max(0, Math.floor((todayTs - startDt.getTime()) / DAY_MS));
 
                     let daysLeft, totalDays;
                     let basis;
@@ -391,13 +384,13 @@ const PageHome = {
                         }
                         const packDays = calcPackDays(unitCap, perDayPills);
                         totalDays = Math.max(1, qty * packDays);
-                        daysLeft = Math.max(0, totalDays - daysUsed);
+                        // 余量是当前剩余库存，直接换算可用天数（见 calcRefillDays，不要再减 daysUsed）
+                        daysLeft = calcRefillDays(qty, packDays);
                         basis = unitCap
                             ? `按每日 ${timesLen} 次 × 每次 ${doseEach}${m.doseUnit || unitCapUnit} · 每盒 ${unitCap}${unitCapUnit} 估算`
                             : `按每盒约 ${packDays} 天 · 每日 ${timesLen} 次估算`;
                     }
-                    const progress = Math.max(0, Math.min(100, (daysLeft / Math.max(1, totalDays)) * 100));
-                    return { name: m.name, daysLeft, progress, totalDays, basis, drugCode: m.drugCode || '', specification: m.specification || '' };
+                    return { name: m.name, daysLeft, totalDays, basis, drugCode: m.drugCode || '', specification: m.specification || '' };
                 }).filter(Boolean);
             }
 
@@ -2820,6 +2813,7 @@ const PageDrugDetail = {
             const res = await Api.drugs.getRecords(drugId);
             const drug = res.drug || {};
             const records = res.inventoryLogs || [];
+            this._records = records; // 供 saveRow 校验余量上限（初始数量）用
             const el = document.getElementById('drugDetailContent');
             if (!el) return;
 
@@ -2978,6 +2972,10 @@ const PageDrugDetail = {
         const qty = parseInt(qtyEl.value);
         const exp = expEl.value || null;
         if (isNaN(qty) || qty < 0) { App.toast('请输入有效的余量'); return; }
+        // 余量不能大于这条入库记录的初始数量（后端也会再校验一次）
+        const rec = this._records && this._records.find(x => String(x.id) === String(id));
+        const maxQty = rec ? Number(rec.quantity || 0) : Infinity;
+        if (qty > maxQty) { App.toast('余量不能大于初始数量（' + maxQty + '）'); return; }
         try {
             await Api.drugs.updateInventoryItem(id, {
                 remainingQuantity: qty,

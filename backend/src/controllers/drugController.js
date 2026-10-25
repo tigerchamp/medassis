@@ -892,11 +892,20 @@ module.exports = {
   // 内部函数，导出仅供 backend/test 回归测试使用
   _aggregateInventory,
   _syncMedicationPlans,
+  validateRemainingQuantity,
   deleteChronicSql,
   deleteChronicParams,
 };
 
 // 更新单条入库记录（有效期/余量）
+// 余量校验：余量是「还剩下多少」，不能是负数，也不能比这条入库记录的初始数量（total）还多
+function validateRemainingQuantity(remaining, total) {
+  const rem = Number(remaining);
+  if (isNaN(rem) || rem < 0) return '余量必须是非负整数';
+  if (rem > Number(total || 0)) return '余量不能大于初始数量（' + Number(total || 0) + '）';
+  return '';
+}
+
 async function updateInventoryItem(req, res) {
   try {
     const { id } = req.params;
@@ -906,7 +915,7 @@ async function updateInventoryItem(req, res) {
 
     const access = familyAccessFilter(familyId);
     const [rows] = await getPool().query(
-      `SELECT id, elder_id FROM drug_inventory WHERE id = ? AND (${access.sql})`,
+      `SELECT id, elder_id, quantity, remaining_quantity FROM drug_inventory WHERE id = ? AND (${access.sql})`,
       [id, ...access.params]
     );
     if (rows.length === 0) {
@@ -920,6 +929,12 @@ async function updateInventoryItem(req, res) {
       if (!allow) {
         return res.status(403).json({ error: '您无权修改该成员的入库记录，请先获得授权' });
       }
+    }
+
+    // 余量校验（纯函数，便于回归测试）：非负、且不能超过这条入库记录的初始数量
+    if (remainingQuantity !== undefined) {
+      const errMsg = validateRemainingQuantity(remainingQuantity, rows[0].quantity);
+      if (errMsg) return res.status(400).json({ error: errMsg });
     }
 
     const updates = [];

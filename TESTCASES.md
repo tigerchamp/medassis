@@ -185,6 +185,35 @@
 
 > 真实跨成员场景（给 B 保存后 A 的长期用药还在）要连 MySQL 才能验，见 M7-15。
 
+### M2.1 · 入库记录「余量」校验（`drugController` `validateRemainingQuantity`）
+
+> 编号沿用 `MODULES.md` 的模块号（那里 M2 是药箱库存）。
+
+| 编号 | 输入 | 期望 |
+|---|---|---|
+| M2.1-01 | 余量 = 初始数量 | 通过 |
+| M2.1-02 | 余量 < 初始数量 | 通过 |
+| M2.1-03 ★ | 余量 > 初始数量 | 报错，提示里带初始数量 |
+| M2.1-04 | 余量为负 | 报错 |
+| M2.1-05 | 余量非数字 | 报错 |
+| M2.1-06 | 初始数量缺失（null/undefined） | 按 0 处理，任何正数都超限 |
+
+> 前端 `PageDrugDetail.saveRow` 提交前也拦一道（弹 toast），后端 `updateInventoryItem` 再验一次。
+
+### M2.2 · 首页开药倒计时「剩余天数」（`js/app.js` `calcRefillDays`）
+
+| 编号 | 输入（余量 qty, 每单位天数 packDays） | 期望 |
+|---|---|---|
+| M2.2-01 | 5 盒 × 30 天 | 150 天 |
+| M2.2-02 | 余量 0 | 0 天 |
+| M2.2-03 ★ | 长期药起始日早、已吃一年多（旧公式 daysUsed=400） | **仍按当前余量算 150 天，不得算成 0**（用户报的 bug） |
+| M2.2-04 | 余量为负 | 0 天，不出现负数 |
+| M2.2-05 | 小数 | 向下取整 |
+| M2.2-06 | 非数字（'abc'/null） | 兜底 0 |
+
+> 2026-10-25 修的 bug：旧公式 `daysLeft = qty*packDays - daysUsed`，而 `remaining_quantity`
+> 已是当前剩余（autoConsume 递减过），再减「起始日至今」会让余量改多大都显示 0 天。
+
 ---
 
 ## 二、改动 → 应跑用例 映射表
@@ -208,6 +237,8 @@
 | `js/pages.js` `PageMedEdit.endMed` / `js/app.js` `validateMedEndDate`（结束用药日期） | M4.1 全部 + M7-14 |
 | `backend/src/controllers/drugController.js` `saveChronicMeds`（长期用药保存） | M3.1 全部 + M5 全部 + M7-15 |
 | `js/pages.js` `PageElderDetail` / `PageChronicMeds`（成员档案里的长期用药入口） | M3.1 全部 + M7-15 |
+| `backend/src/controllers/drugController.js` `updateInventoryItem`（药品详情改有效期/余量） | M2.1 全部 + M7-11 |
+| `js/app.js` `calcRefillDays` / `js/pages.js` `PageHome`（开药倒计时剩余天数） | M2.2 全部 + M6 全部 |
 
 | `js/app.js` `App.promptDate`（日期弹框，别的页面也会用） | M7-14 |
 
@@ -229,9 +260,11 @@
 | `backend/test/rememberCreds.test.js` | M1.1-01~12（直接 eval 前端纯对象，无需 jsdom） | 否 |
 | `backend/test/medEndDate.test.js` | M4.1-01~08（直接 eval 前端纯函数，无需 jsdom） | 否 |
 | `backend/test/chronicScope.test.js` | M3.1-01~03（长期用药删除范围，无需 DB） | 否 |
+| `backend/test/remainingQty.test.js` | M2.1-01~06（余量校验纯函数，无需 DB） | 否 |
+| `backend/test/refillDays.test.js` | M2.2-01~06（倒计时剩余天数，直接 eval 前端纯函数，无需 jsdom） | 否 |
 
-最近一次全量结果（2026-10-25）：**79 用例 / 74 通过 / 0 失败 / 5 跳过**
-（含 M1.1 记住密码 12 例、M4.1 结束日期 8 例、M3.1 长期用药删除范围 3 例；跳过的是需 DB 的集成用例）
+最近一次全量结果（2026-10-25）：**91 用例 / 91 通过 / 0 失败 / 0 跳过**（连了 MySQL 隧道，集成用例全跑）
+（此前 79 例 + 本次新增 M2.1 余量校验 6 例、M2.2 倒计时剩余天数 6 例）
 
 > 集成用例连不上 MySQL 时会显示 `# SKIP`，不会计入失败。若看到大量 SKIP，
 > 先执行 `ssh -L 3306:127.0.0.1:3306 ubuntu@82.157.202.113 -N` 再重跑。
