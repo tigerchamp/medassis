@@ -905,8 +905,8 @@ const PagePharmacy = {
                 <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
                     <div class="dexp">📅 过期: <span style="${dateColor}">${d.expiryDate || '未设置'}</span>${statusHtml}</div>
                     <div style="display:flex;gap:2px;flex-shrink:0;">
-                        <button style="background:none;border:none;color:#2b7a78;cursor:pointer;padding:2px 8px;" title="快速添加用药计划" onclick="event.stopPropagation();PagePharmacy.quickAddMedPlan('${d.name.replace(/'/g, "\\'")}',${d.drugCode ? `'${d.drugCode.replace(/'/g, "\\'")}'` : 'null'})"><i class="fas fa-pills"></i></button>
-                        <button style="background:none;border:none;color:#2b7a78;cursor:pointer;padding:2px 8px;" title="快速添加库存" onclick="event.stopPropagation();PagePharmacy.quickAdd('${d.name.replace(/'/g, "\\'")}',${d.drugCode ? `'${d.drugCode.replace(/'/g, "\\'")}'` : 'null'},'${openId}')"><i class="fas fa-box"></i></button>
+                        <button style="background:none;border:none;color:#2b7a78;cursor:pointer;padding:2px 8px;" title="快速添加用药计划" onclick="event.stopPropagation();PagePharmacy.quickAddMedPlan('${d.name.replace(/'/g, "\\'")}',${d.drugCode ? `'${d.drugCode.replace(/'/g, "\\'")}'` : 'null'})"><i class="fas fa-calendar-check"></i></button>
+                        <button style="background:none;border:none;color:#2b7a78;cursor:pointer;padding:2px 8px;" title="快速添加库存" onclick="event.stopPropagation();PagePharmacy.quickAdd('${d.name.replace(/'/g, "\\'")}',${d.drugCode ? `'${d.drugCode.replace(/'/g, "\\'")}'` : 'null'},'${openId}')"><i class="fas fa-square-plus"></i></button>
                         <button style="background:none;border:none;color:#b91c1c;cursor:pointer;padding:2px 8px;" title="删除" onclick="event.stopPropagation();App.deleteDrug('${d.id}')"><i class="fas fa-trash"></i></button>
                     </div>
                 </div>
