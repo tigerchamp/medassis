@@ -445,8 +445,27 @@ async function deleteDrug(req, res) {
   }
 }
 
+// 删除某个服药人的长期用药（保存时的全量覆盖用）
+// 按 elder 归属删，不按 user_id + family_id 一把删：同一个登录账号会替家里好几个人设置长期用药，
+// 一把删会让「给成员 B 保存 → 成员 A 的长期用药全没了」。
+// elder_id 为 NULL 的历史数据按库存归属 di.elder_id 兜底判定；库存也没归属（都为 NULL）的残留行一并清掉，
+// 否则它们占着 UNIQUE(user_id, drug_inventory_id)，回头再勾同一个药会插不进去。
+const DELETE_CHRONIC_OF_ELDER_SQL = `
+  DELETE cm FROM chronic_medications cm
+  LEFT JOIN drug_inventory di ON cm.drug_inventory_id = di.id
+  WHERE cm.user_id = ? AND cm.family_id = ?
+    AND (cm.elder_id = ? OR (cm.elder_id IS NULL AND (di.elder_id = ? OR di.elder_id IS NULL)))`;
+const DELETE_CHRONIC_ALL_OF_USER_SQL = 'DELETE FROM chronic_medications WHERE user_id = ? AND family_id = ?';
+function deleteChronicParams(userId, familyId, elderId) {
+  return elderId ? [userId, familyId, elderId, elderId] : [userId, familyId];
+}
+function deleteChronicSql(elderId) {
+  return elderId ? DELETE_CHRONIC_OF_ELDER_SQL : DELETE_CHRONIC_ALL_OF_USER_SQL;
+}
+
 // 获取长期用药设置（带药箱详情）
 // 按 elderId（服药人）过滤，不按设置人过滤——因为查看家人资料时需要显示该家人的长期用药
+
 async function getChronicMeds(req, res) {
   try {
     const familyId = req.familyId;
@@ -595,10 +614,10 @@ async function saveChronicMeds(req, res) {
       const conn = await pool.getConnection();
       try {
         await conn.beginTransaction();
-        await conn.query(
-          'DELETE FROM chronic_medications WHERE user_id = ? AND family_id = ?',
-          [userId, familyId]
-        );
+        // 只清当前服药人（elder）的长期用药，不能跨成员清：
+        // 同一个登录账号可以替家里几个人设置长期用药，早先的 DELETE 只按 user_id + family_id，
+        // 给成员 B 保存时会把成员 A 的长期用药一起删掉。
+        await conn.query(deleteChronicSql(elderId), deleteChronicParams(userId, familyId, elderId));
         const { v4: uuidv4 } = require('uuid');
         for (let i = 0; i < validRows.length; i++) {
           const r = validRows[i];
@@ -620,8 +639,8 @@ async function saveChronicMeds(req, res) {
         conn.release();
       }
     } else {
-      // 空数组：清空所有
-      await pool.query('DELETE FROM chronic_medications WHERE user_id = ? AND family_id = ?', [userId, familyId]);
+      // 空数组：清空当前服药人的（同样是只清这个 elder，不牵连其他成员）
+      await pool.query(deleteChronicSql(elderId), deleteChronicParams(userId, familyId, elderId));
       const conn = await pool.getConnection();
       try {
         await conn.beginTransaction();
@@ -872,7 +891,9 @@ module.exports = {
   saveChronicMeds,
   // 内部函数，导出仅供 backend/test 回归测试使用
   _aggregateInventory,
-  _syncMedicationPlans
+  _syncMedicationPlans,
+  deleteChronicSql,
+  deleteChronicParams,
 };
 
 // 更新单条入库记录（有效期/余量）

@@ -1288,7 +1288,7 @@ const PageChronicMeds = {
         this.loadContent();
         return `
         <div class="sub-header">
-            <button class="back-btn" onclick="App.switchPage('profile')"><i class="fas fa-arrow-left"></i></button>
+            <button class="back-btn" onclick="App.goBack()"><i class="fas fa-arrow-left"></i></button>
             <h2>长期用药</h2>
         </div>
         <div class="card" style="margin-bottom:12px;">
@@ -1402,7 +1402,8 @@ const PageChronicMeds = {
             // 同步一下状态
             const chronicList = res.chronicMeds || [];
             this._selectedIds = new Set(chronicList.map(c => c.drugInventoryId));
-            setTimeout(() => App.switchPage('profile'), 500);
+            // 入口有两个：我的页 和 成员档案（看别人的），所以返回上页而不是写死回我的页
+            setTimeout(() => App.goBack(), 500);
         } catch (err) {
             App.toast('保存失败: ' + (err.message || ''));
         }
@@ -3178,6 +3179,8 @@ const PageElderDetail = {
 
             const user = App.state.user;
             const isSelf = e.relation === 'self' && e.user_id === user?.id;
+            // 能不能改（含长期用药）沿用「编辑病历 / 用药计划」那套授权：自己恒可改，他人需授权
+            const canModify = App._canModifyCurrent();
             const displayPhone = e.phone || e.user_phone || (isSelf ? (user?.phone || '') : '');
             const relationLabel = isSelf ? '本人' : (e.relation === 'self' ? '成员' : (relationMap[e.relation] || '其他'));
             const displayBirth = e.birth_date ? formatDate(e.birth_date) : '';
@@ -3202,6 +3205,14 @@ const PageElderDetail = {
                 ${e.allergies ? `<div class="metric-row"><span class="metric-name">过敏史</span><span class="metric-value">${e.allergies}</span></div>` : ''}
                 ${e.conditions ? `<div class="metric-row"><span class="metric-name">基础疾病</span><span class="metric-value">${e.conditions}</span></div>` : ''}
                 ` : '<div style="color:#94a3b8;font-size:13px;padding:4px 0;">暂无基本信息</div>'}
+            </div>
+            <div class="card">
+                <div class="card-title"><i class="fas fa-capsules"></i> 长期用药</div>
+                <div style="cursor:pointer;display:flex;align-items:center;gap:14px;padding:10px 0;" onclick="App.switchPage('chronicMeds')">
+                    <i class="fas fa-kit-medical" style="width:24px;color:#2b7a78;"></i>
+                    <div style="flex:1;"><div style="font-weight:600;">${canModify ? '查看 / 编辑长期用药' : '查看长期用药'}</div><div class="text-muted">${canModify ? '从药箱选择长期服用的药品，首页开药提醒基于此' : '下面是该成员长期服用的药品，需对方授权后才能修改'}</div></div>
+                    <i class="fas fa-chevron-right" style="color:#94a3b8;"></i>
+                </div>
             </div>
             ${e.relation !== 'self' ? `<button class="btn-danger" onclick="App.deleteElder('${e.id}')">删除档案</button>` : ''}`;
         } catch (err) {

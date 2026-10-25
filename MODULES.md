@@ -143,6 +143,9 @@
 **设计意图**
 - 表的粒度是 `UNIQUE(user_id, drug_inventory_id)`：**设置人 + 库存条目**。
 - `saveChronicMeds` 是**全量覆盖**：`DELETE` 后重新 `INSERT`。所以要先读出旧集合才能做差值。
+- **成员档案页（右上角头像 → 成员档案）里有「长期用药」入口**（2026-10-25 加）：同一个页面既能看也能改，
+  **权限沿用编辑病历/用药计划那套**：前端 `App._canModifyCurrent()`（自己恒可改、他人需 `canModifyHim` 授权），
+  后端 `saveChronicMeds` 里 `canModifyElder(elderId)`。没授权时进页面只能看（复选框禁用、无保存按钮）。
 - **联动规则**（用户明确要求）：
   - 新勾选 → 有 `ended` 计划就**恢复**，已有 `active` 就**不动**，都没有才按「早上一次、每次 1 个单位剂量」**新建**
   - 取消勾选 → 该成员名下的 `active` 计划改为 `ended`
@@ -154,7 +157,11 @@
 - 联动严格限定在**当前 `elderId` 名下**；`elderId` 为空时整个跳过（不误伤其他成员）。
 
 **易踩坑**
-- `DELETE` 用的是 `user_id + family_id`（**跨 elder**），这是既有行为，不要在没想清楚前改它。
+- **`DELETE` 必须按服药人（elder）限定**（2026-10-25 改，见 `DELETE_CHRONIC_OF_ELDER_SQL`）：
+  早先按 `user_id + family_id` 一把删，同一个账号给成员 B 保存时会把成员 A 的长期用药一起删掉。
+  `cm.elder_id` 为 NULL 的历史数据按库存归属 `di.elder_id` 兜底；两者都为 NULL 的残留行一并清掉，
+  否则它们占着 `UNIQUE(user_id, drug_inventory_id)`，回头再勾同一个药会插不进去。
+  没传 `elderId` 时退回旧行为（只按 `user_id + family_id`）。
 - 同一药被勾选了多条入库记录时，返回列表要**去重**，否则倒计时卡片重复且数量翻倍。
 
 ---
