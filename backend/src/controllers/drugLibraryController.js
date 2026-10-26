@@ -445,19 +445,12 @@ async function fetchInfo(req, res) {
 
 // 格式化药品记录（补全 spec_dosage：为空时从 specification 解析）
 function _formatDrug(r, score) {
-  const n = normalizeDrugRow(r);
-  return {
-    code: n.code,
-    name: n.name,
-    pinyinAbbr: n.pinyinAbbr,
-    specification: n.specification,
-    specDosage: n.specDosage,
-    specDosageUnit: n.specDosageUnit,
-    unitCapacity: n.unitCapacity,
-    unitCapacityUnit: n.unitCapacityUnit,
-    manufacturer: n.manufacturer,
-    score: score == null ? null : score
-  };
+  // 复用 _formatDrugFields 输出完整字段（含 description / 说明书相关字段），
+  // 否则按名称检索进入药品说明书页时拿不到 description，前端会误判「无说明书」
+  // 而每次都弹「正在获取药品说明书」并重复请求 fetch-info（即便已缓存）。
+  const base = _formatDrugFields(r);
+  base.score = score == null ? null : score;
+  return base;
 }
 
 module.exports = { search, getDrug, check, add, match, fetchInfo };

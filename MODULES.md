@@ -395,6 +395,11 @@
 **易踩坑**
 - 自检必须放在 `startServer()` 最前面：放在 DB 连接检查之后的话，DB 连不上时根本轮不到它执行。
 - 前端拿到 `{fetched:false, note}` 时一定要 toast 出来，否则用户只看到"暂无说明书数据"。
+- **`search/match/check` 的 `_formatDrug` 必须带 `description` 等说明书字段**（2026-10-26 修的 bug）：
+  之前 `_formatDrug` 只输出基础字段、丢了 `description`，导致按「药名」进入药品说明书页时
+  前端误判「无说明书」，每次都弹「正在获取药品说明书」并重复调 `fetch-info`（即便库里已缓存）。
+  改法：`_formatDrug` 直接复用 `_formatDrugFields(r)` 再补 `score`，保证检索结果也带 `description`，
+  前端据此跳过 toast 与联网查询。按 `code` 进入的 `get` 路径本来就带 `description`，不受影响。
 
 ---
 
