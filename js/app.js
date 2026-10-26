@@ -1812,6 +1812,7 @@ const App = {
             setTimeout(() => App._clearStuckPTR(), 2000);
         });
         this._preventPullToRefresh();
+        this._ptrSavedScrollY = 0;
         // 弹框/下拉层打开时锁定下拉刷新（遮罩 touch-action:none，背景不响应手势）
         this._syncPtrLock();
         if (!this._ptrObserver) {
@@ -2379,15 +2380,61 @@ const App = {
     _syncPtrLock() {
         const lock = this._hasBlockingOverlay();
         document.documentElement.classList.toggle('ptr-locked', lock);
+        this._applyBodyPtrLock(lock);
+    },
+    // 弹框/下拉层打开时，把 body 锁成 fixed + overflow:hidden。
+    // 关键：微信/X5 的「下拉刷新」是 webview 视口级手势，只要视口还可滚动/overscroll 就会触发；
+    // 单靠前端的 touchmove preventDefault + overscroll-behavior 在部分 webview 拦不住——
+    // 尤其手指落在 .dialog-select-list 上时，它的 touch-action:pan-y 让 webview 抢先开始了下拉手势，
+    // 此时再 preventDefault 已经太晚，于是出现「确认离开 → 留在本页 → 转圈动画卡死」。
+    // 把整个视口变成不可滚动（position:fixed）后，webview 没有任何可下拉的滚动链，下拉刷新根本不会启动；
+    // 而弹框内部 .dialog-select-list 的 overflow:auto + pan-y 仍可原生滚动，交互不受影响。
+    // 只在窄屏（手机/微信）生效，桌面预览不被影响。
+    _applyBodyPtrLock(lock) {
+        const isMobile = window.matchMedia && window.matchMedia('(max-width: 440px)').matches;
+        const body = document.body;
+        if (lock) {
+            if (isMobile && body.style.position !== 'fixed') {
+                this._ptrSavedScrollY = window.scrollY || window.pageYOffset || 0;
+                body.style.position = 'fixed';
+                body.style.top = '-' + this._ptrSavedScrollY + 'px';
+                body.style.left = '0';
+                body.style.right = '0';
+                body.style.width = '100%';
+                body.style.overflow = 'hidden';
+            }
+        } else if (body.style.position === 'fixed') {
+            body.style.position = '';
+            body.style.top = '';
+            body.style.left = '';
+            body.style.right = '';
+            body.style.width = '';
+            body.style.overflow = '';
+            if (this._ptrSavedScrollY) {
+                try { window.scrollTo(0, this._ptrSavedScrollY); } catch (e) {}
+            }
+            this._ptrSavedScrollY = 0;
+        }
     },
     _clearStuckPTR() {
-        // 兜底：若「留在本页」后刷新动图卡死，强制切换 overflow 触发合成器复位被卡住的 overscroll 动画
+        // 兜底：极端情况下「留在本页」后刷新动图仍卡死，强制复位。
+        // 1) 重排 html/body，打断被卡住的 overscroll 合成动画
         const de = document.documentElement;
+        const savedHtmlOverflow = de.style.overflow;
         de.style.overflow = 'hidden';
+        document.body.style.overflow = 'hidden';
         void de.offsetHeight;            // 强制重排
         requestAnimationFrame(() => {
-            de.style.overflow = '';
-            try { window.scrollTo(0, window.scrollY || 0); } catch (e) {}
+            de.style.overflow = savedHtmlOverflow;
+            document.body.style.overflow = '';
+            // 2) 让 webview 认为手势已结束：制造一次极小幅度的滚动再还原
+            try {
+                const y = window.scrollY || 0;
+                window.scrollTo(0, y + 1);
+                window.scrollTo(0, y);
+            } catch (e) {}
+            // 3) 用当前浮层状态把锁定对齐一遍（浮层还在则 body 应已 fixed）
+            App._syncPtrLock();
         });
     },
     closeModal() {

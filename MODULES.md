@@ -38,6 +38,16 @@
   `index.html` 里 `css/style.css` 与 `js/*.js` 都带 `?v=YYYYMMDD` 版本号，
   **改了前端必须把版本号 +1**，否则用户拿到的还是旧代码（典型症状：反馈"改了没生效"）。
   后端则相反，改动后需要 `pm2 restart medassis`。
+- **下拉刷新要先「关掉手势」再谈拦截**（2026-10-26 修「留在本页后转圈卡死」）：
+  微信/X5 的「下拉刷新」是 webview 视口级手势，只要视口还能滚动/overscroll 就会触发；
+  光靠 `_preventPullToRefresh` 的 touchmove preventDefault + overscroll-behavior 拦不住——
+  尤其手指落在 .dialog-select-list 上时它的 touch-action:pan-y 会让 webview 抢先开始下拉手势，
+  此时再 preventDefault 已太晚，于是「确认离开 -> 留在本页 -> 转圈动画永久卡死」。
+  主防线改成 `_syncPtrLock()` 在浮层打开时把 body 锁成 position:fixed; overflow:hidden
+  （`_applyBodyPtrLock`，只作用于窄屏 max-width:440px，桌面预览不受影响），让 webview 没有任何可下拉的滚动链，
+  下拉刷新根本不会启动；弹框内部 .dialog-select-list 仍靠自己的 overflow:auto + pan-y 原生滚动。
+  touchmove 拦截与 beforeunload 改为兜底，且 `_clearStuckPTR` 增强了重排+微滚动复位。
+  改这块逻辑时：新增浮层务必进 `_hasBlockingOverlay` 的白名单，否则不会触发 body 锁定。
 - **`_preventPullToRefresh` 的滚动容器链必须包含所有可滚动区域**（2026-10-25 修两处 bug）：
   原生 select 弹层、自研下拉列表 `.dialog-select-list`、弹框 `.dialog-box` 都不在
   `.modal-content`/`#mainContent` 下，若链里没它们，这些浮层内的 `touchmove` 会被误 `preventDefault`
