@@ -1794,7 +1794,9 @@ const PageFamily = {
         <button class="btn-outline" style="width:100%;margin-bottom:12px;padding:10px;" onclick="App.switchPage('joinFamily')"><i class="fas fa-sign-in-alt"></i> 加入家庭</button>
         <button class="btn-primary" style="width:100%;margin-bottom:12px;padding:10px;" onclick="App.createFamily()"><i class="fas fa-plus"></i> 创建家庭组</button>
         <div class="card">
-            <div class="card-title"><i class="fas fa-home"></i> 我的家庭组</div>
+            <div class="card-title"><i class="fas fa-home"></i> 我的家庭组
+                <span id="addMemberSlot" style="margin-left:auto;display:flex;gap:8px;"></span>
+            </div>
             <div id="familyList"><p class="text-muted" style="text-align:center;padding:20px;">加载中...</p></div>
         </div>
         <div class="card">
@@ -1817,6 +1819,41 @@ const PageFamily = {
                 <div id="authManagerList" style="padding:10px 20px;overflow-y:auto;flex:1;"></div>
                 <div style="padding:12px 20px;border-top:1px solid #f1f5f9;display:flex;justify-content:flex-end;gap:8px;">
                     <button class="btn-outline" style="width:auto;padding:8px 18px;" onclick="PageFamily.closeAuthManager()">完成</button>
+                </div>
+            </div>
+        </div>
+        <div id="addMemberOverlay" class="dialog-overlay" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.5);z-index:500;display:none;justify-content:center;align-items:center;border-radius:0;">
+            <div class="dialog-box" style="background:#fff;border-radius:16px;padding:0;width:92%;max-width:480px;max-height:88vh;display:flex;flex-direction:column;overflow:hidden;">
+                <div style="padding:16px 20px;border-bottom:1px solid #f1f5f9;display:flex;align-items:center;">
+                    <div style="font-weight:700;font-size:16px;"><i class="fas fa-user-plus" style="color:#2b7a78;"></i> 添加成员</div>
+                    <div style="margin-left:auto;cursor:pointer;color:#94a3b8;font-size:18px;" onclick="PageFamily.closeAddMember()">&times;</div>
+                </div>
+                <div style="padding:16px 20px;overflow-y:auto;flex:1;">
+                    <div style="font-size:13px;color:#64748b;margin-bottom:14px;background:#f8fafc;padding:10px 12px;border-radius:8px;"><i class="fas fa-info-circle"></i> 由管理员手动添加成员，无需对方注册或通过邀请码加入。添加后该成员直接归属于当前家庭组。</div>
+                    <div class="form-group"><label>姓名 *</label><input id="am_name" class="form-input" placeholder="请输入成员姓名" maxlength="50"></div>
+                    <div class="form-group"><label>性别</label>
+                        <select id="am_gender" class="form-input">
+                            <option value="男">男</option>
+                            <option value="女">女</option>
+                        </select>
+                    </div>
+                    <div class="form-group"><label>与您的关系</label>
+                        <select id="am_relation" class="form-input">
+                            <option value="parent">父母</option>
+                            <option value="spouse">配偶</option>
+                            <option value="spouse_parent">公婆/岳父母</option>
+                            <option value="other">其他</option>
+                        </select>
+                    </div>
+                    <div class="form-group"><label>出生日期</label><input id="am_birth" type="date" class="form-input"></div>
+                    <div class="form-group"><label>手机号</label><input id="am_phone" class="form-input" placeholder="可选" maxlength="20"></div>
+                    <div class="form-group"><label>血型</label><input id="am_blood" class="form-input" placeholder="如 A 型，可选"></div>
+                    <div class="form-group"><label>过敏史</label><input id="am_allergies" class="form-input" placeholder="可选"></div>
+                    <div class="form-group"><label>基础疾病</label><input id="am_conditions" class="form-input" placeholder="可选"></div>
+                </div>
+                <div style="padding:12px 20px;border-top:1px solid #f1f5f9;display:flex;justify-content:flex-end;gap:8px;">
+                    <button class="btn-outline" style="width:auto;padding:8px 18px;" onclick="PageFamily.closeAddMember()">取消</button>
+                    <button class="btn-primary" style="width:auto;padding:8px 18px;" onclick="PageFamily.submitAddMember()">添加</button>
                 </div>
             </div>
         </div>`;
@@ -1852,14 +1889,14 @@ const PageFamily = {
                     listEl.innerHTML = families.map(f => {
                         const isCurrent = f.id === currentFamilyId;
                         const isCreator = f.creator_id === currentUserId;
-                        return `<div style="display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid #f1f5f9;${isCurrent ? 'background:#f0fdf4;border-radius:8px;' : ''}">
+                        return `<div style="display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid #f1f5f9;cursor:pointer;${isCurrent ? 'background:#f0fdf4;border-radius:8px;' : ''} onclick="PageFamily.switchFamily('${f.id}')">
                             <div style="width:40px;height:40px;border-radius:50%;background:#d1e0e8;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px;flex-shrink:0;"><i class="fas fa-home"></i></div>
                             <div style="flex:1;min-width:0;">
                                 <div style="font-weight:600;display:flex;align-items:center;gap:6px;white-space:nowrap;overflow:hidden;">${f.name}${isCurrent ? ' <span style="font-size:11px;background:#16a34a;color:#fff;padding:1px 6px;border-radius:4px;flex-shrink:0;">当前</span>' : ''}</div>
                                 <div class="text-muted" style="font-size:12px;">创建者: ${f.creator_name || '未知'}</div>
                                 <div style="font-size:12px;color:#6b7280;">邀请码: <span style="font-family:monospace;letter-spacing:1px;">${f.invite_code || ''}</span></div>
                             </div>
-                            ${isCreator ? `<button class="btn-outline" style="width:auto;padding:6px 12px;font-size:12px;flex-shrink:0;" onclick="App.editFamilyName('${f.id}','${f.name.replace(/'/g, "\\'")}')"><i class="fas fa-edit"></i></button>` : ''}
+                            ${isCreator ? `<button class="btn-outline" style="width:auto;padding:6px 12px;font-size:12px;flex-shrink:0;" onclick="event.stopPropagation();App.editFamilyName('${f.id}','${f.name.replace(/'/g, "\\'")}')"><i class="fas fa-edit"></i></button>` : ''}
                         </div>`;
                     }).join('');
                 }
@@ -1876,6 +1913,16 @@ const PageFamily = {
             // 统一用 App.state.members（来自 GET /elders），不再单独调 family-members
             const members = App.state.members || [];
             PageFamily._lastMembers = members; // 缓存，供授权管理弹窗同步使用
+
+            // 仅管理员可见「添加成员」按钮：当前家庭组内 self 角色为 admin，或全局 admin
+            const __slot = document.getElementById('addMemberSlot');
+            if (__slot) {
+                const __self = (App.state.members || []).find(m => m.relation === 'self' && m.user_id === App.state.user?.id);
+                const __isAdmin = (__self && __self.role === 'admin') || App.state.user?.role === 'admin';
+                __slot.innerHTML = __isAdmin
+                    ? '<button class="btn-primary" style="width:auto;padding:6px 14px;font-size:13px;" onclick="PageFamily.openAddMember()"><i class="fas fa-user-plus"></i> 添加成员</button>'
+                    : '';
+            }
 
             const membersEl = document.getElementById('familyMembersList');
             if (membersEl) {
@@ -1981,6 +2028,64 @@ const PageFamily = {
         if (overlay) overlay.style.display = 'none';
         // 关闭后刷新成员列表状态
         this.loadMembers?.();
+    },
+
+    async switchFamily(familyId) {
+        if (App.state.family && App.state.family.id === familyId) {
+            App.toast('当前已在该家庭组');
+            return;
+        }
+        window.__currentFamilyId = familyId;
+        try {
+            const r = await Api.auth.profile();
+            App.state.family = r.family;
+            if (Array.isArray(r.families)) App.state.families = r.families;
+        } catch (e) { /* 失败也继续，保持切换 */ }
+        await App.loadData();
+        App.updateHeader();
+        await this.loadFamilies();
+        await this.loadMembers();
+        App.toast('已切换到「' + (App.state.family && App.state.family.name || '家庭组') + '」');
+    },
+
+    openAddMember() {
+        const o = document.getElementById('addMemberOverlay');
+        if (o) o.style.display = 'flex';
+    },
+
+    closeAddMember() {
+        const o = document.getElementById('addMemberOverlay');
+        if (o) o.style.display = 'none';
+    },
+
+    async submitAddMember() {
+        const name = (document.getElementById('am_name').value || '').trim();
+        if (!name) { App.toast('请输入成员姓名'); return; }
+        const gender = document.getElementById('am_gender').value;
+        const relation = document.getElementById('am_relation').value;
+        const birth = document.getElementById('am_birth').value;
+        const phone = (document.getElementById('am_phone').value || '').trim();
+        const blood = (document.getElementById('am_blood').value || '').trim();
+        const allergies = (document.getElementById('am_allergies').value || '').trim();
+        const conditions = (document.getElementById('am_conditions').value || '').trim();
+        try {
+            await Api.elders.add({
+                name: name,
+                gender: gender,
+                relation: relation,
+                birthDate: birth || null,
+                phone: phone || null,
+                bloodType: blood || null,
+                allergies: allergies || null,
+                conditions: conditions || null
+            });
+            App.toast('成员「' + name + '」已添加');
+            this.closeAddMember();
+            await App.loadData();
+            this.loadMembers();
+        } catch (err) {
+            App.toast(err.message || '添加失败');
+        }
     },
 
     async toggleAuthInManager(userId, newChecked) {
