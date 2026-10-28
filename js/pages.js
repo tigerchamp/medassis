@@ -2049,6 +2049,15 @@ const PageFamily = {
     },
 
     openAddMember() {
+        // 每次打开重置表单：不清空的话，上一次填写的内容会残留，容易重复添加同名成员
+        ['am_name', 'am_birth', 'am_phone', 'am_blood', 'am_allergies', 'am_conditions'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.value = '';
+        });
+        const gender = document.getElementById('am_gender');
+        if (gender) gender.value = '男';
+        const relation = document.getElementById('am_relation');
+        if (relation) relation.value = 'parent';
         const o = document.getElementById('addMemberOverlay');
         if (o) o.style.display = 'flex';
     },
@@ -2058,8 +2067,13 @@ const PageFamily = {
         if (o) o.style.display = 'none';
     },
 
+    // 防止连点「添加」重复建档案
+    _addingMember: false,
+
     async submitAddMember() {
-        const name = (document.getElementById('am_name').value || '').trim();
+        if (this._addingMember) return;
+        const nameEl = document.getElementById('am_name');
+        const name = (nameEl && nameEl.value || '').trim();
         if (!name) { App.toast('请输入成员姓名'); return; }
         const gender = document.getElementById('am_gender').value;
         const relation = document.getElementById('am_relation').value;
@@ -2068,6 +2082,7 @@ const PageFamily = {
         const blood = (document.getElementById('am_blood').value || '').trim();
         const allergies = (document.getElementById('am_allergies').value || '').trim();
         const conditions = (document.getElementById('am_conditions').value || '').trim();
+        this._addingMember = true;
         try {
             await Api.elders.add({
                 name: name,
@@ -2085,6 +2100,8 @@ const PageFamily = {
             this.loadMembers();
         } catch (err) {
             App.toast(err.message || '添加失败');
+        } finally {
+            this._addingMember = false;
         }
     },
 

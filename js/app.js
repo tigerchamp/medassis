@@ -1847,10 +1847,7 @@ const App = {
         try {
             const eldersRes = await Api.elders.getAll();
             this.state.members = eldersRes.elders || [];
-            if (!this.state.currentMemberId) {
-                const self = this.state.members.find(m => m.relation === 'self' && m.user_id === this.state.user?.id);
-                this.state.currentMemberId = self ? self.id : (this.state.members[0]?.id || null);
-            }
+            this._resolveCurrentMember();
             try {
                 const profileRes = await Api.auth.profile();
                 this.state.family = profileRes.family;
@@ -1864,6 +1861,23 @@ const App = {
             this.updateHeader();
         } catch (err) {
             console.error('加载数据失败:', err);
+        }
+    },
+
+    // 当前查看成员若已不在成员列表里（切换家庭组、成员被移出、档案被删除等），
+    // 回落到本人的 self 档案，避免 getCurrentMember() 返回 null 让首页落到「暂无成员」空态。
+    // 注意：不能用「currentMemberId 为空才重算」的写法，那样切换家庭组后仍停留在旧家庭的成员上。
+    _resolveCurrentMember() {
+        const members = this.state.members || [];
+        if (this.state.currentMemberId && members.some(m => m.id === this.state.currentMemberId)) {
+            return; // 仍然有效，保持用户当前查看的对象
+        }
+        const self = members.find(m => m.relation === 'self' && m.user_id === this.state.user?.id);
+        this.state.currentMemberId = self ? self.id : (members[0]?.id || null);
+        if (this.state.currentMemberId) {
+            try { localStorage.setItem('fh_lastMember', this.state.currentMemberId); } catch (e) { /* 隐私模式下忽略 */ }
+        } else {
+            try { localStorage.removeItem('fh_lastMember'); } catch (e) { /* 隐私模式下忽略 */ }
         }
     },
 
