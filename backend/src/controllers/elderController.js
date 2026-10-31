@@ -126,6 +126,17 @@ async function addElder(req, res) {
       return res.status(400).json({ error: '姓名不能为空' });
     }
 
+    // 权限校验：仅家庭管理员可添加成员（纵深防御，前端已隐藏非管理员按钮）
+    // 角色取当前家庭组内的 user_families.role，避免误用 users.role 全局角色
+    const [myRole] = await getPool().query(
+      'SELECT role FROM user_families WHERE user_id = ? AND family_id = ? LIMIT 1',
+      [userId, familyId]
+    );
+    const myFamilyRole = myRole.length > 0 ? myRole[0].role : (req.user.role || 'member');
+    if (myFamilyRole !== 'admin') {
+      return res.status(403).json({ error: '仅家庭管理员可添加成员' });
+    }
+
     const id = uuidv4();
     const elderAvatar = avatar || name.charAt(0);
 
