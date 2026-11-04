@@ -60,14 +60,6 @@ node src/index.js --rebuild   # 重建数据库（清空数据）
 npx http-server -p 8080       # 然后访问 http://localhost:8080
 ```
 
-## 🗄 数据库
-
-MySQL 不在本机，在远程 `82.157.202.113`，需先开 SSH 隧道：
-
-```bash
-ssh -L 3306:127.0.0.1:3306 ubuntu@82.157.202.113 -N
-```
-
 ## 🧪 测试
 
 ```bash
