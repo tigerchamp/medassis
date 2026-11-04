@@ -1,0 +1,19 @@
+# 单向镜像：CNB(main) -> GitHub。GitHub 仅作只读备份，不再直接提交。
+# 凭据通过 CNB 密钥仓库注入（见 imports），绝不写进本仓库。
+# 触发：本仓库 main 分支被 push 时执行；GitHub 上的变更不会回推，因此不会循环触发。
+
+main:
+  push:
+    - stages:
+        - name: mirror-to-github
+          image: tencentcom/git-sync
+          imports: https://cnb.cool/chenyumin/secrets/-/blob/main/github-sync.yml
+          settings:
+            target_url: https://github.com/tigerchamp/medassis.git
+            auth_type: https
+            username: ${GITHUB_SYNC_USER}
+            password: ${GITHUB_SYNC_TOKEN}
+            branch: main
+            push_tags: true
+            force: true
+            sync_mode: push   # 默认值，显式写出便于阅读
