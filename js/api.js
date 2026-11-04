@@ -30,8 +30,9 @@ async function api(endpoint, options = {}) {
     const isAuthEndpoint = endpoint.startsWith('/auth/login') || endpoint.startsWith('/auth/register');
     if (token && !isAuthEndpoint) headers['Authorization'] = `Bearer ${token}`;
     // 注入当前家庭组ID（用于多家庭切换）
+    // 仅当调用方未显式传入 family-id 时才用全局值，避免覆盖专用切换接口(Api.auth.switchFamily)的显式头
     const currentFamilyId = window.__currentFamilyId;
-    if (currentFamilyId && !isAuthEndpoint) headers['family-id'] = currentFamilyId;
+    if (currentFamilyId && !isAuthEndpoint && !headers['family-id']) headers['family-id'] = currentFamilyId;
     try {
         const res = await fetch(url, { ...options, headers });
         const data = await res.json();

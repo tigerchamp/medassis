@@ -167,7 +167,7 @@ html.ptr-locked,html.ptr-locked body{overscroll-behavior:none}
 .modal-content{background:#fff;border-radius:30px;padding:24px;width:90%;max-width:380px;max-height:80vh;overflow-y:auto}
 .toast{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,.8);color:#fff;padding:12px 24px;border-radius:8px;font-size:14px;z-index:999;pointer-events:none;opacity:0;transition:opacity .3s;max-width:80%;text-align:center}
 .toast.show{opacity:1}
-.dialog-overlay{position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.5);z-index:400;display:none;justify-content:center;align-items:center;border-radius:40px}
+.dialog-overlay{position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.5);z-index:600;display:none;justify-content:center;align-items:center;border-radius:40px}
 .dialog-overlay.show{display:flex}
 .dialog-box{background:#fff;border-radius:26px;padding:24px;width:85%;max-width:320px;box-shadow:0 12px 40px rgba(0,0,0,.2);max-height:88vh;overflow-y:auto;overscroll-behavior:contain}
 .dialog-title{font-size:17px;font-weight:700;color:#1e293b;margin-bottom:10px;text-align:center}

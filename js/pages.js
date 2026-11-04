@@ -2035,12 +2035,14 @@ const PageFamily = {
             App.toast('当前已在该家庭组');
             return;
         }
+        // 先更新全局家庭上下文，保证后续请求（loadData 内的 elders/profile）延续新家庭
         window.__currentFamilyId = familyId;
         try {
-            const r = await Api.auth.profile();
+            // 用专用切换接口：仅本次请求显式带 family-id 头，不依赖全局回传，切换更可靠
+            const r = await Api.auth.switchFamily(familyId);
             App.state.family = r.family;
             if (Array.isArray(r.families)) App.state.families = r.families;
-        } catch (e) { /* 失败也继续，保持切换 */ }
+        } catch (e) { /* 即便接口失败也已设置全局上下文，后续请求仍走新家庭 */ }
         await App.loadData();
         App.updateHeader();
         await this.loadFamilies();
