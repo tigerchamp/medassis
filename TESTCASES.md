@@ -418,3 +418,24 @@
 12. 打开「添加成员」弹框 → **期望**：表单为空白（上次填写的内容已重置，不含残留的姓名/过敏史等）
 13. 输入姓名后快速连续点击「添加」 → **期望**：只创建 1 个成员，不产生重复档案
 
+**D. 家庭组改名（2026-11-04 补充）**
+14. 点家庭组行内的「编辑」按钮改名 → **期望**：弹出改名框，**不触发**家庭切换；改名后列表与顶部名称更新
+15. 在**非当前**家庭组上点「编辑」改名 → **期望**：改的是**该家庭组**的名字，不是当前家庭组的名字
+   - 对应实现：`js/api.js` `Api.auth.updateFamily(name, familyId)` + `backend/src/controllers/authController.js` `updateFamily`（按 body 里的 familyId 精确定位，不再一律用 `req.familyId`）
+16. 非管理员成员 → **期望**：该家庭组行**不显示**「编辑」按钮
+   - 对应实现：`backend/src/controllers/authController.js` `getUserFamilies` 补 `creator_id` 字段（`families` 表无此列，创建者从 `user_families` 里 `role='admin'` 推断）
+
+### M7-18 模板字符串里的 HTML 结构有效性（2026-11-04 补充）
+
+> **为什么单独列一节**：模板字符串里属性引号少写一个，HTML 解析器会把 `onclick` 变成垃圾属性名
+> （如 `pagefamily.switchfamily('id')"`），**事件处理器根本没绑上**，页面看起来完全正常但点击毫无反应。
+> 这类缺陷**静默失效**，不会报任何错，极难定位（曾为此误判过缓存问题、后端问题、函数逻辑问题）。
+> 改动任何 `innerHTML =` 拼接模板后，务必按本节自查。
+
+1. 渲染后用 DevTools 检查目标元素 → **期望**：`getAttribute('onclick')` 返回真实 JS 源码，`onclick` 是函数
+2. 检查元素 `attributes` 列表 → **期望**：没有出现形如 `xxx.yyy('id')"` 的**垃圾属性名**（说明引号没闭合）
+3. 含用户输入的文本位置 → **期望**：走 `_escHtml()` 转义，含 `< > & " '` 的名字不会破坏结构
+4. inline handler 的参数位置 → **期望**：只传 id 等**非用户输入**的稳定值；用户输入不要拼进 inline 字符串参数
+   - 对应实现：`js/pages.js` `PageFamily.loadFamilies()`（编辑按钮只传 familyId，名称由 `App.editFamilyName` 内部查）
+5. **通用自查**：改完模板后跑一次真实点击（`jsdom` 加载真实页面 + `dispatchEvent`），确认状态确实变了
+

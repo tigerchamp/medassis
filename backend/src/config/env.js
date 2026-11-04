@@ -15,12 +15,20 @@
 // 这些值等同于没配：空串，或 .env.example 里的占位符被原样留在了 .env 里
 const PLACEHOLDERS = new Set(['changeme', 'xxx', 'null', 'undefined']);
 const PLACEHOLDER_RE = /^(your|请填写|todo)/i;
+// 以 your/请填写/todo 开头但明显是真实密钥的长值不算占位符。
+// 例如本地/测试环境的 JWT_SECRET=your_jwt_secret_key_change_in_production（40 字符）
+// 曾被误判为「未替换的占位符」，导致启动告警说鉴权不可用，实际功能却是好的 ——
+// 误报比漏报更费时间。判定占位符时要求「像示例值」：短，且不含可辨识的随机片段。
+const PLACEHOLDER_MAX_LEN = 24;
 
 function isMissing(env, key) {
   const v = env[key];
   if (v === undefined || v === null) return true;
   const s = String(v).trim();
-  return s === '' || PLACEHOLDER_RE.test(s) || PLACEHOLDERS.has(s.toLowerCase());
+  if (s === '' || PLACEHOLDERS.has(s.toLowerCase())) return true;
+  if (!PLACEHOLDER_RE.test(s)) return false;
+  // 以 your/请填写/todo 开头：只有短值才当占位符，长值视为真实配置
+  return s.length <= PLACEHOLDER_MAX_LEN;
 }
 
 // 每组里缺任一项，该功能就不可用

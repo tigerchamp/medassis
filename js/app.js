@@ -3943,14 +3943,20 @@ const App = {
     },
 
     async editFamilyName(familyId, currentName) {
-        const newName = await App.prompt('修改家庭组名称', currentName);
-        if (!newName || newName === currentName) return;
+        // 名称可能含特殊字符，传参时若走 inline onclick 需转义；这里优先从状态里查名字，避免依赖调用方转义
+        const fam = (this.state.families || []).find(f => f.id === familyId);
+        const name = currentName || (fam && fam.name) || '';
+        const newName = await App.prompt('修改家庭组名称', name);
+        if (!newName || newName === name) return;
         try {
-            await Api.auth.updateFamily(newName);
+            // 带上 familyId：管理页可以对「非当前家庭」的家庭组改名，
+            // 不传的话后端会改到当前家庭头上（改错对象）
+            await Api.auth.updateFamily(newName, familyId);
             if (this.state.family && this.state.family.id === familyId) {
                 this.state.family.name = newName;
                 this.updateHeader();
             }
+            if (fam) fam.name = newName;
             this.toast('名称已更新');
             PageFamily.loadFamilies();
         } catch (err) { this.toast(err.message); }

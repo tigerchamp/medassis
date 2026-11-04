@@ -1874,12 +1874,22 @@ const PageFamily = {
         this.loadMembers();
     },
 
+    // HTML 文本转义：家庭名等用户自由输入内容插入 HTML 时必须用，
+    // 否则含 < > & " ' 的输入会破坏结构（曾导致 onclick 属性被吞掉、事件没绑上）
+    _escHtml(s) {
+        return String(s == null ? '' : s)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    },
+
     async loadFamilies() {
         try {
             const famRes = await Api.auth.families();
             const families = famRes.families || [];
             const currentFamilyId = App.state.family ? App.state.family.id : null;
-
             const listEl = document.getElementById('familyList');
             if (listEl) {
                 if (families.length === 0) {
@@ -1889,14 +1899,19 @@ const PageFamily = {
                     listEl.innerHTML = families.map(f => {
                         const isCurrent = f.id === currentFamilyId;
                         const isCreator = f.creator_id === currentUserId;
-                        return `<div style="display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid #f1f5f9;cursor:pointer;${isCurrent ? 'background:#f0fdf4;border-radius:8px;' : ''} onclick="PageFamily.switchFamily('${f.id}')">
+                        // 家庭名是用户自由输入，可能含 ' " < > 等字符。
+                        // 直接拼进 HTML/onclick 会破坏属性结构（曾导致 onclick 根本没绑上），
+                        // 因此文本位置做 HTML 转义；编辑按钮只传 familyId，名称由 editFamilyName 内部查，
+                        // 避免把用户输入拼进 inline handler 的字符串参数。
+                        const nameHtml = PageFamily._escHtml(f.name || '');
+                        return `<div style="display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid #f1f5f9;cursor:pointer;${isCurrent ? 'background:#f0fdf4;border-radius:8px;' : ''}" onclick="PageFamily.switchFamily('${f.id}')">
                             <div style="width:40px;height:40px;border-radius:50%;background:#d1e0e8;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px;flex-shrink:0;"><i class="fas fa-home"></i></div>
                             <div style="flex:1;min-width:0;">
-                                <div style="font-weight:600;display:flex;align-items:center;gap:6px;white-space:nowrap;overflow:hidden;">${f.name}${isCurrent ? ' <span style="font-size:11px;background:#16a34a;color:#fff;padding:1px 6px;border-radius:4px;flex-shrink:0;">当前</span>' : ''}</div>
-                                <div class="text-muted" style="font-size:12px;">创建者: ${f.creator_name || '未知'}</div>
-                                <div style="font-size:12px;color:#6b7280;">邀请码: <span style="font-family:monospace;letter-spacing:1px;">${f.invite_code || ''}</span></div>
+                                <div style="font-weight:600;display:flex;align-items:center;gap:6px;white-space:nowrap;overflow:hidden;">${nameHtml}${isCurrent ? ' <span style="font-size:11px;background:#16a34a;color:#fff;padding:1px 6px;border-radius:4px;flex-shrink:0;">当前</span>' : ''}</div>
+                                <div class="text-muted" style="font-size:12px;">创建者: ${PageFamily._escHtml(f.creator_name || '未知')}</div>
+                                <div style="font-size:12px;color:#6b7280;">邀请码: <span style="font-family:monospace;letter-spacing:1px;">${PageFamily._escHtml(f.invite_code || '')}</span></div>
                             </div>
-                            ${isCreator ? `<button class="btn-outline" style="width:auto;padding:6px 12px;font-size:12px;flex-shrink:0;" onclick="event.stopPropagation();App.editFamilyName('${f.id}','${f.name.replace(/'/g, "\\'")}')"><i class="fas fa-edit"></i></button>` : ''}
+                            ${isCreator ? `<button class="btn-outline" style="width:auto;padding:6px 12px;font-size:12px;flex-shrink:0;" onclick="event.stopPropagation();App.editFamilyName('${f.id}')"><i class="fas fa-edit"></i></button>` : ''}
                         </div>`;
                     }).join('');
                 }

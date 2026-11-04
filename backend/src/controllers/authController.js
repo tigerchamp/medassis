@@ -441,23 +441,26 @@ async function getFamilyMembers(req, res) {
 // 更新家庭组信息
 async function updateFamily(req, res) {
   try {
-    const familyId = req.familyId;
+    // 允许指定要改哪个家庭：管理页可以对「非当前家庭」的家庭组改名，
+    // 若一律用 req.familyId（= 当前家庭），就会把名字改到当前家庭头上（改错对象）。
+    // familyId 仍须是该用户所属的家庭，防止越权改别人家的名字。
     const userId = req.user.id;
-    const { name } = req.body;
+    const { name, familyId: bodyFamilyId } = req.body;
+    const targetFamilyId = bodyFamilyId || req.familyId;
 
     // 仅家庭创建者（在 user_families 中 role=admin，或回退旧逻辑 users.family_id 匹配的 admin）可以修改家庭名称
     let isAdmin = false;
     try {
       const [adminRows] = await getPool().query(
         'SELECT user_id FROM user_families WHERE family_id = ? AND role = ?',
-        [familyId, 'admin']
+        [targetFamilyId, 'admin']
       );
       isAdmin = adminRows.some(r => String(r.user_id) === String(userId));
     } catch (e) {
       // 回退旧逻辑
       const [admins] = await getPool().query(
         'SELECT id FROM users WHERE family_id = ? AND role = ?',
-        [familyId, 'admin']
+        [targetFamilyId, 'admin']
       );
       isAdmin = admins.length > 0 && String(admins[0].id) === String(userId);
     }
@@ -466,10 +469,10 @@ async function updateFamily(req, res) {
     }
 
     if (name) {
-      await getPool().query('UPDATE families SET name = ? WHERE id = ?', [name, familyId]);
+      await getPool().query('UPDATE families SET name = ? WHERE id = ?', [name, targetFamilyId]);
     }
 
-    const [families] = await getPool().query('SELECT * FROM families WHERE id = ?', [familyId]);
+    const [families] = await getPool().query('SELECT * FROM families WHERE id = ?', [targetFamilyId]);
     res.json({ family: families[0] || null });
   } catch (err) {
     console.error('Update family error:', err);
@@ -551,9 +554,12 @@ async function getUserFamilies(req, res) {
     let rows = [];
     try {
       // 通过 user_families 表查找所有家庭
+      // 注意：families 表没有 creator_id 列，创建者只能从 user_families 里 role='admin' 的那条推断。
+      // 前端用 creator_id 判断「是否显示重命名按钮」，不返回该字段会导致按钮永远不出现。
       const [result] = await getPool().query(
         `SELECT f.id, f.name, f.invite_code, uf.role, uf.is_primary, uf.joined_at,
-                (SELECT u2.name FROM users u2 INNER JOIN user_families uf2 ON uf2.user_id = u2.id WHERE uf2.family_id = f.id AND uf2.role = 'admin' LIMIT 1) as creator_name
+                (SELECT u2.id FROM users u2 INNER JOIN user_families uf2 ON uf2.user_id = u2.id WHERE uf2.family_id = f.id AND uf2.role = 'admin' LIMIT 1) as creator_id,
+                (SELECT u3.name FROM users u3 INNER JOIN user_families uf3 ON uf3.user_id = u3.id WHERE uf3.family_id = f.id AND uf3.role = 'admin' LIMIT 1) as creator_name
          FROM user_families uf
          INNER JOIN families f ON f.id = uf.family_id
          WHERE uf.user_id = ?
@@ -565,7 +571,8 @@ async function getUserFamilies(req, res) {
       // user_families 表不存在，回退到旧逻辑
       const [result] = await getPool().query(
         `SELECT DISTINCT f.id, f.name, f.invite_code,
-                (SELECT u2.name FROM users u2 WHERE u2.family_id = f.id AND u2.role = 'admin' LIMIT 1) as creator_name
+                (SELECT u2.id FROM users u2 WHERE u2.family_id = f.id AND u2.role = 'admin' LIMIT 1) as creator_id,
+                (SELECT u3.name FROM users u3 WHERE u3.family_id = f.id AND u3.role = 'admin' LIMIT 1) as creator_name
          FROM families f
          INNER JOIN users u ON u.family_id = f.id
          WHERE u.id = ?`,

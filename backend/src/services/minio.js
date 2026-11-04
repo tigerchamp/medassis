@@ -34,11 +34,33 @@ const minioClient = new Minio.Client({
 
 const BUCKET_NAME = process.env.MINIO_BUCKET || 'family-health';
 
+// MinIO 连通性检查超时（毫秒）。MinIO 不可达时客户端会无限重试，
+// 不设上限会导致启动流程卡死、服务无法监听端口。
+const MINIO_CHECK_TIMEOUT_MS = parseInt(process.env.MINIO_CHECK_TIMEOUT_MS) || 3000;
+
+// 给 Promise 加超时保护
+function withTimeout(promise, ms, message) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(message || '操作超时')), ms);
+    if (timer.unref) timer.unref();
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
 async function ensureBucket() {
   try {
-    const exists = await minioClient.bucketExists(BUCKET_NAME);
+    const exists = await withTimeout(
+      minioClient.bucketExists(BUCKET_NAME),
+      MINIO_CHECK_TIMEOUT_MS,
+      'MinIO 连通性检查超时'
+    );
     if (!exists) {
-      await minioClient.makeBucket(BUCKET_NAME);
+      await withTimeout(
+        minioClient.makeBucket(BUCKET_NAME),
+        MINIO_CHECK_TIMEOUT_MS,
+        'MinIO 创建 bucket 超时'
+      );
       console.log(`MinIO bucket '${BUCKET_NAME}' created`);
     }
     isAvailable = true;
@@ -52,10 +74,18 @@ async function ensureBucket() {
 }
 
 // 仅检查MinIO连通性（不创建bucket）
+// 必须加超时保护：MinIO 不可达时 minio 客户端会一直重试，
+// 若不设上限，app.listen 之前的 await 会永远挂住 → 整个后端起不来。
 async function checkMinio() {
   try {
-    await minioClient.listBuckets();
-    const exists = await minioClient.bucketExists(BUCKET_NAME);
+    const exists = await withTimeout(
+      (async () => {
+        await minioClient.listBuckets();
+        return minioClient.bucketExists(BUCKET_NAME);
+      })(),
+      MINIO_CHECK_TIMEOUT_MS,
+      'MinIO 连通性检查超时'
+    );
     if (!exists) {
       console.warn(`MinIO bucket '${BUCKET_NAME}' 不存在，文件上传功能暂不可用，请使用 --init 初始化`);
       isAvailable = false;
