@@ -352,7 +352,7 @@ async function addRecord(req, res) {
     }
 
     // 权限校验：必须是本人或被授权修改
-    const allow = await canModifyElder(getPool(), elderId, userId);
+    const allow = await canModifyElder(getPool(), elderId, userId, familyId);
     if (!allow) {
       return res.status(403).json({ error: '您无权修改该成员的资料，请先获得授权' });
     }
@@ -431,7 +431,7 @@ async function updateRecord(req, res) {
 
     // 权限校验：必须是本人或被授权修改（基于记录原有的elder_id，或如果body传了新的elder_id也要校验）
     const recordElderId = elderId || records[0].elder_id;
-    const allow = await canModifyElder(getPool(), recordElderId, userId);
+    const allow = await canModifyElder(getPool(), recordElderId, userId, familyId);
     if (!allow) {
       return res.status(403).json({ error: '您无权修改该成员的资料，请先获得授权' });
     }
@@ -543,7 +543,7 @@ async function deleteRecord(req, res) {
     }
 
     // 权限校验：必须是本人或被授权修改
-    const allow = await canModifyElder(getPool(), records[0].elder_id, userId);
+    const allow = await canModifyElder(getPool(), records[0].elder_id, userId, familyId);
     if (!allow) {
       return res.status(403).json({ error: '您无权修改该成员的资料，请先获得授权' });
     }

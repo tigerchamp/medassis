@@ -245,7 +245,7 @@ async function addDrug(req, res) {
 
     // 药箱：只能给自己或被授权修改的成员添加药品
     if (elderId) {
-      const allow = await canModifyElder(getPool(), elderId, userId);
+      const allow = await canModifyElder(getPool(), elderId, userId, familyId);
       if (!allow) {
         return res.status(403).json({ error: '您无权给该成员添加药品，请先获得授权' });
       }
@@ -345,7 +345,7 @@ async function updateDrug(req, res) {
     // 药箱：只能修改自己或被授权修改的成员的药品
     const targetElderId = elderId || drugs[0].elder_id;
     if (targetElderId) {
-      const allow = await canModifyElder(getPool(), targetElderId, userId);
+      const allow = await canModifyElder(getPool(), targetElderId, userId, familyId);
       if (!allow) {
         return res.status(403).json({ error: '您无权修改该成员的药品，请先获得授权' });
       }
@@ -430,7 +430,7 @@ async function deleteDrug(req, res) {
     // 药箱：只能删除自己或被授权修改的成员的药品
     const targetElderId = drugs[0].elder_id;
     if (targetElderId) {
-      const allow = await canModifyElder(getPool(), targetElderId, userId);
+      const allow = await canModifyElder(getPool(), targetElderId, userId, familyId);
       if (!allow) {
         return res.status(403).json({ error: '您无权删除该成员的药品，请先获得授权' });
       }
@@ -570,7 +570,7 @@ async function saveChronicMeds(req, res) {
 
     // 权限校验：必须是本人或被授权修改
     if (elderId) {
-      const allow = await canModifyElder(getPool(), elderId, userId);
+      const allow = await canModifyElder(getPool(), elderId, userId, familyId);
       if (!allow) {
         return res.status(403).json({ error: '您无权修改该成员的长期用药，请先获得授权' });
       }
@@ -925,7 +925,7 @@ async function updateInventoryItem(req, res) {
     // 药箱：只能修改自己或被授权修改的成员的入库记录
     const targetElderId = rows[0].elder_id;
     if (targetElderId) {
-      const allow = await canModifyElder(getPool(), targetElderId, userId);
+      const allow = await canModifyElder(getPool(), targetElderId, userId, familyId);
       if (!allow) {
         return res.status(403).json({ error: '您无权修改该成员的入库记录，请先获得授权' });
       }

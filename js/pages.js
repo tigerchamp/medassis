@@ -1105,11 +1105,8 @@ const PagePharmacy = {
     _quickAddModal(name) {
         const members = App.state.members || [];
         const currentUserId = App.state.user?.id;
-        // 药箱：只能给自己添加，或给canModifyHim=true的成员添加（有权修改对方）
-        const allowed = members.filter(m => 
-            (m.relation === 'self' && m.user_id === currentUserId) || // 自己
-            m.canModifyHim // 或对方授权了我修改
-        );
+        // 药箱：只能给自己加，或给「能改的成员」加（手动添加的成员人人可改，其余需对方授权）
+        const allowed = members.filter(m => App._canModifyMember(m));
         const selfMember = members.find(m => m.relation === 'self' && m.user_id === currentUserId);
         const defaultElder = selfMember ? selfMember.id : allowed[0]?.id || '';
         const memberOptions = allowed.map(m => {
@@ -1976,7 +1973,9 @@ const PageFamily = {
                                 ${elderInfo}
                             </div>
                             <div style="flex-shrink:0;display:flex;flex-direction:column;gap:4px;align-items:flex-end;">
-                                ${!isCurrent ? `
+                                ${!isCurrent ? (App._isManualMember(m) ? `
+                                <span style="padding:2px 10px;border-radius:16px;font-size:11px;font-weight:600;background:#dbeafe;color:#1e40af;" title="手动添加的成员没有登录账号，家庭组内所有成员都可以编辑">所有人可编辑</span>
+                                ${m.canDelete ? `<button class="btn-outline" style="width:auto;padding:5px 12px;font-size:12px;color:#dc2626;border-color:#fca5a5;margin-top:6px;" onclick="App.deleteElder('${m.id}')"><i class="fas fa-trash"></i> 删除</button>` : ''}` : `
                                 <div style="display:flex;flex-direction:column;gap:4px;">
                                     <div style="display:flex;align-items:center;gap:6px;">
                                         <span style="padding:2px 10px;border-radius:16px;font-size:11px;font-weight:600;user-select:none;min-width:48px;text-align:center;
@@ -1991,7 +1990,7 @@ const PageFamily = {
                                         </span>
                                     </div>
                                 </div>
-                                ${isCurrentUserAdmin ? `<button class="btn-outline" style="width:auto;padding:5px 12px;font-size:12px;color:#dc2626;border-color:#fca5a5;margin-top:6px;" onclick="App.removeMemberFromFamily('${m.id}','${m.name.replace(/'/g, "\\'")}')"><i class="fas fa-user-minus"></i> 移出</button>` : ''}` : ''}
+                                ${isCurrentUserAdmin ? `<button class="btn-outline" style="width:auto;padding:5px 12px;font-size:12px;color:#dc2626;border-color:#fca5a5;margin-top:6px;" onclick="App.removeMemberFromFamily('${m.id}','${m.name.replace(/'/g, "\\'")}')"><i class="fas fa-user-minus"></i> 移出</button>` : ''}`) : ''}
                             </div>
                         </div>`;
                     }).join('');
@@ -2176,10 +2175,7 @@ const PageAddMed = {
     render() {
         const members = App.state.members;
         const currentUserId = App.state.user?.id;
-        const allowed = members.filter(m =>
-            (m.relation === 'self' && m.user_id === currentUserId) ||
-            m.canModifyHim
-        );
+        const allowed = members.filter(m => App._canModifyMember(m));
         const memberOptions = allowed.map(m => {
             const isSelf = m.relation === 'self' && m.user_id === currentUserId;
             const label = isSelf ? m.name + '（我）' : m.name;
@@ -2839,11 +2835,8 @@ const PageAddDrug = {
     render() {
         const members = App.state.members || [];
         const currentUserId = App.state.user?.id;
-        // 药箱：只能给自己添加，或给canModifyHim=true的成员添加（有权修改对方）
-        const allowed = members.filter(m => 
-            (m.relation === 'self' && m.user_id === currentUserId) || // 自己
-            m.canModifyHim // 或对方授权了我修改
-        );
+        // 药箱：只能给自己加，或给「能改的成员」加（手动添加的成员人人可改，其余需对方授权）
+        const allowed = members.filter(m => App._canModifyMember(m));
         const selfMember = members.find(m => m.relation === 'self' && m.user_id === currentUserId);
         const defaultElder = selfMember ? selfMember.id : allowed[0]?.id || '';
         const elderOptions = allowed.map(m => {
@@ -3351,7 +3344,7 @@ const PageElderDetail = {
                     <i class="fas fa-chevron-right" style="color:#94a3b8;"></i>
                 </div>
             </div>
-            ${e.relation !== 'self' ? `<button class="btn-danger" onclick="App.deleteElder('${e.id}')">删除档案</button>` : ''}`;
+            ${e.canDelete ? `<button class="btn-danger" onclick="App.deleteElder('${e.id}')">删除档案</button>` : ''}`;
         } catch (err) {
             const el = document.getElementById('elderDetailContent');
             if (el) el.innerHTML = `<p>加载失败: ${err.message}</p>`;
