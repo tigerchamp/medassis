@@ -173,7 +173,7 @@ async function addMedication(req, res) {
     }
 
     // 权限校验：必须是本人或被授权修改
-    const allow = await canModifyElder(getPool(), elderId, userId);
+    const allow = await canModifyElder(getPool(), elderId, userId, familyId);
     if (!allow) {
       return res.status(403).json({ error: '您无权修改该成员的资料，请先获得授权' });
     }
@@ -301,7 +301,7 @@ async function updateMedication(req, res) {
 
     // 权限校验：必须是本人或被授权修改
     const medElderId = elderId || medications[0].elder_id;
-    const allow = await canModifyElder(getPool(), medElderId, userId);
+    const allow = await canModifyElder(getPool(), medElderId, userId, familyId);
     if (!allow) {
       return res.status(403).json({ error: '您无权修改该成员的资料，请先获得授权' });
     }
@@ -371,7 +371,7 @@ async function deleteMedication(req, res) {
     }
 
     // 权限校验：必须是本人或被授权修改
-    const allow = await canModifyElder(getPool(), medications[0].elder_id, userId);
+    const allow = await canModifyElder(getPool(), medications[0].elder_id, userId, familyId);
     if (!allow) {
       return res.status(403).json({ error: '您无权修改该成员的资料，请先获得授权' });
     }

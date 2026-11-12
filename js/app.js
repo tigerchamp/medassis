@@ -1991,8 +1991,17 @@ const App = {
         return current && current.relation === 'self' && current.user_id === this.state.user?.id;
     },
 
+    // 手动添加的成员：没有绑定登录账号（ elders.user_id 为空），一般是老人或小孩。
+    // 这类成员家庭组内人人可编辑；只有家庭管理员能删（删=转注册账号后解绑）。
+    _isManualMember(member) {
+        if (!member) return false;
+        if (member.relation === 'self') return false;
+        return member.isManual !== undefined ? !!member.isManual : !member.user_id;
+    },
+
     // 检查当前用户是否可以修改指定成员（或当前查看成员）的资料
-    // 规则：1. 是自己的档案；2. 其他成员需要授权 canModifyHim=true
+    // 规则：1. 是自己的档案；2. 手动添加的成员（无登录账号）家庭组内人人可改；
+    //      3. 其他注册成员需要对方授权 canModifyHim=true
     _canModifyMember(memberOrId) {
         let member;
         if (typeof memberOrId === 'string') {
@@ -2005,7 +2014,9 @@ const App = {
         if (member.relation === 'self' && member.user_id === this.state.user?.id) {
             return true;
         }
-        // 其他人需要授权 canModifyHim=true
+        // 手动添加的成员：家庭组内人人可编辑，不做授权控制
+        if (this._isManualMember(member)) return true;
+        // 其他注册成员需要对方授权 canModifyHim=true
         return !!member.canModifyHim;
     },
 
@@ -2886,11 +2897,8 @@ const App = {
         const selfMember = this.state.members.find(m => m.relation === 'self' && m.user_id === currentUserId);
         const currentMember = this.state.members.find(m => m.id === this.state.currentMemberId);
 
-        // 过滤：仅保留自己 / canModifyHim=true 的成员
-        const allowedMembers = this.state.members.filter(m => {
-            const isSelf = m.relation === 'self' && m.user_id === currentUserId;
-            return isSelf || !!m.canModifyHim;
-        });
+        // 过滤：只列能改的成员（自己的档案 / 手动添加的成员 / 对方已授权）
+        const allowedMembers = this.state.members.filter(m => this._canModifyMember(m));
 
         // 决定默认选中：优先当前查看的成员（如果在允许列表里），否则选自己
         let defaultId = selfMember?.id || (allowedMembers[0]?.id);
@@ -3904,11 +3912,25 @@ const App = {
         }
     },
 
+    // 删除手动添加的成员（仅家庭管理员）
+    // 前端按「硬删除」警告：后端实际是给该成员分配随机账号并整份数据迁走，
+    // 但从本家庭角度看这些病历/用药/药箱确实再也拿不回来了，警告按不可逆来措辞。
     async deleteElder(id) {
         const member = this.state.members.find(m => m.id === id);
         if (member && member.relation === 'self' && member.user_id === this.state.user?.id) { this.toast('不能删除自己的档案'); return; }
-        if (!await App.confirm('确认删除此成员档案？相关病历和用药记录也会被删除。')) return;
-        try { await Api.elders.delete(id); this.toast('已删除'); await this.loadData(); this.switchPage('home'); } catch (err) { this.toast(err.message); }
+        if (member && !this._isManualMember(member)) { this.toast('该成员已绑定登录账号，请使用「移出」'); return; }
+        const name = member ? member.name : '该成员';
+        if (!await App.confirm(
+            `确定删除成员「${name}」吗？\n\n此操作将不可逆地销毁该成员全部病历、用药与药箱数据，请谨慎操作。`,
+            '删除成员'
+        )) return;
+        try {
+            await Api.elders.delete(id);
+            this.toast('已删除');
+            await this.loadData();
+            if (typeof PageFamily !== 'undefined' && PageFamily.loadMembers) PageFamily.loadMembers();
+            this.switchPage('home');
+        } catch (err) { this.toast(err.message); }
     },
 
     async removeMemberFromFamily(id, name) {

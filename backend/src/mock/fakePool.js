@@ -265,7 +265,17 @@ async function query(sql, params = []) {
   return [{ affectedRows: 0 }];
 }
 
-async function getConnection() { return { query: async (sql, params) => query(sql, params), release: () => {} }; }
+// 事务在内存库里没有意义（单进程、直接改数组），但控制器要用 getConnection().beginTransaction()，
+// 缺这几个方法会让「删除成员」这类走事务的路径没法在 mock 模式下跑测试
+async function getConnection() {
+  return {
+    query: async (sql, params) => query(sql, params),
+    beginTransaction: async () => {},
+    commit: async () => {},
+    rollback: async () => {},
+    release: () => {}
+  };
+}
 function _reset() { seed(); }
 
 const fakePool = { query, getConnection, _reset };

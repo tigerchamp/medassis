@@ -158,6 +158,26 @@
 
 > 端到端（多账号选择、退出后不自动登录）只能手工验，见 M7-12 / M7-13。
 
+### M1.2 · 成员编辑 / 删除权限（`backend/src/utils/familyAccess.js` → `canModifyElder` / `checkElderDeletable`）
+
+> 背景（Issue #2）：手动添加的成员一般是老人或小孩，没有登录账号，不该被成员间的授权体系挡住；
+> 但删除是破坏性操作，只有家庭管理员能做，且删除实际是「转注册账号 + 解绑」。
+
+| 编号 | 输入 | 期望 |
+|---|---|---|
+| M1.2-01 | 手动添加的成员（`user_id` 为空） | `isManualMember` 判为手动；`self` 档案不算 |
+| M1.2-02 ★ | 普通成员（role=member）编辑手动添加的成员 | 允许，不看授权表 |
+| M1.2-03 | 跨家庭成员编辑手动添加的成员 | 拒绝（`familyId` 不匹配 / 不是该家庭成员） |
+| M1.2-04 | 编辑绑定账号的成员 | 仍走授权表：对方授权才允许，自己恒可改 |
+| M1.2-05 ★ | `checkElderDeletable` | 手动成员通过；绑定账号的返回「请使用移出家庭组」 |
+| M1.2-06 | 家庭角色判定 | 取 `user_families.role`；外人在别家是 admin，在本家不算成员 |
+| M1.2-07 ★ | 管理员删手动成员 | 档案行仍在；`user_id` 指向新建随机账号；`records`/`medications`/`drug_inventory`/`chronic_medications` 的 `family_id` 一并迁移 |
+| M1.2-08 | 非管理员删手动成员 | 403，数据一点没动 |
+| M1.2-09 | 删绑定账号的成员 | 400「请使用移出家庭组」 |
+| M1.2-10 | 跨家庭删 | 404 |
+
+> 接口层：`PUT/DELETE /api/elders/:id` 都挂了 `canModifyElder`；删除额外要求家庭管理员。
+
 ### 用药计划 · 结束日期校验（M4.1，`js/app.js` `validateMedEndDate`）
 
 > 编号沿用 `MODULES.md` 的模块号（那里 M4 是用药计划）；本文件的 M4 是药品库匹配，别看混了。
@@ -240,7 +260,8 @@
 | `backend/src/controllers/drugController.js` `updateInventoryItem`（药品详情改有效期/余量） | M2.1 全部 + M7-11 |
 | `js/app.js` `calcRefillDays` / `js/pages.js` `PageHome`（开药倒计时剩余天数） | M2.2 全部 + M6 全部 |
 | `js/app.js` `promptSelect` / `adoptSelects` / `_initSelectAdoption`（表单下拉自研 picker） | M7-16 |
-| `js/pages.js` `PageFamily`（家庭组点击切换 + 管理员手动添加成员） | M7-17 |
+| `js/pages.js` `PageFamily`（家庭组点击切换 + 管理员手动添加成员） | M7-17 + M7-19 |
+| `backend/src/utils/familyAccess.js` / `elderController.js`（成员编辑与删除权限） | M1.2 全部 + M7-19 |
 
 
 | `js/app.js` `App.promptDate`（日期弹框，别的页面也会用） | M7-14 |
@@ -265,6 +286,8 @@
 | `backend/test/chronicScope.test.js` | M3.1-01~03（长期用药删除范围，无需 DB） | 否 |
 | `backend/test/remainingQty.test.js` | M2.1-01~06（余量校验纯函数，无需 DB） | 否 |
 | `backend/test/refillDays.test.js` | M2.2-01~06（倒计时剩余天数，直接 eval 前端纯函数，无需 jsdom） | 否 |
+| `backend/test/familyAccess.test.js` | M1.2-01~06（成员编辑/删除权限判定，使用内存 fakePool，无需 DB） | 否 |
+| `backend/test/deleteElder.test.js` | M1.2-07~10（删除=转注册成员+解绑，数据迁移，无需 DB） | 否 |
 
 最近一次全量结果（2026-10-25）：**91 用例 / 91 通过 / 0 失败 / 0 跳过**（连了 MySQL 隧道，集成用例全跑）
 （此前 79 例 + 本次新增 M2.1 余量校验 6 例、M2.2 倒计时剩余天数 6 例）
@@ -438,4 +461,26 @@
 4. inline handler 的参数位置 → **期望**：只传 id 等**非用户输入**的稳定值；用户输入不要拼进 inline 字符串参数
    - 对应实现：`js/pages.js` `PageFamily.loadFamilies()`（编辑按钮只传 familyId，名称由 `App.editFamilyName` 内部查）
 5. **通用自查**：改完模板后跑一次真实点击（`jsdom` 加载真实页面 + `dispatchEvent`），确认状态确实变了
+
+### M7-19 成员编辑 / 删除权限（Issue #2）
+
+**A. 手动添加的成员：人人可编辑**
+1. 管理员在家庭组页「添加成员」新建一个成员（无账号）→ 用**非管理员**账号进入同一家庭组
+2. 打开该成员档案 → **期望**：无授权的普通成员也能看到「查看 / 编辑长期用药」并可保存
+3. 给该成员添加用药计划 / 录病历 / 加药箱 → **期望**：都能成功（不再被「请先获得授权」拦下）
+4. 家庭组页该成员行 → **期望**：右侧显示「所有人可编辑」标签，**没有**「您可修改 / 可修改您」两个授权开关
+
+**B. 删除：仅管理员，且按硬删除警告**
+5. 非管理员看该成员档案页 → **期望**：**没有**「删除档案」按钮；家庭组页也没有「删除」按钮
+6. 管理员看该成员档案页 → **期望**：有「删除档案」按钮
+7. 点删除 → **期望**：确认框提示「此操作将不可逆地销毁该成员全部病历、用药与药箱数据，请谨慎操作」
+8. 确认 → **期望**：成员从家庭页/成员列表/药箱下拉消失，其病历与用药也不再出现在本家庭
+
+**C. 删除后的数据去向（后端语义）**
+9. 删除后查库：`elders` 行仍在，`user_id` 指向新建的随机账号，`family_id` 是一个新家庭组；
+   `records` / `medications` / `drug_inventory` / `chronic_medications` 的 `family_id` 一并迁过去
+10. ★ 误删可救：拿到新账号登录 → **期望**：能看到该成员的全部病历、用药与药箱（数据没销毁）
+11. 绑定了登录账号的成员 → **期望**：`DELETE /api/elders/:id` 返回 400「请使用移出家庭组」；
+    家庭成员页对该成员显示的是「移出」，不是「删除」
+12. 手动添加的成员点「移出」→ **期望**：返回 400「该成员为手动添加，请使用删除」
 
